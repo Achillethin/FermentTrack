@@ -1,20 +1,37 @@
-# FermentTrack
+# FermentTrack 🧫
 
-**A batch journal and smart reminder app for serious fermenters.**
+**The open-source intelligence platform for fermentation.**
 
-> Never lose or ruin a batch again.
+> Track every batch. Connect every sensor. Learn from every ferment.
 
-FermentTrack helps fermenters managing 3+ active cultures track batches, get stage-aware reminders, compare outcomes, and learn what works — powered by [FermentGraph](https://github.com/Achillethin/fermentgraph) intelligence.
+FermentTrack is the first open-source platform that combines **batch journaling**, **sensor integration** (iSpindel, Tilt, GravityMon), and **knowledge-graph intelligence** — for every substrate, not just beer. Powered by [FermentGraph](https://github.com/Achillethin/fermentgraph).
+
+```bash
+docker compose up -d  # Self-hosted. Your data, your hardware, forever.
+```
 
 ## Why
 
 | Problem | FermentTrack Solution |
 |---------|----------------------|
 | Forgot to feed my starter | Stage-aware reminders (feed, burp, bottle, flip) |
-| "What did I do differently last time?" | Batch comparison with photos + notes |
+| "What did I do differently?" | Batch comparison with photos + notes |
 | Scattered notes across apps | One place for all ferments |
 | No tools for kombucha/koji/cheese | Purpose-built for non-beer fermentation |
-| "What should I try next?" | Experiment suggestions from FermentGraph knowledge |
+| "What should I try next?" | FermentGraph-powered experiment suggestions |
+| Sensors log to generic Grafana | Fermentation-native sensor hub with domain context |
+| No data standard beyond beer | FermentJSON — open format for all fermentation data |
+
+## Three Pillars
+
+### 🌐 FermentJSON — The Open Data Standard
+The universal exchange format for fermentation data beyond beer. Kombucha gets `scoby_weight` and `pellicle_health`. Koji gets `spore_coverage` and `humidity`. BeerJSON only serves beer — FermentJSON serves everyone.
+
+### 🔌 Sensor Hub — "Home Assistant for Fermentation"
+Plugin-based sensor integration. iSpindel, Tilt, GravityMon, Pioreactor — all normalized into one timeline. HACS-style plugin store. Docker self-hosted.
+
+### 🧠 Knowledge Engine — The FermentGraph Moat
+A scientific compound knowledge graph underneath your batch tracker. "What's happening in my ferment?" → "Similar batches reached target pH by day 7" → "Try adjusting temperature by 2°C — evidence suggests..." No other tracker has this.
 
 ## Target Users
 
@@ -25,67 +42,82 @@ FermentTrack helps fermenters managing 3+ active cultures track batches, get sta
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│              FermentTrack App                     │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐ │
-│  │  Batch   │  │ Reminder │  │  Comparison   │ │
-│  │  Logger  │  │  Engine  │  │  & Insights   │ │
-│  └────┬─────┘  └────┬─────┘  └───────┬───────┘ │
-│       │              │                │          │
-│  ┌────▼──────────────▼────────────────▼───────┐ │
-│  │           Core Data Layer                   │ │
-│  │  (batches, cultures, measurements, photos)  │ │
-│  └────────────────────┬───────────────────────┘ │
-└───────────────────────┼─────────────────────────┘
-                        │ optional enrichment
-┌───────────────────────▼─────────────────────────┐
-│            FermentGraph Engine                    │
-│  - Compound knowledge graph                      │
-│  - Context-based analog retrieval                │
-│  - Evidence-ranked experiment suggestions        │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│              FERMENTTRACK PLATFORM                            │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌───────────┐ │
+│  │  Batch   │  │ Reminder │  │  Sensor   │  │  Plugin   │ │
+│  │  Logger  │  │  Engine  │  │   Hub     │  │   Store   │ │
+│  └────┬─────┘  └────┬─────┘  └─────┬─────┘  └─────┬─────┘ │
+│       │              │              │              │          │
+│  ┌────▼──────────────▼──────────────▼──────────────▼───────┐ │
+│  │           Core Data Layer (FermentJSON native)           │ │
+│  │  PostgreSQL + TimescaleDB | MQTT Broker | Plugin SDK     │ │
+│  └────────────────────────────┬────────────────────────────┘ │
+└───────────────────────────────┼──────────────────────────────┘
+                                │ intelligence enrichment
+┌───────────────────────────────▼──────────────────────────────┐
+│              FERMENTGRAPH ENGINE                               │
+│  - Compound knowledge graph (Bronze→Silver→Gold pipeline)     │
+│  - Context-based analog retrieval                             │
+│  - Evidence-ranked experiment suggestions                     │
+│  - Graph ML directions (KGE, GNN, foundation models)          │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ## MVP Scope (8 weeks)
 
 ### Ships ✅
-- **One ferment type first** (kombucha — clear stages, time-sensitive)
+- **Kombucha batch logger** (clear stages, time-sensitive — best first substrate)
 - Batch creation wizard (substrate, starter, vessel, target)
 - Stage-aware reminders (1F → 2F → bottling → ready)
 - Photo timeline per batch
 - pH / temperature / tasting notes logging
+- **iSpindel/GravityMon webhook** (live sensor data → batch timeline)
+- **FermentJSON v0.1 export** (kombucha + koji extensions)
 - Compare two batches side-by-side
-- Simple export (PDF / CSV)
+- Docker Compose self-hosted deployment
+- Simple export (PDF / CSV / FermentJSON)
 
-### Doesn't ship yet ❌
-- Multi-ferment platform (koji, cheese, miso — phase 2)
-- ML predictions or FermentGraph integration (phase 3)
-- Sensors / IoT integration
-- Community features / recipe sharing
-- Mobile app (web-first, PWA)
+### Phase 2 (Month 3-6)
+- Multi-ferment: koji, cheese, miso, kefir, vinegar
+- Tilt Hydrometer plugin (BLE bridge container)
+- Plugin SDK + HACS-style plugin store
+- FermentGraph "What's in my ferment?" (free intelligence)
+- "Similar batches" analog retrieval (pro feature)
+- JOSS paper submission
+
+### Phase 3 (Month 6-12)
+- Experiment suggestions from FermentGraph (pro)
+- Mobile PWA polish
+- Commercial hosted tier
+- Community-contributed plugins
+- Full FermentGraph intelligence layer (v2.0)
 
 ## Tech Stack
 
 | Layer | Choice | Rationale |
 |-------|--------|-----------|
 | Backend | Python (FastAPI) | Shared ecosystem with FermentGraph |
-| Database | PostgreSQL + TimescaleDB | Time-series batch data |
+| Database | PostgreSQL + TimescaleDB | Time-series batch + sensor data |
+| Messaging | Embedded Mosquitto (MQTT) | Sensor push protocol |
 | Frontend | React + TailwindCSS (PWA) | Mobile-friendly, installable |
-| Auth | Supabase Auth or Auth0 | Fast to implement |
+| Plugin SDK | `fermenttrack.plugin_sdk` | Home Assistant-inspired |
+| Hosting | Docker Compose (self-hosted) | Primary install method |
 | Storage | S3-compatible (photos) | Cheap, scalable |
-| Hosting | Railway / Render | Easy deploy, low ops |
 | Payments | Stripe | Standard for SaaS |
-| FermentGraph | Python package import | Direct library dependency |
+| Intelligence | FermentGraph (Python pkg) | Direct library dependency |
 
 ## Revenue Model
 
 ```
-Free tier:     3 active cultures, basic reminders
-Pro (€9/mo):   Unlimited cultures, batch comparison, export, insights
-Team (€29/mo): Multi-user, batch sharing, compliance records
+Open Source:    Batch journal, 3 cultures, sensor plugins, FermentJSON export
+Pro (€9/mo):    Unlimited cultures, FermentGraph intelligence, analog retrieval
+Team (€29/mo):  Multi-user, compliance records, API access, priority support
+Hosted (€5/mo): Cloud instance for non-self-hosters (Nabu Casa model)
 ```
 
-**Path to €500/mo:** ~55 Pro users or ~17 Team users
+**Path to €500/mo:** ~55 Pro users or ~17 Team users or ~100 Hosted
 
 ## How FermentGraph Adds Value
 
@@ -112,11 +144,13 @@ User logs batch data
 
 | Phase | Timeline | Focus |
 |-------|----------|-------|
-| 0 | Week 1-2 | Validate: mock report + interviews with 10 fermenters |
-| 1 | Week 3-8 | MVP: kombucha tracker with reminders + comparison |
-| 2 | Month 3-4 | Expand: koji, sourdough, cheese support |
-| 3 | Month 4-6 | Intelligence: FermentGraph integration for suggestions |
-| 4 | Month 6+ | Growth: community, batch sharing, micro-producer features |
+| 0 | Week 1-2 | FermentJSON v0.1 spec + batch logger MVP |
+| 1 | Week 3-4 | iSpindel/GravityMon plugin + Docker stack |
+| 2 | Month 2 | 🚀 **LAUNCH** — Show HN + r/fermentation + r/selfhosted |
+| 3 | Month 3-4 | Tilt plugin, koji/cheese support, docs site |
+| 4 | Month 4-6 | FermentGraph intelligence (free + pro features) |
+| 5 | Month 6-8 | Plugin SDK + store, JOSS paper, PWA polish |
+| 6 | Month 9-12 | Commercial hosted tier, v2.0 full intelligence |
 
 ## Kill Criteria
 
@@ -144,8 +178,10 @@ uvicorn src.fermenttrack.main:app --reload
 ## Related
 
 - [FermentGraph](https://github.com/Achillethin/fermentgraph) — Intelligence engine (knowledge graph, compound ranking, experiment suggestions)
-- [Ideation Sprint Results](docs/IDEATION_CONTEXT.md) — How this idea was validated through 10-loop multi-agent research
+- [Strategic Plan](docs/STRATEGY.md) — 3 directions for open-source dominance (full research synthesis)
+- [Architecture](docs/ARCHITECTURE.md) — Technical domain model, API design, database schema
+- [Ideation Sprint](docs/IDEATION_CONTEXT.md) — How this idea was validated through 10-loop multi-agent research
 
 ## License
 
-MIT
+Apache-2.0
