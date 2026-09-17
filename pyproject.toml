@@ -18,9 +18,11 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-multipart>=0.0.9",
-    "boto3>=1.34",
-    "stripe>=8.0",
+    "scipy>=1.11",
+    "pyyaml>=6.0",
 ]
+# boto3/stripe intentionally removed: photo upload (S3) and payments are out of
+# scope for this Phase 1 MVP loop (no credentials available). Re-add when built.
 
 [project.optional-dependencies]
 dev = [
@@ -29,6 +31,7 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.4",
     "mypy>=1.10",
+    "aiosqlite>=0.20",
 ]
 # "graph" extra intentionally removed 2026-09-17: fermentgraph's suggestion/analog
 # API doesn't exist and its ranker doesn't beat baseline. See docs/DEPENDENCIES.md.
