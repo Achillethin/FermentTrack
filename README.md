@@ -30,8 +30,11 @@ The universal exchange format for fermentation data beyond beer. Kombucha gets `
 ### 🔌 Sensor Hub — "Home Assistant for Fermentation"
 Plugin-based sensor integration. iSpindel, Tilt, GravityMon, Pioreactor — all normalized into one timeline. HACS-style plugin store. Docker self-hosted.
 
-### 🧠 Knowledge Engine — The FermentGraph Moat
-A scientific compound knowledge graph underneath your batch tracker. "What's happening in my ferment?" → "Similar batches reached target pH by day 7" → "Try adjusting temperature by 2°C — evidence suggests..." No other tracker has this.
+### 🛡️ Safety Advisory — real today
+Cited food-safety rules (EFSA/ANSES/CDC) evaluated against your batch's own logged measurements — e.g. flags a low-salt lacto-ferment held too warm before it becomes a botulism risk. Vendored from a tested digital-twin/safety-rule engine, not a research promise.
+
+### 🧠 Knowledge Engine — deferred, research-stage
+Originally scoped as a FermentGraph-powered compound knowledge graph ("similar batches reached target pH by day 7"). An audit (2026-09-17) found the suggestion/analog API this depended on doesn't exist yet and the underlying ranker doesn't beat a trivial baseline — see [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md). Not marketed as a current feature; revisit once FermentGraph's ranking actually works.
 
 ## Target Users
 
@@ -119,16 +122,16 @@ Hosted (€5/mo): Cloud instance for non-self-hosters (Nabu Casa model)
 
 **Path to €500/mo:** ~55 Pro users or ~17 Team users or ~100 Hosted
 
-## How FermentGraph Adds Value
+## How FermentGraph Would Add Value (once it works)
 
-FermentTrack works standalone as a journal. FermentGraph enriches it:
+FermentTrack works standalone as a journal. The plan was for FermentGraph to enrich it — this is not built yet (see [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) for the audit):
 
 1. **"What's happening in my ferment?"** — Compound suggestions based on substrate + time + temperature
 2. **"What should I try next?"** — Evidence-ranked experiment suggestions from the knowledge graph
 3. **"Is this normal?"** — Analog retrieval: "similar batches typically reach pH 3.5 by day 7"
 4. **Confidence scores** — Every suggestion shows provenance and evidence quality
 
-The integration is optional and progressive: users get value from day 1 (reminders), graph intelligence layers in over time.
+What ships in Phase 1 instead: a **Safety Advisory** built on a vendored, tested, literature-cited rule engine (see Direction 4 in [`docs/STRATEGY.md`](docs/STRATEGY.md)) — real value from day 1 without waiting on FermentGraph's ranker to clear its promotion bar.
 
 ## Data Flywheel
 
@@ -178,7 +181,8 @@ uvicorn src.fermenttrack.main:app --reload
 ## Related
 
 - [FermentGraph](https://github.com/Achillethin/fermentgraph) — Intelligence engine (knowledge graph, compound ranking, experiment suggestions)
-- [Strategic Plan](docs/STRATEGY.md) — 3 directions for open-source dominance (full research synthesis)
+- [Dependency Decisions](docs/DEPENDENCIES.md) — Audited use-now/use-later/don't-use verdicts for fermentgraph, the digital twin, and the control POC
+- [Strategic Plan](docs/STRATEGY.md) — 5 directions for open-source dominance (full research synthesis)
 - [Architecture](docs/ARCHITECTURE.md) — Technical domain model, API design, database schema
 - [Ideation Sprint](docs/IDEATION_CONTEXT.md) — How this idea was validated through 10-loop multi-agent research
 

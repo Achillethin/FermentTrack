@@ -102,11 +102,12 @@ GET    /suggestions/{batch_id}  Get experiment suggestions for current context
 GET    /insights/{batch_id}     Get compound/outcome insights
 ```
 
-## FermentGraph Integration Layer
+## FermentGraph Integration Layer — DEFERRED
 
-The integration is a **thin adapter** that translates batch context into FermentGraph queries:
+**Correction (2026-09-17):** `generate_suggestions`/`query_analogs` below do not exist in `fermentgraph`'s codebase — they were assumed during the strategy sprint, never verified, and an audit confirmed zero occurrences in `src/`. The evaluated ranker also regresses vs. a popularity baseline and the fermentation-knowledge-prior channel shows a null (0.0000) effect — see [`DEPENDENCIES.md`](DEPENDENCIES.md#2-fermentgraph--dont-use-yet). This layer is **not built** and should not appear in the MVP. Kept here as the target shape for when the trigger in `DEPENDENCIES.md` fires:
 
 ```python
+# ASPIRATIONAL — not implemented, not available in fermentgraph today.
 from fermentgraph.suggestions import generate_suggestions
 from fermentgraph.gold import query_analogs
 
@@ -129,6 +130,31 @@ def get_analog_batches(batch: Batch) -> list[Analog]:
         top_k=5,
     )
 ```
+
+## Safety Advisory Layer — Phase 1, real today
+
+Vendored from the `fermentation` digital-twin repo (Monod twin + AST-based, literature-cited safety rule engine — both tested, both real; see [`DEPENDENCIES.md`](DEPENDENCIES.md#1-fermentation-digital-twin--use-now)). This is more concretely shippable than the FermentGraph layer above and uses data the batch logger already stores:
+
+```python
+from fermenttrack.safety.rule_engine import SafetyRuleEngine
+from fermenttrack.safety.state import TwinState
+
+def get_safety_report(batch: Batch) -> SafetyReport:
+    """Evaluate cited food-safety rules against the batch's latest measurements."""
+    state = TwinState(
+        scheme=batch.culture.type,
+        temperature_c=batch.latest_temperature,
+        salt_pct=batch.latest_salt_pct,
+        ph=batch.latest_pH,
+    )
+    return SafetyRuleEngine().evaluate(state.state_vars(), scheme=batch.culture.type)
+```
+
+`SafetyReport` carries `.safe`, `.hard_stops`, `.warnings`, and bilingual summaries. Hard-stop findings (e.g. botulism risk) should use the same critical-reminder push-notification path as stage reminders.
+
+## Industrial Control Module — Phase 2+, gated
+
+Soft-sensor biomass estimation from `fermentation-control-poc`, **not** the MPC controller (self-validated against its own simulator, not a real closed-loop result — see [`DEPENDENCIES.md`](DEPENDENCIES.md#3-fermentation-control-poc--use-later-soft-sensor-only)). Blocked on two independent things: (1) the soft sensor being validated on a real fermentation-domain dataset — today it's only validated on industrial penicillin fermentation (IndPenSim), not wine or any beverage/food ferment — and (2) a new dense sensor-stream ingestion path, since this needs online multi-sensor time series at short intervals, not the sparse manual measurements Phase 1's schema captures. Do not build a "control recommendation" UI until MPC is rebuilt on a real constrained solver (do-mpc/CasADi) and validated closed-loop against data it wasn't fit to.
 
 ## Database Schema (PostgreSQL)
 

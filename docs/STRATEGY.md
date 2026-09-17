@@ -118,22 +118,17 @@ Target: r/selfhosted (1.5M subscribers). Tandoor Recipes reached 8,375⭐ throug
 
 ---
 
-## Direction 3: 🧠 Knowledge-Powered Intelligence (The FermentGraph Moat)
+## Direction 3: 🧠 Knowledge-Powered Intelligence (The FermentGraph Moat) — DEFERRED, corrected 2026-09-17
 
-**Vision:** Layer FermentGraph's compound knowledge graph underneath the tracker for intelligence no competitor can replicate.
+**Status check (audit, 2026-09-17):** this direction assumed a working `generate_suggestions`/`query_analogs` API. Neither exists in `fermentgraph`'s codebase, and its evaluated ranker *regresses* vs. a popularity baseline (Recall@50 -0.001, needs +0.05 to promote); the fermentation-knowledge-prior channel shows an exact 0.0000 effect on every metric. Full detail: [`DEPENDENCIES.md`](DEPENDENCIES.md#2-fermentgraph--dont-use-yet). This direction is **not a Phase 1 or Phase 2 differentiator** — it's research-stage, revisit only if the trigger there fires. Do not market "knowledge-graph intelligence" as a current feature.
 
-### Why This Is Unreplicable
+**Vision (unchanged, timeline changed):** Layer FermentGraph's compound knowledge graph underneath the tracker for intelligence no competitor can replicate — once the underlying ranking actually beats a trivial baseline.
 
-FermentGraph provides:
-- Curated source coverage across 5+ databases with explicit provenance
-- Bronze → Silver → Gold materialization ensuring data quality
-- Food-context → compound retrieval and evidence-ranked suggestions
-- Leakage-aware benchmark evaluation
-- Graph-first modelling directions (KGE, GNN) for future expansion
+### What's real today
 
-**No other tracker has a scientific knowledge graph underneath.**
+The one real, deterministic artifact is `FermentationPriors.prior_for()` — a static, hand-curated heuristic lookup (enzyme/microbe → compound plausibility weight), not a validated prediction. If surfaced at all before the trigger fires, it must be labeled "heuristic knowledge hint (unvalidated)," never framed as a suggestion or prediction.
 
-### Progressive Feature Disclosure
+### Progressive Feature Disclosure (target shape, once unblocked)
 
 | Phase | Feature | Pricing |
 |-------|---------|---------|
@@ -150,6 +145,14 @@ FermentGraph provides:
 Target: JOSS (Journal of Open Source Software) — creates a permanent citation loop. Researchers find the paper → find the tool → star the repo → contribute.
 
 ---
+
+## Direction 4: 🛡️ Safety Advisory — Phase 1, real today
+
+Vendored from the `fermentation` digital-twin repo's Monod model + AST-evaluated, literature-cited safety rule engine (EFSA/ANSES/CDC), both genuinely tested (607/609 passing). Flags risky batch conditions (e.g. low-salt lacto-ferment held too warm → botulism hard-stop) from data the batch logger already captures. See [`DEPENDENCIES.md`](DEPENDENCIES.md#1-fermentation-digital-twin--use-now). This is a stronger, more honestly-earned differentiator than Direction 3 currently is, and ships in Phase 1, not deferred.
+
+## Direction 5: 🏭 Industrial Control — Phase 2+, gated on real validation
+
+The professional/industrial tier (soft-sensor state estimation for winemaking/precision fermentation) pulls from `fermentation-control-poc`, whose soft sensor is genuinely validated (R²=0.98) — but on industrial penicillin fermentation, not wine or any beverage ferment. MPC in that repo is a self-validated grid search, not a real controller, and will not be surfaced as a control recommendation. Gated on: (1) soft-sensor validation against a real fermentation-domain dataset, (2) a new dense-sensor ingestion path FermentTrack doesn't have yet, and (3) MPC being rebuilt on a real constrained solver with independent closed-loop validation. Full detail and triggers: [`DEPENDENCIES.md`](DEPENDENCIES.md#3-fermentation-control-poc--use-later-soft-sensor-only).
 
 ## Open-Source Strategy
 

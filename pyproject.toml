@@ -30,9 +30,9 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
 ]
-graph = [
-    "fermentgraph",
-]
+# "graph" extra intentionally removed 2026-09-17: fermentgraph's suggestion/analog
+# API doesn't exist and its ranker doesn't beat baseline. See docs/DEPENDENCIES.md.
+# Re-add once that doc's trigger condition fires.
 
 [build-system]
 requires = ["hatchling"]
