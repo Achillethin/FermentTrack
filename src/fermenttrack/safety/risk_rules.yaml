@@ -1,0 +1,114 @@
+rules:
+- rule_id: BOT-001
+  name: Botulism risk — low-acid anaerobic
+  fermentation_schemes:
+  - lactic
+  condition: ph > 4.6 AND oxygen_proxy == anaerobic AND salt_pct < 3.5
+  action: hard_stop
+  reason_code: BOTULISM_RISK_LOW_ACID
+  reason_text_fr: 'Risque de botulisme : pH > 4.6 en anaérobie avec sel < 3.5%. Ne
+    pas consommer. Consulter les autorités sanitaires.'
+  reason_text_en: 'Botulism risk: pH > 4.6 in anaerobic conditions with salt < 3.5%.
+    Do not consume. Seek authoritative guidance.'
+  source_citation: EFSA Journal 2005;3(4):199; CDC Botulism Prevention
+  source_url: https://www.efsa.europa.eu/en/efsajournal/pub/199
+  exceptions: []
+- rule_id: BOT-002
+  name: Botulism risk — insufficient acidification
+  fermentation_schemes:
+  - lactic
+  - enzymatic_koji
+  condition: ph > 4.6 AND time_hours > 48 AND temperature_c > 10
+  action: hard_stop
+  reason_code: BOTULISM_RISK_SLOW_ACIDIFICATION
+  reason_text_fr: La fermentation n'a pas atteint pH ≤ 4.6 en 48h à température >
+    10°C. Risque de croissance de C. botulinum.
+  reason_text_en: Fermentation has not reached pH ≤ 4.6 within 48h at > 10°C. Risk
+    of C. botulinum growth.
+  source_citation: ANSES Avis 2014-SA-0174
+  source_url: ''
+  exceptions: []
+- rule_id: SALT-001
+  name: Salt too low for vegetable fermentation
+  fermentation_schemes:
+  - lactic
+  condition: salt_pct < 2.0
+  action: warning
+  reason_code: LOW_SALT_VEG_FERMENT
+  reason_text_fr: 'Concentration en sel < 2% : risque de prolifération de microorganismes
+    indésirables. Recommandé : 2-5%.'
+  reason_text_en: 'Salt < 2%: risk of undesirable microorganism growth. Recommended:
+    2-5%.'
+  source_citation: EFSA guidance on fermented vegetables
+  source_url: ''
+  exceptions: []
+- rule_id: SALT-002
+  name: Salt too high for effective fermentation
+  fermentation_schemes:
+  - lactic
+  condition: salt_pct > 10.0
+  action: warning
+  reason_code: HIGH_SALT_INHIBITION
+  reason_text_fr: 'Concentration en sel > 10% : la fermentation lactique risque d''être
+    inhibée.'
+  reason_text_en: 'Salt > 10%: lactic fermentation may be inhibited.'
+  source_citation: General fermentation literature
+  source_url: ''
+  exceptions: []
+- rule_id: TEMP-001
+  name: Temperature danger zone for lactic fermentation
+  fermentation_schemes:
+  - lactic
+  condition: temperature_c > 45
+  action: hard_stop
+  reason_code: TEMP_TOO_HIGH_LACTIC
+  reason_text_fr: 'Température > 45°C : les bactéries lactiques sont inhibées. Risque
+    de développement de pathogènes thermophiles.'
+  reason_text_en: 'Temperature > 45°C: lactic acid bacteria inhibited. Risk of thermophilic
+    pathogen growth.'
+  source_citation: EFSA NDA Panel 2011
+  source_url: ''
+  exceptions: []
+- rule_id: KOJI-001
+  name: Koji humidity too high — aflatoxin risk
+  fermentation_schemes:
+  - enzymatic_koji
+  condition: water_activity > 0.95 AND temperature_c > 33
+  action: hard_stop
+  reason_code: AFLATOXIN_RISK_KOJI
+  reason_text_fr: 'Activité de l''eau > 0.95 et T > 33°C : risque de production d''aflatoxines
+    par des souches non-domestiquées.'
+  reason_text_en: 'Water activity > 0.95 and T > 33°C: risk of aflatoxin production
+    by non-domesticated strains.'
+  source_citation: EFSA CONTAM Panel, Mycotoxins in food
+  source_url: https://www.efsa.europa.eu/en/topics/topic/aflatoxins-food
+  exceptions:
+  - Aspergillus oryzae certified tane-koji strain
+- rule_id: KOJI-002
+  name: Koji temperature too low — contamination risk
+  fermentation_schemes:
+  - enzymatic_koji
+  condition: temperature_c < 25
+  action: warning
+  reason_code: KOJI_TEMP_LOW
+  reason_text_fr: 'Température < 25°C : la croissance d''Aspergillus oryzae est ralentie
+    et des contaminants peuvent dominer.'
+  reason_text_en: 'Temperature < 25°C: Aspergillus oryzae growth slowed, contaminants
+    may dominate.'
+  source_citation: Traditional koji literature
+  source_url: ''
+  exceptions: []
+- rule_id: GEN-001
+  name: Missing critical measurement — pH
+  fermentation_schemes:
+  - lactic
+  - enzymatic_koji
+  condition: ph == None AND time_hours > 24
+  action: warning
+  reason_code: MISSING_PH_READING
+  reason_text_fr: Aucune mesure de pH après 24h. La sécurité ne peut pas être évaluée
+    avec confiance.
+  reason_text_en: No pH reading after 24h. Safety cannot be confidently assessed.
+  source_citation: Product safety policy
+  source_url: ''
+  exceptions: []
