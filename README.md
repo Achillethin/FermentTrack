@@ -168,6 +168,8 @@ Stop if:
 
 ## Getting Started (Development)
 
+The app targets Postgres in production, but for local development a SQLite file works with zero setup — no database server needed:
+
 ```bash
 # Clone
 git clone git@github-personal:Achillethin/FermentTrack.git
@@ -178,9 +180,18 @@ python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -e ".[dev]"
 
+# Point at a local SQLite file instead of Postgres (skip this to use the
+# Postgres default — you'd need a server running at the URL in config.py)
+export FERMENTTRACK_DATABASE_URL="sqlite:///./fermenttrack.db"   # Windows: set FERMENTTRACK_DATABASE_URL=...
+
+# Create tables and seed the 20 reference ingredients
+alembic upgrade head
+
 # Run
-uvicorn src.fermenttrack.main:app --reload
+uvicorn fermenttrack.main:app --reload
 ```
+
+Then open `http://127.0.0.1:8000/docs` for the interactive API explorer (FastAPI's auto-generated Swagger UI) — create a culture, start a batch, log a measurement, and hit `/batches/{id}/safety` to see the Safety Advisory in action. There's no frontend yet (see the [experiment-logging design spec](docs/superpowers/specs/2026-09-18-experiment-logging-design.md) for the planned minimal UI) — this is API-only for now.
 
 ## Related
 
