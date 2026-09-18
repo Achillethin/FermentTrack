@@ -8,13 +8,15 @@ from fermenttrack.models import Batch, Reminder
 from fermenttrack.stages import get_stage
 
 
-def build_reminder_for_stage(batch: Batch, stage_name: str, entered_at: datetime) -> Reminder | None:
+def build_reminder_for_stage(
+    batch: Batch, substrate: str, stage_name: str, entered_at: datetime
+) -> Reminder | None:
     """Compute the next Reminder for a batch entering `stage_name`.
 
     due_at = stage entry + expected_duration. Returns None for stages with
-    no timer (e.g. terminal "ready" stage).
+    no timer (e.g. terminal stages, or the no-machine "in_progress" stage).
     """
-    stage = get_stage(stage_name)
+    stage = get_stage(substrate, stage_name)
     if stage.expected_duration is None or stage.reminder_action is None:
         return None
     return Reminder(

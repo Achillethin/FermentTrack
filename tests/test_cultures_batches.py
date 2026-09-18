@@ -212,3 +212,33 @@ async def test_mark_reminder_done_and_snooze(client: AsyncClient) -> None:
     # Completed reminders drop out of the upcoming list.
     resp = await client.get("/reminders")
     assert all(r["id"] != reminder_id for r in resp.json())
+
+
+@pytest.mark.asyncio
+async def test_sourdough_batch_uses_sourdough_stages(client: AsyncClient) -> None:
+    culture = await _create_culture(client, name="My Levain")
+    resp = await client.post("/cultures", json={"name": "My Levain", "type": "sourdough"})
+    culture = resp.json()
+    batch = await _create_batch(client, culture["id"])
+    assert batch["current_stage"] == "feed_starter"
+
+    resp = await client.patch(f"/batches/{batch['id']}/stage", json={})
+    assert resp.status_code == 200
+    assert resp.json()["current_stage"] == "bulk_ferment"
+
+
+@pytest.mark.asyncio
+async def test_kefir_batch_has_no_stage_machine(client: AsyncClient) -> None:
+    resp = await client.post("/cultures", json={"name": "Water Kefir #1", "type": "kefir"})
+    culture = resp.json()
+    batch = await _create_batch(client, culture["id"])
+    assert batch["current_stage"] == "in_progress"
+
+    # No reminder should have been created — no expected_duration on the
+    # no-machine pseudo-stage.
+    resp = await client.get("/reminders")
+    assert all(r["batch_id"] != batch["id"] for r in resp.json())
+
+    # Advancing a substrate with no stage machine has nowhere to go.
+    resp = await client.patch(f"/batches/{batch['id']}/stage", json={})
+    assert resp.status_code == 400

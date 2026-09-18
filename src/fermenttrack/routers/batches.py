@@ -21,15 +21,23 @@ from fermenttrack.schemas import (
     StageAdvance,
     TimelineEvent,
 )
-from fermenttrack.stages import STAGE_ORDER, InvalidStageError, next_stage_name
+from fermenttrack.stages import InvalidStageError, first_stage, next_stage_name
 
 router = APIRouter(prefix="/batches", tags=["batches"])
 
 
-async def _get_batch(batch_id: uuid.UUID, db: AsyncSession, *, with_measurements: bool = False) -> Batch:
+async def _get_batch(
+    batch_id: uuid.UUID,
+    db: AsyncSession,
+    *,
+    with_measurements: bool = False,
+    with_culture: bool = False,
+) -> Batch:
     stmt = select(Batch).where(Batch.id == batch_id)
     if with_measurements:
         stmt = stmt.options(selectinload(Batch.measurements))
+    if with_culture:
+        stmt = stmt.options(selectinload(Batch.culture))
     result = await db.execute(stmt)
     batch = result.scalar_one_or_none()
     if batch is None:
@@ -44,17 +52,18 @@ async def create_batch(payload: BatchCreate, db: AsyncSession = Depends(get_db))
         raise HTTPException(status_code=404, detail="Culture not found")
 
     started_at = now_utc()
+    initial_stage = first_stage(culture.type)
     batch = Batch(
         culture_id=payload.culture_id,
         started_at=started_at,
-        current_stage=STAGE_ORDER[0],
+        current_stage=initial_stage,
         stage_entered_at=started_at,
         target=payload.target,
     )
     db.add(batch)
     await db.flush()
 
-    reminder = build_reminder_for_stage(batch, batch.current_stage, started_at)
+    reminder = build_reminder_for_stage(batch, culture.type, initial_stage, started_at)
     if reminder is not None:
         db.add(reminder)
 
@@ -67,21 +76,22 @@ async def create_batch(payload: BatchCreate, db: AsyncSession = Depends(get_db))
 async def advance_stage(
     batch_id: uuid.UUID, payload: StageAdvance, db: AsyncSession = Depends(get_db)
 ) -> Batch:
-    batch = await _get_batch(batch_id, db)
+    batch = await _get_batch(batch_id, db, with_culture=True)
+    substrate = batch.culture.type
 
-    target_stage = payload.stage or next_stage_name(batch.current_stage)
-    if target_stage is None:
-        raise HTTPException(status_code=400, detail="Batch is already at its final stage")
     try:
+        target_stage = payload.stage or next_stage_name(substrate, batch.current_stage)
+        if target_stage is None:
+            raise HTTPException(status_code=400, detail="Batch is already at its final stage")
         entered_at = now_utc()
         # validates stage name
-        reminder = build_reminder_for_stage(batch, target_stage, entered_at)
+        reminder = build_reminder_for_stage(batch, substrate, target_stage, entered_at)
     except InvalidStageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
     batch.current_stage = target_stage
     batch.stage_entered_at = entered_at
-    if target_stage == "ready":
+    if target_stage in ("ready", "done"):
         batch.outcome = "success"
         batch.ended_at = entered_at
 
