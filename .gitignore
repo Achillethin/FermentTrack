@@ -35,3 +35,6 @@ htmlcov/
 
 # Uploads (local dev)
 uploads/
+
+# Local Claude Code session state — never commit
+.claude/
