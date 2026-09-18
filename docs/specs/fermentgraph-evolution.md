@@ -3,6 +3,18 @@
 **For:** a Claude session working in `fermentgraph` directly.
 **Origin:** an audit run from FermentTrack (2026-09-17) found FermentTrack's docs assumed a `generate_suggestions()`/`query_analogs()` API that doesn't exist in this codebase, and that the evaluated ranker doesn't beat a trivial baseline. Full audit text and FermentTrack's verdict: `FermentTrack/docs/DEPENDENCIES.md` (section 2) — read that first for the receipts behind every claim below.
 
+**Status (2026-09-17): the hygiene work below is done** (CI, version 0.2.0, CHANGELOG, suggestion/analog claims struck from docs — verified, 364 tests pass). **New requirement added 2026-09-18**, see below — this is fresh, unstarted work for the next session here.
+
+## New requirement (2026-09-18): FermentTrack ingredient/compound/microbe export
+
+FermentTrack is building ingredient reference data (recipe logging + a batch preview UI) and needs a stable, versioned export from this repo — not a live API, FermentGraph stays a library/pipeline, not a service. Full design context: `FermentTrack/docs/superpowers/specs/2026-09-18-experiment-logging-design.md` (section 2) — read that first.
+
+**What to build:** an export script producing a JSON artifact with `schema_version`, `run_id` (reuse the existing gold-data `run_id` concept, e.g. `curated-gold1`), and a list of ingredient entries each carrying `canonical_id`, `name`, `foodon_id`, `fermentation_systems`, `associated_compounds` (from `FermentationPriors.prior_for()` — already exists), and `associated_microbes` (needs an accessor — check whether `fermentation_systems.yaml` / `FermentationPriors.systems_for_food()` already carries microbe-per-system data, or whether one needs to be added). Full JSON shape is in the design doc referenced above.
+
+**Non-negotiable:** every compound/microbe association is a heuristic prior, not a validated prediction — carry that framing into the export's own docs/README so FermentTrack's consumer doesn't have to rediscover it.
+
+**Definition of done:** export script exists, produces valid output matching the documented schema, has a test asserting the schema (required fields present, `schema_version` set), and is documented in this repo's README as "reference export for FermentTrack — heuristic priors, not validated predictions."
+
 ## Where things actually stand (verified, not asserted)
 
 - Package installs cleanly, 364 tests pass, gold-tier KG materialized at 100% readiness.
