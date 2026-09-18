@@ -1,6 +1,8 @@
 # Experiment Logging, Ingredient Reference Data & Preview UI — Design
 
-**Revised 2026-09-18** after a 3-agent review panel (product/vision, technical pragmatism, cross-repo sequencing). Original version bundled four independent increments into one design with two real blockers (unbounded sync mechanism, premature compound/microbial UI exposure). Both fixed below — see "What changed" at the end.
+**Revision 2 (2026-09-18)**: distribution model confirmed as hosted PWA, not Docker Compose (`README.md` updated); batch logging/observations extended to kombucha + sourdough + koji + cheese from v1, reversing revision 1's kombucha-only trim — see "Resolved since last revision" near the end.
+
+**Revision 1 (2026-09-18)** after a 3-agent review panel (product/vision, technical pragmatism, cross-repo sequencing). Original draft bundled four independent increments into one design with two real blockers (unbounded sync mechanism, premature compound/microbial UI exposure). Both fixed — see "What changed" at the end.
 
 ## Purpose
 
@@ -32,25 +34,16 @@ class Ingredient(Base):
                                  # are never hard in this table
 ```
 
-### Seed data — kombucha only for v1
+### Seed data — all documented substrates, not kombucha-only
 
-MVP substrate scope (`STRATEGY.md`) is kombucha. Seeding six substrates' worth of ingredients now, before sourdough/koji/cheese stage machines exist, is scope ahead of the phase gate — trimmed to what v1 actually uses:
-
-| Ingredient | `default_role` |
-|---|---|
-| Black/green tea | `base` |
-| Water | `base` |
-| Cane sugar | `base` |
-| SCOBY / starter liquid | `starter` |
-| Fresh ginger, fruit, herbs, spices | `flavoring` |
-
-The broader multi-substrate table (sourdough, koji, cheese, kefir, miso, vinegar) from the original draft is preserved as reference for whoever picks up Phase 2 multi-ferment support — not seeded now:
-
-<details>
-<summary>Phase 2 reference (not implemented in this increment)</summary>
+**Revised again 2026-09-18** — the product owner overrode the kombucha-only trim above: FermentTrack is meant to be shared broadly (web/mobile), and restricting logging to one substrate from day one works against that. Full seed table, matching `ARCHITECTURE.md`'s documented stage machines (kombucha, sourdough, koji, cheese) plus the culturally-adjacent ferments already in `Culture.type`'s intended vocabulary (kefir, miso, vinegar):
 
 | Ingredient | `default_role` | Substrate(s) |
 |---|---|---|
+| Black/green tea, water | `base` | Kombucha |
+| Cane sugar | `base` | Kombucha, water kefir |
+| SCOBY / starter liquid | `starter` | Kombucha |
+| Fresh ginger, fruit, herbs, spices | `flavoring` | Kombucha, kefir |
 | Flour, water | `base` | Sourdough |
 | Starter/levain | `starter` | Sourdough |
 | Rice/grain/soybean | `base` | Koji, miso |
@@ -61,8 +54,6 @@ The broader multi-substrate table (sourdough, koji, cheese, kefir, miso, vinegar
 | Wine/cider/base alcohol | `base` | Vinegar |
 | Mother of vinegar (*Acetobacter*) | `starter` | Vinegar |
 | Salt, calcium chloride | `additive` | Cheese, koji, miso, sourdough |
-
-</details>
 
 ### `BatchIngredient` (new table — the "recipe")
 
@@ -83,9 +74,33 @@ class BatchIngredient(Base):
                                  # primary `base`).
 ```
 
-### `Measurement` — unchanged
+### `Measurement` — unchanged, and already substrate-agnostic
 
-No schema break, no new result-type enum. Existing `type`/`value_numeric`/`value_text`/`notes` already covers pH, temperature, brix, gravity, sensory notes.
+No schema break, no new result-type enum. `type` is a free-text field (not an enum), so it already logs arbitrary observations for any fermentation type without a code change — this part of "different batch logging and observations" is a non-issue.
+
+### Stage state machine — generalize beyond kombucha
+
+**New in this revision.** `src/fermenttrack/stages.py` currently hardcodes a single `KOMBUCHA_STAGES` dict and a `get_stage(name)` that only knows kombucha. Since batches shouldn't be kombucha-locked, this generalizes to a registry keyed by substrate type:
+
+```python
+STAGE_MACHINES: dict[str, dict[str, StageDef]] = {
+    "kombucha": KOMBUCHA_STAGES,   # unchanged, already implemented
+    "sourdough": SOURDOUGH_STAGES,  # new — from ARCHITECTURE.md:
+                                     # feed_starter -> bulk_ferment (4-12h) -> shape
+                                     # -> cold_retard (8-24h) -> bake -> done
+    "koji": KOJI_STAGES,            # new — from ARCHITECTURE.md:
+                                     # soak -> steam -> inoculate -> incubate (36-48h)
+                                     # -> harvest -> done
+    "cheese": CHEESE_STAGES,        # new — from ARCHITECTURE.md:
+                                     # heat_milk -> culture -> rennet -> cut_curd -> cook
+                                     # -> press -> salt -> age -> ready
+}
+
+def get_stage(substrate: str, name: str) -> StageDef: ...
+def next_stage_name(substrate: str, current: str) -> str | None: ...
+```
+
+All four stage progressions are already fully specified in `ARCHITECTURE.md`'s "Stage State Machines" section — this is porting documented design into code (same pattern as the existing kombucha implementation), not new design work. Kefir, miso, and vinegar don't have documented stage machines yet; they get `Ingredient`/`BatchIngredient` support now (recipe logging works for them immediately) but fall back to a substrate with no stage-reminder automation until their state machines are documented — logging still works, just without stage-aware reminders for those three specifically.
 
 ## 2. `GET /batches/{id}/preview` — Aggregate Endpoint
 
@@ -111,7 +126,8 @@ Cross-origin (GH Pages + separate host) was chosen over same-origin (serving the
 ## Testing
 
 - `Ingredient`/`BatchIngredient`: CRUD tests, role-copy-at-insert-then-override test (create with default, PATCH to override, confirm it persists independent of later `Ingredient.default_role` edits) — matching the existing `test_mark_reminder_done_and_snooze`-style pattern in `tests/`.
-- `preview` endpoint: 404 case; empty-recipe case (batch with zero `BatchIngredient` rows); populated case. No compound/microbial case, since that data doesn't exist in this endpoint.
+- Stage machines: one test per substrate (kombucha — already covered; sourdough, koji, cheese — new) asserting the full progression and terminal stage, mirroring the existing kombucha stage tests.
+- `preview` endpoint: 404 case; empty-recipe case (batch with zero `BatchIngredient` rows); populated case, across at least two substrates (not kombucha-only). No compound/microbial case, since that data doesn't exist in this endpoint.
 - Frontend: component test for the preview page against a mocked API response — no e2e infra for this first slice.
 
 ## Deferred: FermentGraph compound/microbial export
@@ -125,11 +141,14 @@ At that point: `Ingredient.canonical_id` gets populated from the export (current
 ## Out of scope
 
 - Logging real sequencing/lab results for microbial communities (reference knowledge only, per earlier decision — and now deferred entirely, see above).
-- Multi-page frontend, auth, payments, Docker Compose self-host packaging of the frontend.
-- Native mobile app (PWA install covers "installable on mobile" for now).
-- Sourdough/koji/cheese/kefir/miso/vinegar ingredient seeding (Phase 2, reference table preserved above).
+- Multi-page frontend, auth, payments.
+- Docker Compose self-hosting — remains supported as an alternative, but is no longer the primary distribution path (see `README.md`); not blocking for this spec either way.
+- Native mobile app — PWA install covers "installable on mobile" for now.
+- Kefir/miso/vinegar stage-aware reminders (no documented stage machine yet) — recipe logging via `Ingredient`/`BatchIngredient` works for them immediately regardless.
 
-**Open question for the product owner, raised by review but not resolved here:** `STRATEGY.md`'s MVP scope lists FermentJSON v0.1 export and Docker Compose self-hosting as "Ships" items still not built (iSpindel webhook and Safety Advisory *are* already shipped). This spec's UI work is legitimate — nothing else in the product is visible without any frontend at all — but whether it should ship before or after those two MVP items is a priority call, not a design-quality one. Flagging it; not blocking on it.
+**Resolved since last revision:** the product owner confirmed distribution is primarily hosted PWA (web + mobile-installable), not Docker Compose — `README.md` updated accordingly. Also confirmed batch logging/observations should not be kombucha-only — ingredient seed data and stage machines now cover kombucha, sourdough, koji, and cheese from v1 (see above), reversing the earlier kombucha-only trim.
+
+**Still open, raised by review but not resolved here:** `STRATEGY.md`'s MVP scope lists FermentJSON v0.1 export as a "Ships" item still not built (iSpindel webhook and Safety Advisory *are* already shipped; Docker Compose is now explicitly secondary per above, not a gap). Whether FermentJSON export should ship before or after this UI work is a priority call, not a design-quality one. Flagging it; not blocking on it.
 
 ## What changed in this revision
 

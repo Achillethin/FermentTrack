@@ -6,8 +6,11 @@
 
 FermentTrack is the first open-source platform that combines **batch journaling**, **sensor integration** (iSpindel, Tilt, GravityMon), and **knowledge-graph intelligence** — for every substrate, not just beer. Powered by [FermentGraph](https://github.com/Achillethin/fermentgraph).
 
+**Primary distribution is a hosted PWA** (installable web app, works on mobile without an app-store build) — a free-tier managed backend + a GitHub Pages frontend, so anyone can use it via a link, not a server setup. Self-hosting via Docker remains supported for anyone who wants it, but it is not the primary way most users will run FermentTrack.
+
 ```bash
-docker compose up -d  # Self-hosted. Your data, your hardware, forever.
+# Optional: self-host instead of using the hosted instance
+docker compose up -d
 ```
 
 ## Why
@@ -71,19 +74,20 @@ Originally scoped as a FermentGraph-powered compound knowledge graph ("similar b
 ## MVP Scope (8 weeks)
 
 ### Ships ✅
-- **Kombucha batch logger** (clear stages, time-sensitive — best first substrate)
+- **Multi-substrate batch logger** — kombucha, sourdough, koji, cheese all have stage-aware reminders from v1 (not kombucha-only — see `docs/superpowers/specs/2026-09-18-experiment-logging-design.md`); kefir/miso/vinegar get recipe logging without stage automation until their state machines are documented
+- Recipe logging (`Ingredient`/`BatchIngredient`) — structured record of what went into a batch, across all substrates above
 - Batch creation wizard (substrate, starter, vessel, target)
-- Stage-aware reminders (1F → 2F → bottling → ready)
+- Stage-aware reminders (per-substrate progressions, e.g. kombucha's 1F → 2F → bottling → ready)
 - Photo timeline per batch
 - pH / temperature / tasting notes logging
 - **iSpindel/GravityMon webhook** (live sensor data → batch timeline)
 - **FermentJSON v0.1 export** (kombucha + koji extensions)
 - Compare two batches side-by-side
-- Docker Compose self-hosted deployment
+- Hosted PWA (web + mobile-installable) — primary distribution; Docker Compose self-hosting supported as an alternative
 - Simple export (PDF / CSV / FermentJSON)
 
 ### Phase 2 (Month 3-6)
-- Multi-ferment: koji, cheese, miso, kefir, vinegar
+- Miso/kefir/vinegar stage-aware reminders (recipe logging for these already works in v1; only the stage-reminder automation is deferred)
 - Tilt Hydrometer plugin (BLE bridge container)
 - Plugin SDK + HACS-style plugin store
 - FermentGraph "What's in my ferment?" (free intelligence)
@@ -106,7 +110,7 @@ Originally scoped as a FermentGraph-powered compound knowledge graph ("similar b
 | Messaging | Embedded Mosquitto (MQTT) | Sensor push protocol |
 | Frontend | React + TailwindCSS (PWA) | Mobile-friendly, installable |
 | Plugin SDK | `fermenttrack.plugin_sdk` | Home Assistant-inspired |
-| Hosting | Docker Compose (self-hosted) | Primary install method |
+| Hosting | Managed host (Render/Fly.io) + GH Pages frontend | Primary — shareable via a link, no setup required; Docker Compose self-hosting remains supported as an alternative |
 | Storage | S3-compatible (photos) | Cheap, scalable |
 | Payments | Stripe | Standard for SaaS |
 | Intelligence | FermentGraph (Python pkg) | Direct library dependency |
