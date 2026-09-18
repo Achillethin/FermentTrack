@@ -8,11 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch, Culture, Measurement, Reminder
+from fermenttrack.models import Batch, BatchIngredient, Culture, Ingredient, Measurement, Reminder
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.schemas import (
     BatchCompare,
     BatchCreate,
+    BatchIngredientCreate,
+    BatchIngredientOut,
     BatchOut,
     BatchTimeline,
     MeasurementCreate,
@@ -180,3 +182,34 @@ async def compare_batches(
         for b in batches
     }
     return BatchCompare(batches=[BatchOut.model_validate(b) for b in batches], measurements=measurements)
+
+
+@router.post("/{batch_id}/ingredients", response_model=BatchIngredientOut, status_code=201)
+async def add_batch_ingredient(
+    batch_id: uuid.UUID, payload: BatchIngredientCreate, db: AsyncSession = Depends(get_db)
+) -> BatchIngredient:
+    batch = await _get_batch(batch_id, db)
+    ingredient = await db.get(Ingredient, payload.ingredient_id)
+    if ingredient is None:
+        raise HTTPException(status_code=404, detail="Ingredient not found")
+
+    batch_ingredient = BatchIngredient(
+        batch_id=batch.id,
+        ingredient_id=ingredient.id,
+        quantity=payload.quantity,
+        unit=payload.unit,
+        role=payload.role or ingredient.default_role,
+    )
+    db.add(batch_ingredient)
+    await db.commit()
+    await db.refresh(batch_ingredient)
+    return batch_ingredient
+
+
+@router.get("/{batch_id}/ingredients", response_model=list[BatchIngredientOut])
+async def list_batch_ingredients(
+    batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[BatchIngredient]:
+    await _get_batch(batch_id, db)  # raises 404 if the batch doesn't exist
+    result = await db.execute(select(BatchIngredient).where(BatchIngredient.batch_id == batch_id))
+    return list(result.scalars().all())
