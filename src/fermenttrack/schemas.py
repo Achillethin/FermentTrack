@@ -103,6 +103,39 @@ class ReminderSnooze(BaseModel):
     until: datetime
 
 
+# ── Ingredient ───────────────────────────────────────────────────────────
+
+class IngredientOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    canonical_id: str | None
+    name: str
+    default_role: str
+    fermentation_systems: list[str]
+    is_active: bool
+
+
+# ── BatchIngredient ──────────────────────────────────────────────────────
+
+class BatchIngredientCreate(BaseModel):
+    ingredient_id: uuid.UUID
+    quantity: float | None = None
+    unit: str | None = None
+    role: str | None = None  # if omitted, copied from Ingredient.default_role
+
+
+class BatchIngredientOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    batch_id: uuid.UUID
+    ingredient_id: uuid.UUID
+    quantity: float | None
+    unit: str | None
+    role: str
+
+
 # ── Timeline / compare ──────────────────────────────────────────────────
 
 class TimelineEvent(BaseModel):

@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Float, ForeignKey, Interval, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Interval, JSON, Text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -63,6 +63,9 @@ class Batch(Base):
     reminders: Mapped[list["Reminder"]] = relationship(
         back_populates="batch", cascade="all, delete-orphan"
     )
+    batch_ingredients: Mapped[list["BatchIngredient"]] = relationship(
+        back_populates="batch", cascade="all, delete-orphan"
+    )
 
 
 class Measurement(Base):
@@ -95,3 +98,34 @@ class Reminder(Base):
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
     batch: Mapped["Batch"] = relationship(back_populates="reminders")
+
+
+class Ingredient(Base):
+    __tablename__ = "ingredients"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    canonical_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    default_role: Mapped[str] = mapped_column(Text, nullable=False)  # base | starter | flavoring | additive
+    fermentation_systems: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class BatchIngredient(Base):
+    __tablename__ = "batch_ingredients"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("batches.id"), nullable=False
+    )
+    ingredient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ingredients.id"), nullable=False
+    )
+    quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    # Copied from Ingredient.default_role AT INSERT TIME by the router (Task 6),
+    # never re-derived — see Global Constraints.
+
+    batch: Mapped["Batch"] = relationship(back_populates="batch_ingredients")
+    ingredient: Mapped["Ingredient"] = relationship()
