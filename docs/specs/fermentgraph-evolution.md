@@ -3,17 +3,21 @@
 **For:** a Claude session working in `fermentgraph` directly.
 **Origin:** an audit run from FermentTrack (2026-09-17) found FermentTrack's docs assumed a `generate_suggestions()`/`query_analogs()` API that doesn't exist in this codebase, and that the evaluated ranker doesn't beat a trivial baseline. Full audit text and FermentTrack's verdict: `FermentTrack/docs/DEPENDENCIES.md` (section 2) — read that first for the receipts behind every claim below.
 
-**Status (2026-09-17): the hygiene work below is done** (CI, version 0.2.0, CHANGELOG, suggestion/analog claims struck from docs — verified, 364 tests pass). **New requirement added 2026-09-18**, see below — this is fresh, unstarted work for the next session here.
+**Status (2026-09-17): the hygiene work below is done** (CI, version 0.2.0, CHANGELOG, suggestion/analog claims struck from docs — verified, 364 tests pass).
 
-## New requirement (2026-09-18): FermentTrack ingredient/compound/microbe export
+## Requirement added 2026-09-18, then DEFERRED same day after review — do not start this yet
 
-FermentTrack is building ingredient reference data (recipe logging + a batch preview UI) and needs a stable, versioned export from this repo — not a live API, FermentGraph stays a library/pipeline, not a service. Full design context: `FermentTrack/docs/superpowers/specs/2026-09-18-experiment-logging-design.md` (section 2) — read that first.
+FermentTrack considered building ingredient/compound/microbe reference data (recipe logging + a batch preview UI) sourced from this repo. A 3-agent review of FermentTrack's design spec found that surfacing unvalidated compound/microbial data on FermentTrack's first-ever UI screen would repeat the exact overclaiming mistake `docs/DEPENDENCIES.md` already caught once (fictional `generate_suggestions`/`query_analogs`) — even with an "unvalidated" label, a panel a user notices is marketing it as a current feature. **This requirement is deferred until the same Direction 3 trigger as the rest of the Knowledge Engine: fermentgraph's ranker beats the popularity baseline by ≥+0.05 Recall@50.** Full context: `FermentTrack/docs/superpowers/specs/2026-09-18-experiment-logging-design.md` ("Deferred" section).
 
-**What to build:** an export script producing a JSON artifact with `schema_version`, `run_id` (reuse the existing gold-data `run_id` concept, e.g. `curated-gold1`), and a list of ingredient entries each carrying `canonical_id`, `name`, `foodon_id`, `fermentation_systems`, `associated_compounds` (from `FermentationPriors.prior_for()` — already exists), and `associated_microbes` (needs an accessor — check whether `fermentation_systems.yaml` / `FermentationPriors.systems_for_food()` already carries microbe-per-system data, or whether one needs to be added). Full JSON shape is in the design doc referenced above.
+**When the trigger fires, the actual build is small — verified, not assumed:** `associated_microbes` requires zero new curation. It's pure composition of two methods that already exist: `FermentationPriors.systems_for_food()` (`fermentation.py:222`) and `system(name).microbes` (`:241`, populated from `fermentation_systems.yaml` at `:189` with real NCBI-taxon-ID-linked microbe data, not a stub). `associated_compounds` comes from `FermentationPriors.prior_for()`, also already exists. The eventual work is a thin serialization script, not a modeling task.
 
-**Non-negotiable:** every compound/microbe association is a heuristic prior, not a validated prediction — carry that framing into the export's own docs/README so FermentTrack's consumer doesn't have to rediscover it.
+**What to build, when the trigger fires:** an export script producing a JSON artifact with `schema_version`, `run_id` (reuse the existing gold-data `run_id` concept, e.g. `curated-gold1`), and per-ingredient `canonical_id`, `name`, `foodon_id`, `fermentation_systems`, `associated_compounds`, `associated_microbes`. Full JSON shape is in the design doc referenced above.
 
-**Definition of done:** export script exists, produces valid output matching the documented schema, has a test asserting the schema (required fields present, `schema_version` set), and is documented in this repo's README as "reference export for FermentTrack — heuristic priors, not validated predictions."
+**Non-negotiable:** every compound/microbe association is a heuristic prior, not a validated prediction — carry that framing into the export's own docs/README.
+
+**Scope guardrail (learned from this repo's earlier scope-violation incident — restated here explicitly, not just inherited from the Path A/B section above):** this is an export/serialization task only. Do not touch `evaluation/`, `models/`, `bootstrap/`, or any ranker/training code. The export reads `FermentationPriors` and gold artifacts already on disk — it does not compute anything new.
+
+**Definition of done, when the trigger fires and this is picked up:** export script exists, produces valid output matching the documented schema, has a test asserting the schema (required fields present, `schema_version` set), and is documented in this repo's README as "reference export for FermentTrack — heuristic priors, not validated predictions."
 
 ## Where things actually stand (verified, not asserted)
 
