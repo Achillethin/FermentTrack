@@ -29,3 +29,16 @@ INGREDIENT_SEED_DATA: list[tuple[str, str, list[str]]] = [
     ("Salt", "additive", ["cheese", "koji", "miso", "sourdough"]),
     ("Calcium chloride", "additive", ["cheese"]),
 ]
+
+# Added 2026-09-20 for lacto_ferment/garum substrate support (migration
+# 0003). Kept as a separate list rather than appended to INGREDIENT_SEED_DATA
+# above: migration 0002 already applied that list's exact rows to any
+# database that ran it, so mutating it now wouldn't retroactively reach an
+# already-migrated database, and 0002 should stay a historically accurate
+# record of what it actually inserted. New substrates get new rows via a new
+# migration instead.
+INGREDIENT_SEED_DATA_V2: list[tuple[str, str, list[str]]] = [
+    ("Cabbage", "base", ["lacto_ferment"]),
+    ("Chilies", "base", ["lacto_ferment"]),
+    ("Fish", "base", ["garum"]),
+]
