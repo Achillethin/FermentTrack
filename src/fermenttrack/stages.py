@@ -7,9 +7,13 @@ Sourdough: feed_starter -> bulk_ferment (4-12h) -> shape -> cold_retard (8-24h)
 Koji: soak -> steam -> inoculate -> incubate (36-48h) -> harvest -> done
 Cheese: heat_milk -> culture -> rennet -> cut_curd -> cook -> press -> salt
         -> age -> ready
+Lacto-ferment (kimchi, sauerkraut, chilies, general veg ferments):
+        prep_and_salt -> ferment (~7 days) -> ready
+Miso: cook_soybeans -> mix_koji_salt -> ferment (~90 days) -> ready
+Garum (fermented fish sauce): salt_fish -> ferment (~180 days) -> strain -> ready
 
-Kefir, miso, and vinegar have Ingredient/BatchIngredient recipe-logging
-support (see models.py) but no stage machine here yet. Batches for those
+Kefir and vinegar have Ingredient/BatchIngredient recipe-logging support
+(see models.py) but no stage machine here yet. Batches for those
 substrates get a single "in_progress" pseudo-stage with no reminder
 automation until a real state machine is documented for them.
 """
@@ -232,11 +236,100 @@ CHEESE_STAGES: dict[str, StageDef] = {
     ),
 }
 
+LACTO_FERMENT_STAGES: dict[str, StageDef] = {
+    "prep_and_salt": StageDef(
+        name="prep_and_salt",
+        next_stage="ferment",
+        expected_duration=timedelta(hours=1),
+        reminder_action="salted/brined — ensure vegetables stay fully submerged to avoid mold",
+        urgency="medium",
+    ),
+    "ferment": StageDef(
+        name="ferment",
+        next_stage="ready",
+        expected_duration=timedelta(days=7),
+        reminder_action="taste test — continue fermenting or move to the fridge",
+        urgency="medium",
+    ),
+    "ready": StageDef(
+        name="ready",
+        next_stage=None,
+        expected_duration=None,
+        reminder_action=None,
+        urgency="low",
+    ),
+}
+
+MISO_STAGES: dict[str, StageDef] = {
+    "cook_soybeans": StageDef(
+        name="cook_soybeans",
+        next_stage="mix_koji_salt",
+        expected_duration=timedelta(hours=3),
+        reminder_action="soybeans cooked and cooled — mix with koji and salt",
+        urgency="low",
+    ),
+    "mix_koji_salt": StageDef(
+        name="mix_koji_salt",
+        next_stage="ferment",
+        expected_duration=timedelta(hours=1),
+        reminder_action="mixed and packed into the vessel — begin fermentation",
+        urgency="low",
+    ),
+    "ferment": StageDef(
+        name="ferment",
+        next_stage="ready",
+        expected_duration=timedelta(days=90),
+        reminder_action="check for surface mold, press down, taste periodically",
+        urgency="medium",
+    ),
+    "ready": StageDef(
+        name="ready",
+        next_stage=None,
+        expected_duration=None,
+        reminder_action=None,
+        urgency="low",
+    ),
+}
+
+GARUM_STAGES: dict[str, StageDef] = {
+    "salt_fish": StageDef(
+        name="salt_fish",
+        next_stage="ferment",
+        expected_duration=timedelta(hours=1),
+        reminder_action="fish salted and packed — begin fermentation",
+        urgency="low",
+    ),
+    "ferment": StageDef(
+        name="ferment",
+        next_stage="strain",
+        expected_duration=timedelta(days=180),
+        reminder_action="check color and aroma development",
+        urgency="medium",
+    ),
+    "strain": StageDef(
+        name="strain",
+        next_stage="ready",
+        expected_duration=timedelta(hours=1),
+        reminder_action="strain liquid from solids — garum is ready to bottle",
+        urgency="low",
+    ),
+    "ready": StageDef(
+        name="ready",
+        next_stage=None,
+        expected_duration=None,
+        reminder_action=None,
+        urgency="low",
+    ),
+}
+
 STAGE_MACHINES: dict[str, dict[str, StageDef]] = {
     "kombucha": KOMBUCHA_STAGES,
     "sourdough": SOURDOUGH_STAGES,
     "koji": KOJI_STAGES,
     "cheese": CHEESE_STAGES,
+    "lacto_ferment": LACTO_FERMENT_STAGES,
+    "miso": MISO_STAGES,
+    "garum": GARUM_STAGES,
 }
 
 STAGE_ORDER: dict[str, list[str]] = {
@@ -244,6 +337,9 @@ STAGE_ORDER: dict[str, list[str]] = {
     "sourdough": ["feed_starter", "bulk_ferment", "shape", "cold_retard", "bake", "done"],
     "koji": ["soak", "steam", "inoculate", "incubate", "harvest", "done"],
     "cheese": ["heat_milk", "culture", "rennet", "cut_curd", "cook", "press", "salt", "age", "ready"],
+    "lacto_ferment": ["prep_and_salt", "ferment", "ready"],
+    "miso": ["cook_soybeans", "mix_koji_salt", "ferment", "ready"],
+    "garum": ["salt_fish", "ferment", "strain", "ready"],
 }
 
 # Pseudo-stage for substrates with no registered stage machine (kefir, miso,

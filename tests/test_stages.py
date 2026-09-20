@@ -43,6 +43,32 @@ def test_cheese_progression() -> None:
         assert next_stage_name("cheese", current) == expected_next
 
 
+def test_lacto_ferment_progression() -> None:
+    assert first_stage("lacto_ferment") == "prep_and_salt"
+    order = ["prep_and_salt", "ferment", "ready"]
+    for current, expected_next in zip(order, order[1:] + [None]):
+        assert next_stage_name("lacto_ferment", current) == expected_next
+
+
+def test_lacto_ferment_reminder_flags_brine_submersion() -> None:
+    stage = get_stage("lacto_ferment", "prep_and_salt")
+    assert "submerged" in stage.reminder_action
+
+
+def test_miso_progression() -> None:
+    assert first_stage("miso") == "cook_soybeans"
+    order = ["cook_soybeans", "mix_koji_salt", "ferment", "ready"]
+    for current, expected_next in zip(order, order[1:] + [None]):
+        assert next_stage_name("miso", current) == expected_next
+
+
+def test_garum_progression() -> None:
+    assert first_stage("garum") == "salt_fish"
+    order = ["salt_fish", "ferment", "strain", "ready"]
+    for current, expected_next in zip(order, order[1:] + [None]):
+        assert next_stage_name("garum", current) == expected_next
+
+
 def test_substrate_without_stage_machine_uses_in_progress_pseudo_stage() -> None:
     assert first_stage("kefir") == "in_progress"
     assert next_stage_name("kefir", "in_progress") is None
