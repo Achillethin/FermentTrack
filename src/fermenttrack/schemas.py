@@ -154,4 +154,45 @@ class BatchCompare(BaseModel):
     measurements: dict[str, list[MeasurementOut]]
 
 
+# ── Safety ───────────────────────────────────────────────────────────────
+# Moved here from routers/safety.py so routers/batches.py's preview endpoint
+# can reuse the same response shape without importing another router module.
+
+class RuleVerdictOut(BaseModel):
+    rule_id: str
+    triggered: bool
+    action: str
+    reason_code: str
+    reason_text_en: str
+    reason_text_fr: str
+    source_citation: str
+
+
+class SafetyReportOut(BaseModel):
+    safe: bool
+    hard_stops: list[RuleVerdictOut]
+    warnings: list[RuleVerdictOut]
+    rules_evaluated: int
+    rules_triggered: int
+    summary_en: str
+    summary_fr: str
+
+
+# ── Preview ──────────────────────────────────────────────────────────────
+# Presentation-shaped for the (future) batch-preview UI page. Scope ceiling:
+# owned by that one page's needs — any other consumer uses /timeline and
+# /safety directly rather than extending this. No compound/microbial data
+# here by design (see docs/superpowers/specs/2026-09-18-experiment-logging-
+# design.md § 2 — deferred until FermentGraph's ranker clears its promotion
+# bar, to avoid presenting unvalidated heuristics as a current feature).
+
+class BatchPreview(BaseModel):
+    batch: BatchOut
+    culture: CultureOut
+    days_in_stage: float
+    recipe: list[BatchIngredientOut]
+    timeline: list[TimelineEvent]
+    safety: SafetyReportOut
+
+
 CultureWithBatches.model_rebuild()

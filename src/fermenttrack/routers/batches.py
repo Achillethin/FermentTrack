@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, update
@@ -10,16 +11,21 @@ from sqlalchemy.orm import selectinload
 from fermenttrack.database import get_db
 from fermenttrack.models import Batch, BatchIngredient, Culture, Ingredient, Measurement, Reminder
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
+from fermenttrack.safety.service import get_safety_report
 from fermenttrack.schemas import (
     BatchCompare,
     BatchCreate,
     BatchIngredientCreate,
     BatchIngredientOut,
     BatchOut,
+    BatchPreview,
     BatchTimeline,
+    CultureOut,
     MeasurementCreate,
     MeasurementOut,
     NoteCreate,
+    RuleVerdictOut,
+    SafetyReportOut,
     StageAdvance,
     TimelineEvent,
 )
@@ -34,12 +40,15 @@ async def _get_batch(
     *,
     with_measurements: bool = False,
     with_culture: bool = False,
+    with_batch_ingredients: bool = False,
 ) -> Batch:
     stmt = select(Batch).where(Batch.id == batch_id)
     if with_measurements:
         stmt = stmt.options(selectinload(Batch.measurements))
     if with_culture:
         stmt = stmt.options(selectinload(Batch.culture))
+    if with_batch_ingredients:
+        stmt = stmt.options(selectinload(Batch.batch_ingredients))
     result = await db.execute(stmt)
     batch = result.scalar_one_or_none()
     if batch is None:
@@ -139,10 +148,8 @@ async def add_note(
     return note
 
 
-@router.get("/{batch_id}/timeline", response_model=BatchTimeline)
-async def get_timeline(batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> BatchTimeline:
-    batch = await _get_batch(batch_id, db, with_measurements=True)
-    events = [
+def _build_timeline_events(batch: Batch) -> list[TimelineEvent]:
+    return [
         TimelineEvent(
             kind="note" if m.type == "note" else "measurement",
             timestamp=m.measured_at,
@@ -155,7 +162,12 @@ async def get_timeline(batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) 
         )
         for m in sorted(batch.measurements, key=lambda m: m.measured_at)
     ]
-    return BatchTimeline(batch=BatchOut.model_validate(batch), events=events)
+
+
+@router.get("/{batch_id}/timeline", response_model=BatchTimeline)
+async def get_timeline(batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> BatchTimeline:
+    batch = await _get_batch(batch_id, db, with_measurements=True)
+    return BatchTimeline(batch=BatchOut.model_validate(batch), events=_build_timeline_events(batch))
 
 
 @router.get("/compare", response_model=BatchCompare)
@@ -213,3 +225,46 @@ async def list_batch_ingredients(
     await _get_batch(batch_id, db)  # raises 404 if the batch doesn't exist
     result = await db.execute(select(BatchIngredient).where(BatchIngredient.batch_id == batch_id))
     return list(result.scalars().all())
+
+
+@router.get("/{batch_id}/preview", response_model=BatchPreview)
+async def get_batch_preview(batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> BatchPreview:
+    """Presentation-shaped aggregate for the batch-preview UI page — batch
+    header, recipe, timeline, and safety advisory in one call. No compound/
+    microbial data (see docs/superpowers/specs/2026-09-18-experiment-
+    logging-design.md § 2 for why). Scope ceiling: this endpoint is owned by
+    that one page's needs; any other consumer should use /timeline and
+    /safety directly rather than this growing to serve them too.
+    """
+    batch = await _get_batch(
+        batch_id, db, with_measurements=True, with_culture=True, with_batch_ingredients=True
+    )
+
+    now = now_utc()
+    stage_entered_at = batch.stage_entered_at
+    if stage_entered_at.tzinfo is None:
+        # SQLite (used in tests/local dev, see tests/conftest.py) doesn't
+        # preserve tz-awareness on TIMESTAMP(timezone=True) columns the way
+        # Postgres does — all app timestamps are UTC by convention regardless.
+        stage_entered_at = stage_entered_at.replace(tzinfo=timezone.utc)
+    days_in_stage = (now - stage_entered_at).total_seconds() / 86400.0
+
+    report = get_safety_report(batch)
+    safety = SafetyReportOut(
+        safe=report.safe,
+        hard_stops=[RuleVerdictOut(**vars(v)) for v in report.hard_stops],
+        warnings=[RuleVerdictOut(**vars(v)) for v in report.warnings],
+        rules_evaluated=report.rules_evaluated,
+        rules_triggered=report.rules_triggered,
+        summary_en=report.summary_en,
+        summary_fr=report.summary_fr,
+    )
+
+    return BatchPreview(
+        batch=BatchOut.model_validate(batch),
+        culture=CultureOut.model_validate(batch.culture),
+        days_in_stage=max(days_in_stage, 0.0),
+        recipe=[BatchIngredientOut.model_validate(bi) for bi in batch.batch_ingredients],
+        timeline=_build_timeline_events(batch),
+        safety=safety,
+    )
