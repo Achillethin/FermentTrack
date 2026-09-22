@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: fermenttrack-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -e .
+    startCommand: alembic upgrade head && uvicorn fermenttrack.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Supabase Postgres connection string, with postgresql+psycopg:// as
+      # the scheme instead of postgresql://.
+      - key: FERMENTTRACK_DATABASE_URL
+        sync: false
+      # GitHub Pages origin, e.g. https://<github-username>.github.io — no
+      # trailing slash, no path.
+      - key: FERMENTTRACK_CORS_ORIGINS
+        sync: false
