@@ -2,7 +2,21 @@ import { useEffect, useState } from "react";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
-const SUBSTRATES = ["kombucha", "sourdough", "koji", "cheese", "kefir", "miso", "vinegar"];
+// Mirrors fermenttrack.stages.STAGE_MACHINES (kombucha/sourdough/koji/cheese/
+// lacto_ferment/miso/garum have real stage progressions) plus kefir/vinegar,
+// which have Ingredient/BatchIngredient recipe logging but no stage machine
+// yet (single "in_progress" pseudo-stage, no reminder automation).
+const SUBSTRATES = [
+  "kombucha",
+  "sourdough",
+  "koji",
+  "cheese",
+  "lacto_ferment",
+  "miso",
+  "garum",
+  "kefir",
+  "vinegar",
+];
 
 function urgencyColor(urgency) {
   return (
