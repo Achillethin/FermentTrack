@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
+const SUBSTRATES = ["kombucha", "sourdough", "koji", "cheese", "kefir", "miso", "vinegar"];
+
 function urgencyColor(urgency) {
   return (
     {
@@ -120,6 +122,111 @@ function Safety({ safety }) {
   );
 }
 
+function NewBatch({ onCreated }) {
+  const [cultures, setCultures] = useState([]);
+  const [cultureId, setCultureId] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState("kombucha");
+  const [target, setTarget] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/cultures`)
+      .then((r) => r.json())
+      .then(setCultures)
+      .catch(() => {});
+  }, []);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      let id = cultureId;
+      if (!id) {
+        if (!newName.trim()) throw new Error("Pick a culture or name a new one");
+        const res = await fetch(`${API_URL}/cultures`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: newName, type: newType }),
+        });
+        if (!res.ok) throw new Error("Could not create culture");
+        id = (await res.json()).id;
+      }
+      const res = await fetch(`${API_URL}/batches`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ culture_id: id, target: target || null }),
+      });
+      if (!res.ok) throw new Error("Could not start batch");
+      const batch = await res.json();
+      onCreated(batch.id);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="Start a new batch">
+      <form className="space-y-3" onSubmit={submit}>
+        <div>
+          <label className="mb-1 block text-xs text-slate-400">Existing culture</label>
+          <select
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            value={cultureId}
+            onChange={(e) => setCultureId(e.target.value)}
+          >
+            <option value="">— start a new culture —</option>
+            {cultures.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.type})
+              </option>
+            ))}
+          </select>
+        </div>
+        {!cultureId && (
+          <div className="flex gap-2">
+            <input
+              className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+              placeholder="New culture name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+            <select
+              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+              value={newType}
+              onChange={(e) => setNewType(e.target.value)}
+            >
+              {SUBSTRATES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <input
+          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+          placeholder="Target (optional)"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+        />
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
+        >
+          {busy ? "Starting…" : "Start batch"}
+        </button>
+      </form>
+    </Card>
+  );
+}
+
 export default function App() {
   const params = new URLSearchParams(window.location.search);
   const [batchId, setBatchId] = useState(params.get("batch") || "");
@@ -154,6 +261,13 @@ export default function App() {
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-4">
       <h1 className="text-2xl font-bold">🧫 FermentTrack</h1>
+
+      <NewBatch
+        onCreated={(id) => {
+          setBatchId(id);
+          loadPreview(id);
+        }}
+      />
 
       <form
         className="flex gap-2"
