@@ -13,10 +13,17 @@ router = APIRouter(prefix="/ingredients", tags=["ingredients"])
 
 @router.get("", response_model=list[IngredientOut])
 async def list_ingredients(
-    substrate: str | None = Query(default=None, description="Filter to a fermentation_systems entry, e.g. 'kombucha'"),
+    substrate: str | None = Query(
+        default=None, description="Filter to a fermentation_systems entry, e.g. 'kombucha'"
+    ),
+    include_retired: bool = Query(
+        default=False, description="Also return retired rows (to label historical recipes)"
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> list[Ingredient]:
-    stmt = select(Ingredient).where(Ingredient.is_active.is_(True))
+    stmt = select(Ingredient)
+    if not include_retired:
+        stmt = stmt.where(Ingredient.is_active.is_(True))
     result = await db.execute(stmt)
     ingredients = list(result.scalars().all())
     if substrate is not None:

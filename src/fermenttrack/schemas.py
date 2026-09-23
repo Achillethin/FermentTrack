@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -118,10 +119,15 @@ class IngredientOut(BaseModel):
 
 # ── BatchIngredient ──────────────────────────────────────────────────────
 
+# Closed set so composition can convert every new row to grams. Rows logged
+# before this existed may hold free text; composition reports them as unquantified.
+Unit = Literal["g", "kg", "mg", "ml", "L"]
+
+
 class BatchIngredientCreate(BaseModel):
     ingredient_id: uuid.UUID
     quantity: float | None = None
-    unit: str | None = None
+    unit: Unit | None = None
     role: str | None = None  # if omitted, copied from Ingredient.default_role
 
 
@@ -134,6 +140,41 @@ class BatchIngredientOut(BaseModel):
     quantity: float | None
     unit: str | None
     role: str
+
+
+# ── Composition ─────────────────────────────────────────────────────────
+
+class NutrientTotalOut(BaseModel):
+    nutrient: str
+    grams: float
+    per_100g: float
+    missing_from: list[str]  # mapped ingredients with no reported value: unknown, not 0
+
+
+class SaltSuggestionOut(BaseModel):
+    """Default salt to pre-fill in the recipe form; never logged automatically."""
+
+    pct: float
+    basis_g: float
+    grams: float
+
+
+class BatchCompositionOut(BaseModel):
+    """Starting composition from the recipe × USDA FDC reference data.
+
+    Every figure is a lower bound when coverage < 1 or a nutrient's
+    missing_from is non-empty. salt_pct is added salt (Salt rows) / total mass;
+    None = salt not logged, 0 = logged 0 g.
+    """
+
+    total_mass_g: float
+    mapped_mass_g: float
+    coverage: float
+    salt_pct: float | None
+    salt_suggestion: SaltSuggestionOut | None
+    nutrients: list[NutrientTotalOut]
+    unmapped: list[str]
+    unquantified: list[str]
 
 
 # ── Timeline / compare ──────────────────────────────────────────────────
