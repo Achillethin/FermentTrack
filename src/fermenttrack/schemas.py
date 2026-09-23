@@ -133,6 +133,7 @@ class FdcFoodOut(BaseModel):
 # Closed set so composition can convert every new row to grams. Rows logged
 # before this existed may hold free text; composition reports them as unquantified.
 Unit = Literal["g", "kg", "mg", "ml", "L"]
+Role = Literal["base", "flavoring", "additive", "starter"]
 
 
 class BatchIngredientCreate(BaseModel):
@@ -142,7 +143,7 @@ class BatchIngredientCreate(BaseModel):
     fdc_id: int | None = None
     quantity: float | None = None
     unit: Unit | None = None
-    role: str | None = None  # if omitted, copied from Ingredient.default_role
+    role: Role | None = None  # if omitted, copied from Ingredient.default_role
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> BatchIngredientCreate:

@@ -125,6 +125,30 @@ async def test_retired_ingredient_sharing_fdc_id_400s_and_stays_untagged(
 
 
 @pytest.mark.asyncio
+async def test_pick_with_no_role_uses_curated_ingredients_default_role(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    cinnamon = Ingredient(
+        name="Cinnamon",
+        default_role="flavoring",
+        fermentation_systems=["kombucha"],
+        fdc_id=171320,
+    )
+    db_session.add_all(
+        [cinnamon, FdcFood(fdc_id=171320, data_type="SR Legacy", description="Spices, cinnamon")]
+    )
+    await db_session.commit()
+
+    batch_id = await _batch(client, "kombucha")
+    resp = await client.post(
+        f"/batches/{batch_id}/ingredients",
+        json={"fdc_id": 171320, "quantity": 5, "unit": "g"},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["role"] == "flavoring"
+
+
+@pytest.mark.asyncio
 async def test_unknown_fdc_id_404_and_id_validation(client: AsyncClient, mango: None) -> None:
     batch_id = await _batch(client, "kombucha")
     url = f"/batches/{batch_id}/ingredients"

@@ -77,3 +77,14 @@ async def test_query_validation(client: AsyncClient, catalog: None) -> None:
     assert (await client.get("/foods", params={"q": "c"})).status_code == 422
     assert (await client.get("/foods", params={"q": "cabbage", "limit": 51})).status_code == 422
     assert (await client.get("/foods", params={"q": "   "})).json() == []
+    assert (await client.get("/foods", params={"q": "x" * 101})).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_only_first_six_tokens_are_applied(client: AsyncClient, catalog: None) -> None:
+    # 7 tokens: cabbage , , , , raw zzz. Every "Cabbage..." description contains a
+    # comma, so tokens 2-5 (",") and 1/6 (cabbage/raw) all match both cabbage rows.
+    # The 7th token "zzz" matches nothing — if it were applied, results would be
+    # empty, so a non-empty result proves it was dropped.
+    body = (await client.get("/foods", params={"q": "cabbage , , , , raw zzz"})).json()
+    assert [f["description"] for f in body] == ["Cabbage, raw", "Cabbage, red, raw"]

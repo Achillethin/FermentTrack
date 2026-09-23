@@ -15,11 +15,13 @@ router = APIRouter(prefix="/foods", tags=["foods"])
 
 @router.get("", response_model=list[FdcFoodOut])
 async def search_foods(
-    q: str = Query(min_length=2, description="Every whitespace-separated word must appear"),
+    q: str = Query(
+        min_length=2, max_length=100, description="Every whitespace-separated word must appear"
+    ),
     limit: int = Query(default=20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ) -> list[FdcFood]:
-    tokens = q.lower().split()
+    tokens = q.lower().split()[:6]
     if not tokens:
         return []
     stmt = select(FdcFood)

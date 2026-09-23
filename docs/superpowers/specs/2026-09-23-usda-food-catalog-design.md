@@ -101,6 +101,13 @@ Nothing downstream changes: composition, salt suggestion and preview all read `I
 - Fuzzy or typo-tolerant search.
 - Starch gaps (still Increment 2's problem).
 
+### Known limitations
+
+- Sourdough's salt basis only counts the curated `FLOURS` names, so a flour
+  picked from the catalog (e.g. "Rye flour, light") isn't part of the 2 %
+  flour basis yet. Follow-up: key the basis on a flour flag or category, not
+  the name.
+
 ### Outbound calls
 
 The only one is a single download of the two public FDC bulk zips, from the same service Achille already approved. No key is needed, and no data is sent.

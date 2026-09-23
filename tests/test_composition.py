@@ -87,6 +87,37 @@ def test_zero_total_mass_per_100g_does_not_divide_by_zero() -> None:
     assert c.salt_pct == 0.0
 
 
+def test_salt_detected_by_sodium_content_not_just_name() -> None:
+    c = compose(
+        [
+            RecipeItem("Cabbage", 1.0, "kg", CABBAGE),
+            RecipeItem("Salt, table, iodized", 20.0, "g", {"sodium": 38.7}),
+        ]
+    )
+    assert c.salt_pct == pytest.approx(20 / 1020 * 100)
+
+
+def test_high_sodium_catalog_food_suppresses_salt_suggestion() -> None:
+    s = suggest_salt(
+        "lacto_ferment",
+        [
+            RecipeItem("Cabbage", 1.0, "kg", {}),
+            RecipeItem("Sea salt", 0.0, "g", {"sodium": 39.0}, "base"),
+        ],
+    )
+    assert s is None
+
+
+def test_soy_sauce_is_not_salt() -> None:
+    c = compose(
+        [
+            RecipeItem("Cabbage", 1.0, "kg", CABBAGE),
+            RecipeItem("Soy sauce", 20.0, "g", {"sodium": 5.5}),
+        ]
+    )
+    assert c.salt_pct is None
+
+
 # ── suggest_salt ──
 
 def test_lacto_ferment_suggests_3pct_of_base_including_brine_water() -> None:

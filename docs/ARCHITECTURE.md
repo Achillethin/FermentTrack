@@ -93,6 +93,8 @@ POST   /batches/{id}/note     Add a note
 GET    /batches/{id}/timeline Full batch timeline
 GET    /batches/compare       Compare two batches side-by-side
 GET    /batches/{id}/composition   Starting nutrient composition (USDA FDC reference × recipe; lower bounds when coverage < 1)
+POST   /batches/{id}/ingredients   Log a recipe ingredient — exactly one of ingredient_id (curated) or fdc_id (USDA catalog), plus optional quantity, unit (g/kg/mg/ml/L) and role
+GET    /batches/{id}/ingredients   List a batch's logged recipe
 
 GET    /reminders             Upcoming reminders (next 48h)
 PATCH  /reminders/{id}/done   Mark reminder complete

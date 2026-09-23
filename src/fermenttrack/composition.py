@@ -42,6 +42,15 @@ class SaltSuggestion(NamedTuple):
     grams: float
 
 
+# NaCl is ~39.3 % Na; soy sauce ~5.5 %, fish sauce ~7.9 %, bouillon cubes ~24 % —
+# 30 g/100 g catches every table/sea/iodized salt and nothing else in the catalog.
+_SALT_SODIUM_MIN = 30.0
+
+
+def _is_salt(item: RecipeItem) -> bool:
+    return item.name == "Salt" or item.per_100g.get("sodium", 0.0) >= _SALT_SODIUM_MIN
+
+
 @dataclass
 class NutrientTotal:
     grams: float = 0.0
@@ -98,7 +107,7 @@ def compose(items: list[RecipeItem]) -> Composition:
             unquantified.append(item.name)
             continue
         total += grams
-        if item.name == "Salt":
+        if _is_salt(item):
             salt_g = (salt_g or 0.0) + grams
         if not item.per_100g:
             unmapped.append(item.name)
@@ -124,7 +133,7 @@ def suggest_salt(ferment_type: str, items: list[RecipeItem]) -> SaltSuggestion |
     explicit choice), or no base mass is logged yet.
     """
     default = SALT_DEFAULTS.get(ferment_type)
-    if default is None or any(i.name == "Salt" for i in items):
+    if default is None or any(_is_salt(i) for i in items):
         return None
     fraction, basis_names = default
     basis = 0.0

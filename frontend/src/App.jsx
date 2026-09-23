@@ -255,7 +255,7 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [food, setFood] = useState(null);
-  const [role, setRole] = useState("base");
+  const [role, setRole] = useState("");
 
   useEffect(() => {
     fetch(`${API_URL}/ingredients?substrate=${encodeURIComponent(substrate)}&include_retired=true`)
@@ -289,7 +289,9 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...(food ? { fdc_id: food.fdc_id, role } : { ingredient_id: ingredientId }),
+          ...(food
+            ? { fdc_id: food.fdc_id, ...(role ? { role } : {}) }
+            : { ingredient_id: ingredientId }),
           quantity: quantity ? parseFloat(quantity) : null,
           unit: unit || null,
         }),
@@ -304,7 +306,7 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
       setFood(null);
       setQuery("");
       setResults([]);
-      setRole("base");
+      setRole("");
       onAdded();
     } catch (e) {
       setError(e.message);
@@ -340,6 +342,7 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
               >
+                <option value="">default</option>
                 {["base", "flavoring", "additive", "starter"].map((r) => (
                   <option key={r} value={r}>
                     {r}
@@ -361,6 +364,7 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
                 placeholder="Search all USDA foods…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
               />
               {results.length > 0 && (
                 <ul className="mt-1 max-h-60 divide-y divide-slate-800 overflow-y-auto rounded-lg border border-slate-800">

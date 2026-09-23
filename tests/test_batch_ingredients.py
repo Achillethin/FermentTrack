@@ -66,6 +66,26 @@ async def test_add_batch_ingredient_role_override_persists(
 
 
 @pytest.mark.asyncio
+async def test_add_batch_ingredient_invalid_role_422s(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    ingredient = Ingredient(
+        name="Cane sugar", default_role="base", fermentation_systems=["kombucha"]
+    )
+    db_session.add(ingredient)
+    await db_session.commit()
+    await db_session.refresh(ingredient)
+
+    _culture_id, batch_id = await _create_culture_and_batch(client)
+
+    resp = await client.post(
+        f"/batches/{batch_id}/ingredients",
+        json={"ingredient_id": str(ingredient.id), "role": "garnish"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_add_batch_ingredient_wrong_substrate_400s(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
