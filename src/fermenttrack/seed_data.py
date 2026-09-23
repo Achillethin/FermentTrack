@@ -87,3 +87,40 @@ RETIRED_V3: list[str] = [
 
 # Brine ferments (e.g. chilies in brine) log water as a base ingredient.
 WATER_SYSTEMS_V3: list[str] = ["kombucha", "sourdough", "lacto_ferment"]
+
+# Ingredient name -> exact USDA FDC SR Legacy description (docs/superpowers/
+# specs/2026-09-23-ingredient-nutrients-design.md § 2). Resolved to an fdcId
+# by scripts/fetch_fdc_snapshot.py, which fails loudly unless exactly one
+# search hit matches. Deliberately absent: retired generic rows (RETIRED_V3),
+# starters/cultures (no FDC entry; levain etc. can be real mass, lowering
+# coverage), tea leaves (FDC has brewed tea, not dry leaves), calcium
+# chloride, and hard cider unless FDC SR Legacy has an exact entry. They show
+# up as "unmapped" in composition.
+INGREDIENT_FDC_MAP: dict[str, str] = {
+    "Water": "Beverages, water, tap, drinking",
+    "Cane sugar": "Sugars, granulated",
+    "Fresh ginger": "Ginger root, raw",
+    "Milk": "Milk, whole, 3.25% milkfat, with added vitamin D",
+    "Salt": "Salt, table",
+    "Cabbage": "Cabbage, raw",
+    "Chilies": "Peppers, hot chili, red, raw",
+    "White rice": "Rice, white, short-grain, raw",
+    "Pearl barley": "Barley, pearled, raw",
+    "Soybeans": "Soybeans, mature seeds, raw",
+    "White wheat flour": "Wheat flour, white, bread, enriched",
+    "Whole wheat flour": "Wheat flour, whole-grain",
+    "Rye flour": "Rye flour, dark",
+    "Lemon": "Lemons, raw, without peel",
+    "Strawberries": "Strawberries, raw",
+    "Raspberries": "Raspberries, raw",
+    "Apple": "Apples, raw, with skin",
+    "Mint": "Spearmint, fresh",
+    "Basil": "Basil, fresh",
+    "Cinnamon": "Spices, cinnamon, ground",
+    "Turmeric": "Spices, turmeric, ground",
+    "Cardamom": "Spices, cardamom",
+    "Red wine": "Alcoholic beverage, wine, table, red",
+    "White wine": "Alcoholic beverage, wine, table, white",
+    "Anchovies": "Fish, anchovy, european, raw",
+    "Mackerel": "Fish, mackerel, Atlantic, raw",
+}
