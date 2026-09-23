@@ -23,8 +23,12 @@ _SEARCH = "https://api.nal.usda.gov/fdc/v1/foods/search"
 
 
 def _search(description: str, api_key: str) -> list[dict[str, Any]]:
+    # safe="()" : FDC's search endpoint 400s on a percent-encoded '(' or ')'
+    # (e.g. in "... (Includes foods for USDA's Food Distribution Program)");
+    # leaving them literal in the query string avoids that.
     qs = urllib.parse.urlencode(
-        {"query": description, "dataType": "SR Legacy", "pageSize": 200, "api_key": api_key}
+        {"query": description, "dataType": "SR Legacy", "pageSize": 200, "api_key": api_key},
+        safe="()",
     )
     with urllib.request.urlopen(f"{_SEARCH}?{qs}", timeout=30) as resp:
         foods: list[dict[str, Any]] = json.load(resp)["foods"]

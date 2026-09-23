@@ -1,0 +1,270 @@
+ingredient_name,fdc_id,nutrient,amount_per_100g
+Water,173647,water,99.9
+Water,173647,protein,0.0
+Water,173647,fat,0.0
+Water,173647,carbohydrate,0.0
+Water,173647,fiber,0.0
+Water,173647,sugars_total,0.0
+Water,173647,alcohol,0.0
+Water,173647,sodium,0.004
+Cane sugar,169655,water,0.02
+Cane sugar,169655,protein,0.0
+Cane sugar,169655,fat,0.0
+Cane sugar,169655,carbohydrate,100.0
+Cane sugar,169655,fiber,0.0
+Cane sugar,169655,sugars_total,99.8
+Cane sugar,169655,sucrose,99.8
+Cane sugar,169655,glucose,0.0
+Cane sugar,169655,fructose,0.0
+Cane sugar,169655,lactose,0.0
+Cane sugar,169655,maltose,0.0
+Cane sugar,169655,galactose,0.0
+Cane sugar,169655,alcohol,0.0
+Cane sugar,169655,sodium,0.001
+Fresh ginger,169231,water,78.9
+Fresh ginger,169231,protein,1.82
+Fresh ginger,169231,fat,0.75
+Fresh ginger,169231,carbohydrate,17.8
+Fresh ginger,169231,fiber,2.0
+Fresh ginger,169231,sugars_total,1.7
+Fresh ginger,169231,alcohol,0.0
+Fresh ginger,169231,sodium,0.013
+Milk,171265,water,88.1
+Milk,171265,protein,3.15
+Milk,171265,fat,3.25
+Milk,171265,carbohydrate,4.8
+Milk,171265,fiber,0.0
+Milk,171265,sugars_total,5.05
+Milk,171265,sucrose,0.0
+Milk,171265,glucose,0.0
+Milk,171265,fructose,0.0
+Milk,171265,lactose,5.05
+Milk,171265,maltose,0.0
+Milk,171265,galactose,0.0
+Milk,171265,alcohol,0.0
+Milk,171265,sodium,0.043
+Salt,173468,water,0.2
+Salt,173468,protein,0.0
+Salt,173468,fat,0.0
+Salt,173468,carbohydrate,0.0
+Salt,173468,fiber,0.0
+Salt,173468,sugars_total,0.0
+Salt,173468,alcohol,0.0
+Salt,173468,sodium,38.8
+Cabbage,169975,water,92.2
+Cabbage,169975,protein,1.28
+Cabbage,169975,fat,0.1
+Cabbage,169975,carbohydrate,5.8
+Cabbage,169975,fiber,2.5
+Cabbage,169975,sugars_total,3.2
+Cabbage,169975,sucrose,0.08
+Cabbage,169975,glucose,1.67
+Cabbage,169975,fructose,1.45
+Cabbage,169975,lactose,0.0
+Cabbage,169975,maltose,0.01
+Cabbage,169975,galactose,0.0
+Cabbage,169975,starch,0.0
+Cabbage,169975,alcohol,0.0
+Cabbage,169975,sodium,0.018
+Chilies,170106,water,88.0
+Chilies,170106,protein,1.87
+Chilies,170106,fat,0.44
+Chilies,170106,carbohydrate,8.81
+Chilies,170106,fiber,1.5
+Chilies,170106,sugars_total,5.3
+Chilies,170106,alcohol,0.0
+Chilies,170106,sodium,0.009
+White rice,168931,water,13.3
+White rice,168931,protein,6.5
+White rice,168931,fat,0.52
+White rice,168931,carbohydrate,79.2
+White rice,168931,sodium,0.001
+Pearl barley,170284,water,10.1
+Pearl barley,170284,protein,9.91
+Pearl barley,170284,fat,1.16
+Pearl barley,170284,carbohydrate,77.7
+Pearl barley,170284,fiber,15.6
+Pearl barley,170284,sugars_total,0.8
+Pearl barley,170284,alcohol,0.0
+Pearl barley,170284,sodium,0.009
+Soybeans,174270,water,8.54
+Soybeans,174270,protein,36.5
+Soybeans,174270,fat,19.9
+Soybeans,174270,carbohydrate,30.2
+Soybeans,174270,fiber,9.3
+Soybeans,174270,sugars_total,7.33
+Soybeans,174270,alcohol,0.0
+Soybeans,174270,sodium,0.002
+White wheat flour,168896,water,13.4
+White wheat flour,168896,protein,12.0
+White wheat flour,168896,fat,1.66
+White wheat flour,168896,carbohydrate,72.5
+White wheat flour,168896,fiber,2.4
+White wheat flour,168896,sugars_total,0.31
+White wheat flour,168896,alcohol,0.0
+White wheat flour,168896,sodium,0.002
+Whole wheat flour,168893,water,10.7
+Whole wheat flour,168893,protein,13.2
+Whole wheat flour,168893,fat,2.5
+Whole wheat flour,168893,carbohydrate,72.0
+Whole wheat flour,168893,fiber,10.7
+Whole wheat flour,168893,sugars_total,0.41
+Whole wheat flour,168893,sucrose,0.36
+Whole wheat flour,168893,glucose,0.0
+Whole wheat flour,168893,fructose,0.05
+Whole wheat flour,168893,starch,57.8
+Whole wheat flour,168893,alcohol,0.0
+Whole wheat flour,168893,sodium,0.002
+Rye flour,168885,water,10.8
+Rye flour,168885,protein,15.9
+Rye flour,168885,fat,2.22
+Rye flour,168885,carbohydrate,68.6
+Rye flour,168885,fiber,23.8
+Rye flour,168885,sugars_total,2.31
+Rye flour,168885,sucrose,1.8
+Rye flour,168885,glucose,0.22
+Rye flour,168885,fructose,0.23
+Rye flour,168885,lactose,0.0
+Rye flour,168885,maltose,0.07
+Rye flour,168885,galactose,0.0
+Rye flour,168885,alcohol,0.0
+Rye flour,168885,sodium,0.002
+Lemon,167746,water,89.0
+Lemon,167746,protein,1.1
+Lemon,167746,fat,0.3
+Lemon,167746,carbohydrate,9.32
+Lemon,167746,fiber,2.8
+Lemon,167746,sugars_total,2.5
+Lemon,167746,alcohol,0.0
+Lemon,167746,sodium,0.002
+Strawberries,167762,water,91.0
+Strawberries,167762,protein,0.67
+Strawberries,167762,fat,0.3
+Strawberries,167762,carbohydrate,7.68
+Strawberries,167762,fiber,2.0
+Strawberries,167762,sugars_total,4.89
+Strawberries,167762,sucrose,0.47
+Strawberries,167762,glucose,1.99
+Strawberries,167762,fructose,2.44
+Strawberries,167762,lactose,0.0
+Strawberries,167762,maltose,0.0
+Strawberries,167762,galactose,0.0
+Strawberries,167762,starch,0.04
+Strawberries,167762,alcohol,0.0
+Strawberries,167762,sodium,0.001
+Raspberries,167755,water,85.8
+Raspberries,167755,protein,1.2
+Raspberries,167755,fat,0.65
+Raspberries,167755,carbohydrate,11.9
+Raspberries,167755,fiber,6.5
+Raspberries,167755,sugars_total,4.42
+Raspberries,167755,sucrose,0.2
+Raspberries,167755,glucose,1.86
+Raspberries,167755,fructose,2.35
+Raspberries,167755,lactose,0.0
+Raspberries,167755,maltose,0.0
+Raspberries,167755,galactose,0.0
+Raspberries,167755,starch,0.0
+Raspberries,167755,alcohol,0.0
+Raspberries,167755,sodium,0.001
+Apple,171688,water,85.6
+Apple,171688,protein,0.26
+Apple,171688,fat,0.17
+Apple,171688,carbohydrate,13.8
+Apple,171688,fiber,2.4
+Apple,171688,sugars_total,10.4
+Apple,171688,sucrose,2.07
+Apple,171688,glucose,2.43
+Apple,171688,fructose,5.9
+Apple,171688,lactose,0.0
+Apple,171688,maltose,0.0
+Apple,171688,galactose,0.0
+Apple,171688,starch,0.05
+Apple,171688,alcohol,0.0
+Apple,171688,sodium,0.001
+Mint,173475,water,85.6
+Mint,173475,protein,3.29
+Mint,173475,fat,0.73
+Mint,173475,carbohydrate,8.41
+Mint,173475,fiber,6.8
+Mint,173475,sodium,0.03
+Basil,172232,water,92.1
+Basil,172232,protein,3.15
+Basil,172232,fat,0.64
+Basil,172232,carbohydrate,2.65
+Basil,172232,fiber,1.6
+Basil,172232,sugars_total,0.3
+Basil,172232,sucrose,0.0
+Basil,172232,glucose,0.02
+Basil,172232,fructose,0.02
+Basil,172232,lactose,0.0
+Basil,172232,maltose,0.0
+Basil,172232,galactose,0.27
+Basil,172232,alcohol,0.0
+Basil,172232,sodium,0.004
+Cinnamon,171320,water,10.6
+Cinnamon,171320,protein,3.99
+Cinnamon,171320,fat,1.24
+Cinnamon,171320,carbohydrate,80.6
+Cinnamon,171320,fiber,53.1
+Cinnamon,171320,sugars_total,2.17
+Cinnamon,171320,sucrose,0.02
+Cinnamon,171320,glucose,1.04
+Cinnamon,171320,fructose,1.11
+Cinnamon,171320,lactose,0.0
+Cinnamon,171320,maltose,0.0
+Cinnamon,171320,galactose,0.0
+Cinnamon,171320,alcohol,0.0
+Cinnamon,171320,sodium,0.01
+Turmeric,172231,water,12.8
+Turmeric,172231,protein,9.68
+Turmeric,172231,fat,3.25
+Turmeric,172231,carbohydrate,67.1
+Turmeric,172231,fiber,22.7
+Turmeric,172231,sugars_total,3.21
+Turmeric,172231,sucrose,2.38
+Turmeric,172231,glucose,0.38
+Turmeric,172231,fructose,0.45
+Turmeric,172231,lactose,0.0
+Turmeric,172231,maltose,0.0
+Turmeric,172231,galactose,0.0
+Turmeric,172231,alcohol,0.0
+Turmeric,172231,sodium,0.027
+Cardamom,170919,water,8.28
+Cardamom,170919,protein,10.8
+Cardamom,170919,fat,6.7
+Cardamom,170919,carbohydrate,68.5
+Cardamom,170919,fiber,28.0
+Cardamom,170919,sodium,0.018
+Red wine,173190,water,86.5
+Red wine,173190,protein,0.07
+Red wine,173190,fat,0.0
+Red wine,173190,carbohydrate,2.61
+Red wine,173190,fiber,0.0
+Red wine,173190,sugars_total,0.62
+Red wine,173190,alcohol,10.6
+Red wine,173190,sodium,0.004
+White wine,174837,water,86.9
+White wine,174837,protein,0.07
+White wine,174837,fat,0.0
+White wine,174837,carbohydrate,2.6
+White wine,174837,fiber,0.0
+White wine,174837,sugars_total,0.96
+White wine,174837,alcohol,10.3
+White wine,174837,sodium,0.005
+Anchovies,174182,water,73.4
+Anchovies,174182,protein,20.4
+Anchovies,174182,fat,4.84
+Anchovies,174182,carbohydrate,0.0
+Anchovies,174182,fiber,0.0
+Anchovies,174182,sugars_total,0.0
+Anchovies,174182,alcohol,0.0
+Anchovies,174182,sodium,0.104
+Mackerel,175119,water,63.6
+Mackerel,175119,protein,18.6
+Mackerel,175119,fat,13.9
+Mackerel,175119,carbohydrate,0.0
+Mackerel,175119,fiber,0.0
+Mackerel,175119,sugars_total,0.0
+Mackerel,175119,alcohol,0.0
+Mackerel,175119,sodium,0.09
