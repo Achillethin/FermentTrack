@@ -23,6 +23,11 @@ DATA_TYPES = {"sr_legacy_food": "SR Legacy", "foundation_food": "Foundation"}
 
 COLUMNS = ["fdc_id", "data_type", "description", "category", *NUTRIENTS]
 
+# FDC nutrient id 1005: carbohydrate "by difference" (100 - protein - fat -
+# water - ash). Derived, not measured, so summing measurement error in the
+# other four can push it slightly negative for near-zero-carb foods.
+_CARBOHYDRATE_BY_DIFFERENCE_ID = "1005"
+
 
 def build_catalog_rows(
     foods: Iterable[dict[str, str]],
@@ -43,11 +48,19 @@ def build_catalog_rows(
     for r in food_nutrients:
         if r["fdc_id"] in kept and r["nutrient_id"] in wanted and r["amount"] != "":
             grams = fdc_amount_to_grams(float(r["amount"]), units[r["nutrient_id"]])
-            # A handful of Foundation raw-meat foods report a tiny negative
-            # "carbohydrate by difference" (rounding artifact from summing
-            # protein/fat/water/ash slightly over 100%). g/100g can't be
-            # negative, so clamp to 0 rather than propagate noise.
-            reported.setdefault(r["fdc_id"], {})[int(r["nutrient_id"])] = max(0.0, grams)
+            if grams < 0:
+                if r["nutrient_id"] != _CARBOHYDRATE_BY_DIFFERENCE_ID:
+                    raise ValueError(
+                        f"negative amount for fdc_id={r['fdc_id']} "
+                        f"nutrient_id={r['nutrient_id']}: {grams}"
+                    )
+                # A handful of Foundation raw-meat foods report a tiny negative
+                # carbohydrate-by-difference (rounding artifact from summing
+                # protein/fat/water/ash slightly over 100%). g/100g can't be
+                # negative, so clamp this one derived nutrient to 0 rather
+                # than propagate noise; any other negative is a real bug.
+                grams = 0.0
+            reported.setdefault(r["fdc_id"], {})[int(r["nutrient_id"])] = grams
 
     rows = []
     for fdc_id, food in sorted(kept.items(), key=lambda kv: int(kv[0])):

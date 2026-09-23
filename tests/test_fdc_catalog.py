@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from fermenttrack.fdc_catalog import (
     COLUMNS,
     build_catalog_rows,
@@ -92,3 +94,18 @@ def test_catalog_seed_rows_long_format_skips_missing() -> None:
     assert by_food[(1, "protein")] == 1.28
     assert (1, "lactose") not in by_food
     assert (2, "protein") not in by_food
+
+
+def test_negative_carbohydrate_clamped_other_negatives_raise() -> None:
+    food = [
+        {"fdc_id": "5", "data_type": "sr_legacy_food", "description": "X", "food_category_id": ""}
+    ]
+    units = [{"id": "1005", "unit_name": "G"}, {"id": "1093", "unit_name": "MG"}]
+
+    carb = [{"fdc_id": "5", "nutrient_id": "1005", "amount": "-0.2"}]
+    rows = build_catalog_rows(food, iter(carb), units, [])
+    assert rows[0]["carbohydrate"] == "0.0"
+
+    sodium = [{"fdc_id": "5", "nutrient_id": "1093", "amount": "-5"}]
+    with pytest.raises(ValueError):
+        build_catalog_rows(food, iter(sodium), units, [])
