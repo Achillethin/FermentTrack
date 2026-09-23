@@ -10,19 +10,38 @@ from sqlalchemy.orm import selectinload
 
 from fermenttrack.composition import RecipeItem, compose, suggest_salt
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch, BatchIngredient, Culture, Ingredient, Measurement, Reminder
+from fermenttrack.models import (
+    Batch,
+    BatchIngredient,
+    BatchOrganism,
+    Compound,
+    Culture,
+    EnzymeReaction,
+    FermentationTypeOrganism,
+    Ingredient,
+    Measurement,
+    Organism,
+    OrganismEnzyme,
+    Reminder,
+)
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.safety.service import get_safety_report
 from fermenttrack.schemas import (
+    BatchBiochemistryOut,
     BatchCompare,
     BatchCompositionOut,
     BatchCreate,
     BatchIngredientCreate,
     BatchIngredientOut,
+    BatchOrganismCreate,
+    BatchOrganismOut,
     BatchOut,
     BatchPreview,
     BatchTimeline,
+    BiochemOrganismOut,
+    CompoundOut,
     CultureOut,
+    EnzymeOut,
     MeasurementCreate,
     MeasurementOut,
     NoteCreate,
@@ -324,3 +343,81 @@ async def get_batch_preview(batch_id: uuid.UUID, db: AsyncSession = Depends(get_
         timeline=_build_timeline_events(batch),
         safety=safety,
     )
+
+
+async def _resolve_batch_organisms(batch: Batch, db: AsyncSession) -> list[tuple[Organism, str]]:
+    result = await db.execute(
+        select(BatchOrganism)
+        .where(BatchOrganism.batch_id == batch.id)
+        .options(selectinload(BatchOrganism.organism))
+    )
+    overrides = list(result.scalars().all())
+    if overrides:
+        return [(bo.organism, bo.source) for bo in overrides]
+
+    result = await db.execute(
+        select(FermentationTypeOrganism)
+        .where(
+            FermentationTypeOrganism.fermentation_type == batch.culture.type,
+            FermentationTypeOrganism.is_default.is_(True),
+        )
+        .options(selectinload(FermentationTypeOrganism.organism))
+    )
+    defaults = list(result.scalars().all())
+    return [(fo.organism, "default") for fo in defaults]
+
+
+@router.get("/{batch_id}/biochemistry", response_model=BatchBiochemistryOut)
+async def get_batch_biochemistry(
+    batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> BatchBiochemistryOut:
+    batch = await _get_batch(batch_id, db, with_culture=True)
+    organisms = await _resolve_batch_organisms(batch, db)
+    organism_ids = [o.id for o, _ in organisms]
+
+    result = await db.execute(
+        select(OrganismEnzyme)
+        .where(OrganismEnzyme.organism_id.in_(organism_ids))
+        .options(selectinload(OrganismEnzyme.enzyme))
+    )
+    enzymes = {oe.enzyme.id: oe.enzyme for oe in result.scalars().all()}
+
+    compounds: dict[uuid.UUID, Compound] = {}
+    if enzymes:
+        result = await db.execute(
+            select(EnzymeReaction)
+            .where(EnzymeReaction.enzyme_id.in_(list(enzymes)))
+            .options(
+                selectinload(EnzymeReaction.substrate), selectinload(EnzymeReaction.product)
+            )
+        )
+        for er in result.scalars().all():
+            compounds[er.substrate.id] = er.substrate
+            compounds[er.product.id] = er.product
+
+    return BatchBiochemistryOut(
+        organisms=[
+            BiochemOrganismOut(id=o.id, name=o.name, kingdom=o.kingdom, source=source)
+            for o, source in organisms
+        ],
+        enzymes=[EnzymeOut.model_validate(e) for e in enzymes.values()],
+        compounds=[CompoundOut.model_validate(c) for c in compounds.values()],
+    )
+
+
+@router.post("/{batch_id}/organisms", response_model=BatchOrganismOut, status_code=201)
+async def add_batch_organism(
+    batch_id: uuid.UUID, payload: BatchOrganismCreate, db: AsyncSession = Depends(get_db)
+) -> BatchOrganism:
+    batch = await _get_batch(batch_id, db)
+    organism = await db.get(Organism, payload.organism_id)
+    if organism is None:
+        raise HTTPException(status_code=404, detail="Organism not found")
+
+    batch_organism = BatchOrganism(
+        batch_id=batch.id, organism_id=organism.id, notes=payload.notes
+    )
+    db.add(batch_organism)
+    await db.commit()
+    await db.refresh(batch_organism)
+    return batch_organism
