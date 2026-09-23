@@ -40,7 +40,46 @@ function Card({ title, children }) {
   );
 }
 
-function BatchHeader({ batch, culture, daysInStage }) {
+function StageControl({ batchId, onAdvanced }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function advance() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/stage`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Could not advance stage (${res.status})`);
+      }
+      onAdvanced();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={advance}
+        disabled={busy}
+        className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium hover:bg-slate-600 disabled:opacity-50"
+      >
+        {busy ? "Advancing…" : "Advance to next stage →"}
+      </button>
+      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced }) {
   return (
     <Card title="Batch">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -59,6 +98,149 @@ function BatchHeader({ batch, culture, daysInStage }) {
       <p className="mt-2 text-xs text-slate-500">
         Started {new Date(batch.started_at).toLocaleString()} · outcome: {batch.outcome}
       </p>
+      {batch.outcome === "in_progress" && (
+        <StageControl batchId={batchId} onAdvanced={onAdvanced} />
+      )}
+    </Card>
+  );
+}
+
+const OBSERVATION_TYPES = [
+  "pH",
+  "temperature",
+  "gravity",
+  "brix",
+  "smell",
+  "taste",
+  "appearance",
+  "note",
+  "other",
+];
+
+function LogObservation({ batchId, onLogged }) {
+  const [type, setType] = useState("pH");
+  const [customType, setCustomType] = useState("");
+  const [valueNumeric, setValueNumeric] = useState("");
+  const [valueText, setValueText] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const isNote = type === "note";
+  const isNumeric = ["pH", "temperature", "gravity", "brix"].includes(type);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      let res;
+      if (isNote) {
+        if (!valueText.trim()) throw new Error("Write the note text");
+        res = await fetch(`${API_URL}/batches/${batchId}/note`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: valueText }),
+        });
+      } else {
+        const effectiveType = type === "other" ? customType.trim() : type;
+        if (!effectiveType) throw new Error("Pick or name an observation type");
+        res = await fetch(`${API_URL}/batches/${batchId}/measure`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: effectiveType,
+            value_numeric: valueNumeric ? parseFloat(valueNumeric) : null,
+            value_text: valueText || null,
+            notes: notes || null,
+          }),
+        });
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Could not log observation (${res.status})`);
+      }
+      setCustomType("");
+      setValueNumeric("");
+      setValueText("");
+      setNotes("");
+      onLogged();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="Log an observation">
+      <form className="space-y-2" onSubmit={submit}>
+        <div className="flex gap-2">
+          <select
+            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+          >
+            {OBSERVATION_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          {type === "other" && (
+            <input
+              className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+              placeholder="type name"
+              value={customType}
+              onChange={(e) => setCustomType(e.target.value)}
+            />
+          )}
+        </div>
+
+        {isNote ? (
+          <textarea
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            placeholder="What did you observe?"
+            rows={2}
+            value={valueText}
+            onChange={(e) => setValueText(e.target.value)}
+          />
+        ) : (
+          <>
+            <div className="flex gap-2">
+              {isNumeric && (
+                <input
+                  className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+                  placeholder="value"
+                  value={valueNumeric}
+                  onChange={(e) => setValueNumeric(e.target.value)}
+                />
+              )}
+              <input
+                className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+                placeholder="description (e.g. tangy, cloudy)"
+                value={valueText}
+                onChange={(e) => setValueText(e.target.value)}
+              />
+            </div>
+            <input
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+              placeholder="Notes (optional)"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </>
+        )}
+
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
+        >
+          {busy ? "Logging…" : "Log observation"}
+        </button>
+      </form>
     </Card>
   );
 }
@@ -384,7 +566,14 @@ export default function App() {
 
       {preview && (
         <>
-          <BatchHeader batch={preview.batch} culture={preview.culture} daysInStage={preview.days_in_stage} />
+          <BatchHeader
+            batchId={batchId}
+            batch={preview.batch}
+            culture={preview.culture}
+            daysInStage={preview.days_in_stage}
+            onAdvanced={() => loadPreview(batchId)}
+          />
+          <LogObservation batchId={batchId} onLogged={() => loadPreview(batchId)} />
           <Recipe
             batchId={batchId}
             substrate={preview.culture.type}
