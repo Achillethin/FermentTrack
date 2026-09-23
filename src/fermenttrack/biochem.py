@@ -112,12 +112,12 @@ def kegg_find_id(text: str, query: str) -> str:
     """Find a compound ID by exact name match in KEGG 'find' TSV response.
 
     KEGG 'find' is a keyword search, so first hit may be wrong (e.g., Ethanolamine
-    before Ethanol). Parse each TSV line as '<db>:<ID>\\t<names>', split names
+    before Ethanol). Parse each TSV line as '[<db>:]<ID>\\t<names>', split names
     on ';', strip whitespace, and return the bare ID of the first line whose
     names contain query exactly (case-insensitive).
 
     Args:
-        text: KEGG find TSV response (one or more lines, format 'cpd:C00469\\tName1; Name2')
+        text: KEGG find TSV response (one or more lines, format 'C00469\\tName1; Name2')
         query: Exact name to match (case-insensitive)
 
     Returns:
@@ -136,7 +136,7 @@ def kegg_find_id(text: str, query: str) -> str:
             continue
         names = [n.strip() for n in names_part.split(";")]
         if any(n.lower() == query_lower for n in names):
-            return raw_id.split(":", 1)[1]
+            return raw_id.split(":")[-1]  # bare ("C00469") or prefixed ("cpd:C00469")
     raise ValueError(f"no exact KEGG match for {query!r}")
 
 

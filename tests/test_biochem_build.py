@@ -31,7 +31,8 @@ NAME        Ethanol;
 ///
 """
 
-FIND_RESPONSE = "cpd:C00469\tEthanol; Ethyl alcohol; EtOH\n"
+# Real KEGG `find/compound` responses carry bare ids (no "cpd:" prefix).
+FIND_RESPONSE = "C00469\tEthanol; Ethyl alcohol; EtOH\n"
 
 
 def _fake_enzyme_names() -> dict[str, str]:
@@ -75,8 +76,13 @@ def test_kegg_find_id_case_insensitive() -> None:
 
 def test_kegg_find_id_two_lines_takes_correct_hit() -> None:
     """When first hit is wrong (Ethanolamine), find second hit (Ethanol)."""
-    response = "cpd:C00189\tEthanolamine; 2-Aminoethanol\ncpd:C00469\tEthanol; Ethyl alcohol\n"
+    response = "C00189\tEthanolamine; 2-Aminoethanol\nC00469\tEthanol; Ethyl alcohol\n"
     assert kegg_find_id(response, "Ethanol") == "C00469"
+
+
+def test_kegg_find_id_accepts_prefixed_ids() -> None:
+    """The 'cpd:'-prefixed form (as `find` without a db) also works."""
+    assert kegg_find_id("cpd:C00469\tEthanol; Ethyl alcohol\n", "Ethanol") == "C00469"
 
 
 def test_kegg_find_id_no_match_raises_valueerror() -> None:
