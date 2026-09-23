@@ -71,7 +71,8 @@ def main() -> None:
             "been migrated)"
         )
 
-    # Corporate TLS inspection: certifi (httpx default) lacks the proxy root CA; the OS store has it.
+    # Corporate TLS inspection: certifi (httpx default) lacks the proxy root CA;
+    # the OS store has it.
     with httpx.Client(timeout=30.0, verify=ssl.create_default_context()) as client:
         enzyme_names = fetch_enzyme_names(client)
         compound_lookup = fetch_compound_lookup(client)
