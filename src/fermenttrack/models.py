@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Boolean, Float, ForeignKey, Interval, JSON, Text, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, Interval, JSON, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -109,6 +109,7 @@ class Ingredient(Base):
     default_role: Mapped[str] = mapped_column(Text, nullable=False)  # base | starter | flavoring | additive
     fermentation_systems: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    fdc_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True, index=True)
     nutrients: Mapped[list[IngredientNutrient]] = relationship()
 
 
@@ -147,3 +148,25 @@ class IngredientNutrient(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False)  # "usda_fdc"
     source_food_id: Mapped[str] = mapped_column(Text, nullable=False)  # FDC fdcId
     source_version: Mapped[str] = mapped_column(Text, nullable=False)  # snapshot file stem
+
+
+class FdcFood(Base):
+    """USDA FDC catalog food (SR Legacy / Foundation), loaded from fdc_catalog_v1.csv.gz."""
+
+    __tablename__ = "fdc_foods"
+
+    fdc_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    data_type: Mapped[str] = mapped_column(Text, nullable=False)  # "SR Legacy" | "Foundation"
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nutrients: Mapped[list[FdcFoodNutrient]] = relationship()
+
+
+class FdcFoodNutrient(Base):
+    """Catalog nutrient per 100 g (grams). No row = not reported = unknown, never 0."""
+
+    __tablename__ = "fdc_food_nutrients"
+
+    fdc_id: Mapped[int] = mapped_column(Integer, ForeignKey("fdc_foods.fdc_id"), primary_key=True)
+    nutrient: Mapped[str] = mapped_column(Text, primary_key=True)  # key of nutrients.NUTRIENTS
+    amount_per_100g: Mapped[float] = mapped_column(Float, nullable=False)

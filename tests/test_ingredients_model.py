@@ -9,7 +9,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from fermenttrack.models import Batch, BatchIngredient, Culture, Ingredient, IngredientNutrient
+from fermenttrack.models import (
+    Batch,
+    BatchIngredient,
+    Culture,
+    FdcFood,
+    FdcFoodNutrient,
+    Ingredient,
+    IngredientNutrient,
+)
 
 
 @pytest.mark.asyncio
@@ -88,6 +96,38 @@ async def test_ingredient_nutrients_roundtrip_and_unique_per_source(
             ingredient_id=salt.id, nutrient="sodium", amount_per_100g=1.0, source="usda_fdc",
             source_food_id="x", source_version="fdc_nutrients_v1",
         )
+    )
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_fdc_food_roundtrip_and_ingredient_fdc_id_unique(db_session: AsyncSession) -> None:
+    db_session.add(
+        FdcFood(
+            fdc_id=169975, data_type="SR Legacy", description="Cabbage, raw",
+            category="Vegetables and Vegetable Products",
+            nutrients=[FdcFoodNutrient(nutrient="water", amount_per_100g=92.18)],
+        )
+    )
+    db_session.add(
+        Ingredient(
+            name="Cabbage", default_role="base",
+            fermentation_systems=["lacto_ferment"], fdc_id=169975,
+        )
+    )
+    await db_session.commit()
+
+    food = (
+        await db_session.execute(
+            select(FdcFood).where(FdcFood.fdc_id == 169975).options(selectinload(FdcFood.nutrients))
+        )
+    ).scalar_one()
+    assert {n.nutrient: n.amount_per_100g for n in food.nutrients} == {"water": 92.18}
+
+    db_session.add(
+        Ingredient(name="Cabbage 2", default_role="base", fermentation_systems=[], fdc_id=169975)
     )
     with pytest.raises(IntegrityError):
         await db_session.commit()
