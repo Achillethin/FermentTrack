@@ -52,3 +52,27 @@ async def test_list_ingredients_filters_by_substrate(
     resp = await client.get("/ingredients", params={"substrate": "lacto_ferment"})
     assert resp.status_code == 200
     assert {i["name"] for i in resp.json()} == {"Salt"}
+
+
+@pytest.mark.asyncio
+async def test_include_retired_flag(client: AsyncClient, db_session: AsyncSession) -> None:
+    db_session.add_all(
+        [
+            Ingredient(name="Lemon", default_role="flavoring", fermentation_systems=["kombucha"]),
+            Ingredient(
+                name="Fruit",
+                default_role="flavoring",
+                fermentation_systems=["kombucha"],
+                is_active=False,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    default = {i["name"] for i in (await client.get("/ingredients?substrate=kombucha")).json()}
+    everything = {
+        i["name"]
+        for i in (await client.get("/ingredients?substrate=kombucha&include_retired=true")).json()
+    }
+    assert default == {"Lemon"}
+    assert everything == {"Lemon", "Fruit"}

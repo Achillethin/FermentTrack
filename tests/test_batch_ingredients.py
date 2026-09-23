@@ -107,3 +107,21 @@ async def test_list_batch_ingredients_empty_recipe(client: AsyncClient) -> None:
     resp = await client.get(f"/batches/{batch_id}/ingredients")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_add_retired_ingredient_rejected(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    retired = Ingredient(
+        name="Fruit", default_role="flavoring", fermentation_systems=["kombucha"], is_active=False
+    )
+    db_session.add(retired)
+    await db_session.commit()
+    _culture_id, batch_id = await _create_culture_and_batch(client)
+
+    resp = await client.post(
+        f"/batches/{batch_id}/ingredients", json={"ingredient_id": str(retired.id)}
+    )
+    assert resp.status_code == 400
+    assert "retired" in resp.json()["detail"]
