@@ -69,10 +69,12 @@ class Composition:
 
     @property
     def salt_pct(self) -> float | None:
-        """Added-salt share of batch mass. None = salt not logged (unknown); a logged
-        0 g is a known 0. Intrinsic food sodium stays in nutrients["sodium"], not here -
-        otherwise unsalted cabbage would read as ~0.05 % "salt". Not fed to safety."""
-        if self.salt_g is None:
+        """Added-salt share of batch mass. None = salt not logged (unknown), or any
+        recipe row has no usable quantity/unit (the denominator would be incomplete).
+        A logged 0 g is a known 0. Intrinsic food sodium stays in nutrients["sodium"],
+        not here - otherwise unsalted cabbage would read as ~0.05 % "salt". Not fed to
+        safety."""
+        if self.salt_g is None or self.unquantified:
             return None
         return self.salt_g / self.total_mass_g * 100 if self.total_mass_g else 0.0
 

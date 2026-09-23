@@ -80,6 +80,7 @@ Decisions:
   `Water` also gains `lacto_ferment`, because brine ferments (chilies in brine) need it. There is no "Other fruit" catch-all, because that would bring the vagueness back. A missing ingredient is added through a new seed migration. The API rejects logging a retired ingredient.
 - **Some ingredients are still unmapped, and that's honest:** starters and cultures (negligible mass), tea leaves (FDC has brewed tea, not dry leaves), calcium chloride, and anything with no exact FDC SR Legacy match. Composition reports them as `unmapped`, which pulls `coverage` below 1.
 - **Units become a closed set: `g, kg, mg, ml, L`.** The frontend's free-text unit field becomes a `<select>`. ml and L assume a density of 1.0. That is right for water, about 3% off for milk, and 40% off for honey. It's marked with a `ponytail:` comment, and per-ingredient density gets added when a recipe needs it. Any other unit already stored is reported as `unquantified` and never guessed.
+- **The unique key `(ingredient_id, nutrient, source)` excludes `source_version`**, so a v2 snapshot migration must replace or UPDATE v1 rows rather than insert alongside them. A second source (e.g. CIQUAL) needs a precedence rule before the composition endpoint merges sources.
 
 ## 3. Batch composition (Increment 1)
 
@@ -90,7 +91,7 @@ Output per batch:
 - `mapped_mass_g`: the part of that mass whose ingredients have nutrient data.
 - `coverage` = mapped / total.
 - Per nutrient: `grams`, `per_100g`, and `missing_from`, the list of mapped ingredients that have no value for it.
-- `salt_pct`: logged **added salt** (Salt rows) / total mass. This is the recipe's **brine salinity estimate**, the input the Monod twin's `salt_factor` needs. It is `null` when no Salt row is logged (unknown), and exactly 0 for a logged 0 g. The food's own sodium stays in `nutrients.sodium` and is deliberately left out: otherwise unsalted cabbage would read as about 0.05 % "salt".
+- `salt_pct`: logged **added salt** (Salt rows) / total mass. This is the recipe's **brine salinity estimate**, the input the Monod twin's `salt_factor` needs. It is `null` when no Salt row is logged (unknown), and exactly 0 for a logged 0 g, and `null` whenever any recipe row has no usable quantity/unit (the denominator would be incomplete). The food's own sodium stays in `nutrients.sodium` and is deliberately left out: otherwise unsalted cabbage would read as about 0.05 % "salt".
 - `unmapped` and `unquantified` ingredient names.
 
 When `coverage < 1` or `missing_from` isn't empty, the figures are **lower bounds**. The API says so in the field docs and the UI says so in the card.
@@ -129,7 +130,7 @@ Here `A` (k × r) holds mass-based stoichiometric coefficients, one column per r
 | Reaction | Per 1 g substrate | Schemes |
 |---|---|---|
 | Sucrose inversion (invertase) | −1 sucrose, −0.053 water, +0.526 glucose, +0.526 fructose | kombucha, kefir (water) |
-| Lactose hydrolysis | −1 lactose, +0.526 glucose, +0.526 galactose | cheese, kefir (milk) |
+| Lactose hydrolysis | −1 lactose, −0.053 water, +0.526 glucose, +0.526 galactose | cheese, kefir (milk) |
 | Amylolysis | −1 starch, −0.111 water, +1.111 glucose | koji, miso, sourdough |
 | Homolactic | −1 hexose, +1.000 lactic acid | lacto_ferment, cheese, sourdough |
 | Heterolactic | −1 hexose, +0.500 lactic, +0.256 ethanol, +0.244 CO₂ | sourdough, kefir, lacto_ferment (early) |
@@ -142,7 +143,7 @@ Each scheme is a sparse selection of columns. Mass leaves the system through CO�
 
 ### 4.2 Where ξ(t) comes from, in order of trust
 
-1. **Measurements.** Brix, gravity or refractometer drops give Δ(total sugars) directly. The SG → ethanol correlation is standard. pH gives acid production only weakly, because the buffer capacity is unknown, so it is a likelihood term, not an inversion.
+1. **Measurements.** Brix, gravity or refractometer drops give Δ(total sugars) directly. A refractometer Brix drop is only a clean Δsugars when there's no ethanol; alcoholic and acetic schemes need the gravity + refractometer correction. The SG → ethanol correlation is standard. pH gives acid production only weakly, because the buffer capacity is unknown, so it is a likelihood term, not an inversion.
 2. **The vendored Monod twin** (`safety/baseline_model.py`). For `lactic`, `S(t)` and `P(t)` map to ξ_homolactic. `S₀` comes from the composition's fermentable sugars and `salt_pct` from the composition. This is the first real consumer of Increment 1.
 3. **Literature priors** on rates or extents, per scheme. These are used for schemes the twin doesn't cover yet (kombucha's two-organism yeast→AAB cascade, koji, cheese ripening).
 
@@ -168,7 +169,7 @@ src/fermenttrack/transform/
 GET /batches/{id}/nutrients/trajectory?hours=…   → bands per nutrient
 ```
 
-The check that anchors `stoichiometry.py` is elemental balance: every column conserves C, H and O mass within 1% once water, CO₂ and O₂ are included. That one assert catches every typo in a yield coefficient.
+The check that anchors `stoichiometry.py` is elemental balance: every column conserves C, H and O mass within 1% once water, CO₂ and O₂ are included, except proteolysis, which is excluded from the C/H/O assert — its coefficients depend on the average residue mass, and N isn't tracked. Every other column must balance within 1 %. That one assert catches every typo in a yield coefficient.
 
 ## 5. Open decisions for Achille
 

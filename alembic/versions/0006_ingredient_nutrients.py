@@ -38,7 +38,12 @@ def upgrade() -> None:
         sa.Column("source_version", sa.Text(), nullable=False),
         sa.UniqueConstraint("ingredient_id", "nutrient", "source"),
     )
-    rows = op.get_bind().execute(sa.text("SELECT id, name FROM ingredients"))
+    ingredients = sa.table(
+        "ingredients",
+        sa.column("id", postgresql.UUID(as_uuid=True)),
+        sa.column("name", sa.Text()),
+    )
+    rows = op.get_bind().execute(sa.select(ingredients.c.id, ingredients.c.name))
     ids_by_name = {name: id_ for id_, name in rows}
     # FDC_SNAPSHOT_V1 is frozen, so this migration stays a faithful record of what it inserted.
     op.bulk_insert(table, nutrient_seed_rows(load_snapshot(FDC_SNAPSHOT_V1), ids_by_name))

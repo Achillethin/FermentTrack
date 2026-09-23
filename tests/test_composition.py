@@ -70,6 +70,17 @@ def test_unsalted_cabbage_salt_is_unknown() -> None:
     assert compose([RecipeItem("Cabbage", 1.0, "kg", CABBAGE)]).salt_pct is None
 
 
+def test_salt_pct_unknown_when_any_row_unquantified() -> None:
+    c = compose(
+        [
+            RecipeItem("Cabbage", 1.0, "kg", CABBAGE),
+            RecipeItem("Salt", 30.0, "g", SALT),
+            RecipeItem("Water", 2.0, "cups", WATER),
+        ]
+    )
+    assert c.salt_pct is None
+
+
 def test_zero_total_mass_per_100g_does_not_divide_by_zero() -> None:
     c = compose([RecipeItem("Salt", 0.0, "g", SALT)])
     assert c.per_100g("sodium") == 0.0

@@ -1,6 +1,6 @@
 """Fetch the frozen FDC nutrient snapshot for INGREDIENT_FDC_MAP.
 
-    python scripts/fetch_fdc_snapshot.py [--api-key KEY]
+    python scripts/fetch_fdc_snapshot.py [--api-key KEY] [--force]
 
 Writes src/fermenttrack/fdc_nutrients_v1.csv. FROZEN once migration 0006 has
 run anywhere — a new snapshot is fdc_nutrients_v2.csv + a new migration.
@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
+import sys
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -37,8 +39,17 @@ def _search(description: str, api_key: str) -> list[dict[str, Any]]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--api-key", default="DEMO_KEY")
+    parser.add_argument("--api-key", default=os.environ.get("FDC_API_KEY"))
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+
+    if FDC_SNAPSHOT_V1.exists() and not args.force:
+        sys.exit(
+            "fdc_nutrients_v1.csv is frozen; a new snapshot is _v2 + a new migration "
+            "(use --force only to regenerate v1 before it has ever been migrated)"
+        )
+    if not args.api_key:
+        sys.exit("no API key: pass --api-key or set the FDC_API_KEY env var")
 
     rows: list[SnapshotRow] = []
     for name, description in INGREDIENT_FDC_MAP.items():

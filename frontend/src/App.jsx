@@ -392,7 +392,7 @@ function Composition({ data }) {
       <ul className="divide-y divide-slate-800 text-sm">
         {data.salt_pct != null && (
           <li className="flex justify-between py-1.5">
-            <span>Added salt</span>
+            <span>Added salt (% of total mass)</span>
             <span>{data.salt_pct.toFixed(2)} %</span>
           </li>
         )}
