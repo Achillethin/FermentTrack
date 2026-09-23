@@ -8,12 +8,14 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from fermenttrack.composition import RecipeItem, compose, suggest_salt
 from fermenttrack.database import get_db
 from fermenttrack.models import Batch, BatchIngredient, Culture, Ingredient, Measurement, Reminder
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.safety.service import get_safety_report
 from fermenttrack.schemas import (
     BatchCompare,
+    BatchCompositionOut,
     BatchCreate,
     BatchIngredientCreate,
     BatchIngredientOut,
@@ -24,8 +26,10 @@ from fermenttrack.schemas import (
     MeasurementCreate,
     MeasurementOut,
     NoteCreate,
+    NutrientTotalOut,
     RuleVerdictOut,
     SafetyReportOut,
+    SaltSuggestionOut,
     StageAdvance,
     TimelineEvent,
 )
@@ -238,6 +242,45 @@ async def list_batch_ingredients(
     await _get_batch(batch_id, db)  # raises 404 if the batch doesn't exist
     result = await db.execute(select(BatchIngredient).where(BatchIngredient.batch_id == batch_id))
     return list(result.scalars().all())
+
+
+@router.get("/{batch_id}/composition", response_model=BatchCompositionOut)
+async def get_batch_composition(
+    batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> BatchCompositionOut:
+    batch = await _get_batch(batch_id, db, with_culture=True)  # 404 if missing
+    result = await db.execute(
+        select(BatchIngredient)
+        .where(BatchIngredient.batch_id == batch_id)
+        .options(selectinload(BatchIngredient.ingredient).selectinload(Ingredient.nutrients))
+    )
+    items = [
+        RecipeItem(
+            bi.ingredient.name,
+            bi.quantity,
+            bi.unit,
+            {n.nutrient: n.amount_per_100g for n in bi.ingredient.nutrients},
+            bi.role,
+        )
+        for bi in result.scalars()
+    ]
+    c = compose(items)
+    salt = suggest_salt(batch.culture.type, items)
+    return BatchCompositionOut(
+        total_mass_g=c.total_mass_g,
+        mapped_mass_g=c.mapped_mass_g,
+        coverage=c.coverage,
+        salt_pct=c.salt_pct,
+        salt_suggestion=SaltSuggestionOut(**salt._asdict()) if salt else None,
+        nutrients=[
+            NutrientTotalOut(
+                nutrient=name, grams=t.grams, per_100g=c.per_100g(name), missing_from=t.missing_from
+            )
+            for name, t in c.nutrients.items()
+        ],
+        unmapped=c.unmapped,
+        unquantified=c.unquantified,
+    )
 
 
 @router.get("/{batch_id}/preview", response_model=BatchPreview)

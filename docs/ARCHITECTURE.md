@@ -92,6 +92,7 @@ POST   /batches/{id}/photo    Upload a photo
 POST   /batches/{id}/note     Add a note
 GET    /batches/{id}/timeline Full batch timeline
 GET    /batches/compare       Compare two batches side-by-side
+GET    /batches/{id}/composition   Starting nutrient composition (USDA FDC reference × recipe; lower bounds when coverage < 1)
 
 GET    /reminders             Upcoming reminders (next 48h)
 PATCH  /reminders/{id}/done   Mark reminder complete
