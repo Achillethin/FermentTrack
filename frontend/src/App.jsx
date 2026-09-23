@@ -63,26 +63,102 @@ function BatchHeader({ batch, culture, daysInStage }) {
   );
 }
 
-function Recipe({ recipe }) {
-  if (recipe.length === 0) {
-    return (
-      <Card title="Recipe">
-        <p className="text-sm text-slate-500">No ingredients logged yet.</p>
-      </Card>
-    );
+function Recipe({ batchId, substrate, recipe, onAdded }) {
+  const [options, setOptions] = useState([]);
+  const [ingredientId, setIngredientId] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [unit, setUnit] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/ingredients?substrate=${encodeURIComponent(substrate)}`)
+      .then((r) => r.json())
+      .then(setOptions)
+      .catch(() => {});
+  }, [substrate]);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!ingredientId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/ingredients`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ingredient_id: ingredientId,
+          quantity: quantity ? parseFloat(quantity) : null,
+          unit: unit || null,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Could not add ingredient (${res.status})`);
+      }
+      setIngredientId("");
+      setQuantity("");
+      setUnit("");
+      onAdded();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
   }
+
   return (
     <Card title="Recipe">
-      <ul className="divide-y divide-slate-800">
-        {recipe.map((item) => (
-          <li key={item.id} className="flex justify-between py-2 text-sm">
-            <span className="text-slate-200">
-              {item.quantity ?? ""} {item.unit ?? ""}
-            </span>
-            <span className="text-slate-500">{item.role}</span>
-          </li>
-        ))}
-      </ul>
+      {recipe.length === 0 ? (
+        <p className="mb-3 text-sm text-slate-500">No ingredients logged yet.</p>
+      ) : (
+        <ul className="mb-3 divide-y divide-slate-800">
+          {recipe.map((item) => (
+            <li key={item.id} className="flex justify-between py-2 text-sm">
+              <span className="text-slate-200">
+                {options.find((o) => o.id === item.ingredient_id)?.name ?? item.ingredient_id}{" "}
+                {item.quantity ?? ""} {item.unit ?? ""}
+              </span>
+              <span className="text-slate-500">{item.role}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="flex flex-wrap gap-2" onSubmit={submit}>
+        <select
+          className="min-w-[9rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+          value={ingredientId}
+          onChange={(e) => setIngredientId(e.target.value)}
+        >
+          <option value="">Add ingredient…</option>
+          {options.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+        <input
+          className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+          placeholder="qty"
+          value={quantity}
+          onChange={(e) => setQuantity(e.target.value)}
+        />
+        <input
+          className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+          placeholder="unit"
+          value={unit}
+          onChange={(e) => setUnit(e.target.value)}
+        />
+        <button
+          type="submit"
+          disabled={busy || !ingredientId}
+          className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
+        >
+          Add
+        </button>
+      </form>
+      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
     </Card>
   );
 }
@@ -309,7 +385,12 @@ export default function App() {
       {preview && (
         <>
           <BatchHeader batch={preview.batch} culture={preview.culture} daysInStage={preview.days_in_stage} />
-          <Recipe recipe={preview.recipe} />
+          <Recipe
+            batchId={batchId}
+            substrate={preview.culture.type}
+            recipe={preview.recipe}
+            onAdded={() => loadPreview(batchId)}
+          />
           <Timeline timeline={preview.timeline} />
           <Safety safety={preview.safety} />
         </>
