@@ -11,7 +11,7 @@ from fermenttrack.biochem import (
     ENZYME_ORGANISMS,
     build_snapshot,
     kegg_entry_name,
-    kegg_find_first_id,
+    kegg_find_id,
     load_snapshot,
     parse_kegg_flatfile,
     snapshot_seed_rows,
@@ -53,8 +53,42 @@ def test_kegg_entry_name_strips_semicolon() -> None:
     assert kegg_entry_name(COMPOUND_FLATFILE) == "Ethanol"
 
 
-def test_kegg_find_first_id() -> None:
-    assert kegg_find_first_id(FIND_RESPONSE) == "C00469"
+def test_kegg_entry_name_missing_name_field_raises_valueerror() -> None:
+    """Entry with no NAME field raises ValueError."""
+    no_name_flatfile = """ENTRY       EC 1.1.1.1                  Enzyme
+CLASS       Oxidoreductases
+///
+"""
+    with pytest.raises(ValueError, match="KEGG entry has no NAME field"):
+        kegg_entry_name(no_name_flatfile)
+
+
+def test_kegg_find_id_happy_path() -> None:
+    """Find exact match in KEGG find response."""
+    assert kegg_find_id(FIND_RESPONSE, "Ethanol") == "C00469"
+
+
+def test_kegg_find_id_case_insensitive() -> None:
+    """Find is case-insensitive."""
+    assert kegg_find_id(FIND_RESPONSE, "ethanol") == "C00469"
+
+
+def test_kegg_find_id_two_lines_takes_correct_hit() -> None:
+    """When first hit is wrong (Ethanolamine), find second hit (Ethanol)."""
+    response = "cpd:C00189\tEthanolamine; 2-Aminoethanol\ncpd:C00469\tEthanol; Ethyl alcohol\n"
+    assert kegg_find_id(response, "Ethanol") == "C00469"
+
+
+def test_kegg_find_id_no_match_raises_valueerror() -> None:
+    """No exact match raises ValueError."""
+    with pytest.raises(ValueError, match="no exact KEGG match for 'Nonexistent'"):
+        kegg_find_id(FIND_RESPONSE, "Nonexistent")
+
+
+def test_kegg_find_id_empty_text_raises_valueerror() -> None:
+    """Empty response raises ValueError."""
+    with pytest.raises(ValueError, match="no exact KEGG match for 'Ethanol'"):
+        kegg_find_id("", "Ethanol")
 
 
 def test_build_snapshot_requires_every_curated_enzyme_and_compound() -> None:

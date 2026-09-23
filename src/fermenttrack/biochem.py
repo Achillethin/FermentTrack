@@ -30,6 +30,7 @@ ORGANISMS: dict[str, str] = {
     "Lactobacillus plantarum": "bacteria",
     "Lactococcus lactis": "bacteria",
     "Tetragenococcus halophilus": "bacteria",
+    "Kluyveromyces marxianus": "yeast",
 }
 
 # Hand-curated: fermentation_type -> default organisms (dominant, not exhaustive).
@@ -38,7 +39,7 @@ FERMENTATION_TYPE_ORGANISMS: dict[str, list[str]] = {
     "sourdough": ["Saccharomyces cerevisiae", "Lactobacillus plantarum"],
     "koji": ["Aspergillus oryzae"],
     "cheese": ["Lactococcus lactis"],
-    "kefir": ["Saccharomyces cerevisiae", "Lactobacillus plantarum"],
+    "kefir": ["Lactococcus lactis", "Kluyveromyces marxianus"],
     "miso": ["Aspergillus oryzae", "Tetragenococcus halophilus"],
     "garum": ["Tetragenococcus halophilus"],
     "vinegar": ["Acetobacter aceti"],
@@ -102,17 +103,41 @@ def parse_kegg_flatfile(text: str) -> dict[str, list[str]]:
 def kegg_entry_name(text: str) -> str:
     """First NAME line of a KEGG 'get' flat file, trailing ';' stripped."""
     fields = parse_kegg_flatfile(text)
+    if "NAME" not in fields:
+        raise ValueError("KEGG entry has no NAME field")
     return fields["NAME"][0].rstrip(";")
 
 
-def kegg_find_first_id(text: str) -> str:
-    """First hit's bare id from a KEGG 'find' TSV response.
+def kegg_find_id(text: str, query: str) -> str:
+    """Find a compound ID by exact name match in KEGG 'find' TSV response.
 
-    e.g. 'cpd:C00469\\tEthanol; Ethyl alcohol\\n' -> 'C00469'
+    KEGG 'find' is a keyword search, so first hit may be wrong (e.g., Ethanolamine
+    before Ethanol). Parse each TSV line as '<db>:<ID>\\t<names>', split names
+    on ';', strip whitespace, and return the bare ID of the first line whose
+    names contain query exactly (case-insensitive).
+
+    Args:
+        text: KEGG find TSV response (one or more lines, format 'cpd:C00469\\tName1; Name2')
+        query: Exact name to match (case-insensitive)
+
+    Returns:
+        Bare compound ID (e.g., 'C00469')
+
+    Raises:
+        ValueError: If no exact match found or text is empty
     """
-    first_line = text.splitlines()[0]
-    raw_id = first_line.split("\t", 1)[0]
-    return raw_id.split(":", 1)[1]
+    query_lower = query.lower()
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            raw_id, names_part = line.split("\t", 1)
+        except ValueError:
+            continue
+        names = [n.strip() for n in names_part.split(";")]
+        if any(n.lower() == query_lower for n in names):
+            return raw_id.split(":", 1)[1]
+    raise ValueError(f"no exact KEGG match for {query!r}")
 
 
 def build_snapshot(
