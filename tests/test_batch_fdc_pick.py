@@ -101,6 +101,30 @@ async def test_pick_reuses_backfilled_curated_ingredient(
 
 
 @pytest.mark.asyncio
+async def test_retired_ingredient_sharing_fdc_id_400s_and_stays_untagged(
+    client: AsyncClient, db_session: AsyncSession, mango: None
+) -> None:
+    old_fruit = Ingredient(
+        name="Old fruit",
+        default_role="flavoring",
+        fermentation_systems=["kefir"],
+        fdc_id=MANGO,
+        is_active=False,
+    )
+    db_session.add(old_fruit)
+    await db_session.commit()
+
+    batch_id = await _batch(client, "kombucha")
+    resp = await client.post(f"/batches/{batch_id}/ingredients", json={"fdc_id": MANGO})
+    assert resp.status_code == 400
+    assert "retired" in resp.json()["detail"]
+
+    db_session.expire_all()
+    [ing] = await _mango_ingredients(db_session)
+    assert ing.fermentation_systems == ["kefir"]
+
+
+@pytest.mark.asyncio
 async def test_unknown_fdc_id_404_and_id_validation(client: AsyncClient, mango: None) -> None:
     batch_id = await _batch(client, "kombucha")
     url = f"/batches/{batch_id}/ingredients"
