@@ -252,17 +252,36 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
   const [unit, setUnit] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [food, setFood] = useState(null);
+  const [role, setRole] = useState("base");
 
   useEffect(() => {
     fetch(`${API_URL}/ingredients?substrate=${encodeURIComponent(substrate)}&include_retired=true`)
       .then((r) => r.json())
       .then(setOptions)
       .catch(() => {});
-  }, [substrate]);
+  }, [substrate, recipe.length]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/foods?q=${encodeURIComponent(q)}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then(setResults)
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
 
   async function submit(e) {
     e.preventDefault();
-    if (!ingredientId) return;
+    if (!ingredientId && !food) return;
     setBusy(true);
     setError(null);
     try {
@@ -270,7 +289,7 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ingredient_id: ingredientId,
+          ...(food ? { fdc_id: food.fdc_id, role } : { ingredient_id: ingredientId }),
           quantity: quantity ? parseFloat(quantity) : null,
           unit: unit || null,
         }),
@@ -282,6 +301,10 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
       setIngredientId("");
       setQuantity("");
       setUnit("");
+      setFood(null);
+      setQuery("");
+      setResults([]);
+      setRole("base");
       onAdded();
     } catch (e) {
       setError(e.message);
@@ -308,12 +331,67 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
         </ul>
       )}
       <form className="flex flex-wrap gap-2" onSubmit={submit}>
+        <div className="w-full">
+          {food ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-slate-200">USDA: {food.description}</span>
+              <select
+                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              >
+                {["base", "flavoring", "additive", "starter"].map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="text-xs text-slate-400 hover:text-slate-200"
+                onClick={() => setFood(null)}
+              >
+                clear
+              </button>
+            </div>
+          ) : (
+            <>
+              <input
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+                placeholder="Search all USDA foods…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              {results.length > 0 && (
+                <ul className="mt-1 max-h-60 divide-y divide-slate-800 overflow-y-auto rounded-lg border border-slate-800">
+                  {results.map((f) => (
+                    <li key={f.fdc_id}>
+                      <button
+                        type="button"
+                        className="flex w-full justify-between px-3 py-2 text-left text-sm hover:bg-slate-800"
+                        onClick={() => {
+                          setFood(f);
+                          setIngredientId("");
+                          setResults([]);
+                        }}
+                      >
+                        <span>{f.description}</span>
+                        <span className="ml-2 shrink-0 text-xs text-slate-500">{f.data_type}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
         <select
           className="min-w-[9rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
           value={ingredientId}
           onChange={(e) => {
             const id = e.target.value;
             setIngredientId(id);
+            setFood(null);
             const picked = options.find((o) => o.id === id);
             if (picked?.name === "Salt" && saltSuggestion && quantity === "") {
               setQuantity(String(saltSuggestion.grams));
@@ -348,7 +426,7 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
         </select>
         <button
           type="submit"
-          disabled={busy || !ingredientId}
+          disabled={busy || (!ingredientId && !food)}
           className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
         >
           Add
