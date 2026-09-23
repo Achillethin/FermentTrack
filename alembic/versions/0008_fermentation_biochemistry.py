@@ -59,7 +59,9 @@ def upgrade() -> None:
         "enzyme_reactions",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
         sa.Column("enzyme_id", UUID(as_uuid=True), sa.ForeignKey("enzymes.id"), nullable=False),
-        sa.Column("substrate_id", UUID(as_uuid=True), sa.ForeignKey("compounds.id"), nullable=False),
+        sa.Column(
+            "substrate_id", UUID(as_uuid=True), sa.ForeignKey("compounds.id"), nullable=False
+        ),
         sa.Column("product_id", UUID(as_uuid=True), sa.ForeignKey("compounds.id"), nullable=False),
         sa.UniqueConstraint("enzyme_id", "substrate_id", "product_id"),
     )
