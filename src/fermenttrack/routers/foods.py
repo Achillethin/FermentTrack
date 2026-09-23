@@ -1,4 +1,4 @@
-"""Search the frozen USDA FDC catalog (docs/superpowers/specs/2026-09-23-usda-food-catalog-design.md)."""
+"""Search the frozen USDA FDC catalog."""
 
 from __future__ import annotations
 

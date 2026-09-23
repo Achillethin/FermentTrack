@@ -13,11 +13,36 @@ from fermenttrack.models import FdcFood
 async def catalog(db_session: AsyncSession) -> None:
     db_session.add_all(
         [
-            FdcFood(fdc_id=1, data_type="SR Legacy", description="Cabbage, raw", category="Vegetables"),
-            FdcFood(fdc_id=2, data_type="SR Legacy", description="Cabbage, red, raw", category="Vegetables"),
-            FdcFood(fdc_id=3, data_type="Foundation", description="Cabbage, savoy, cooked, boiled", category=None),
-            FdcFood(fdc_id=4, data_type="SR Legacy", description="Mangos, raw", category="Fruits"),
-            FdcFood(fdc_id=5, data_type="SR Legacy", description="Milk, 100% whole", category="Dairy"),
+            FdcFood(
+                fdc_id=1,
+                data_type="SR Legacy",
+                description="Cabbage, raw",
+                category="Vegetables",
+            ),
+            FdcFood(
+                fdc_id=2,
+                data_type="SR Legacy",
+                description="Cabbage, red, raw",
+                category="Vegetables",
+            ),
+            FdcFood(
+                fdc_id=3,
+                data_type="Foundation",
+                description="Cabbage, savoy, cooked, boiled",
+                category=None,
+            ),
+            FdcFood(
+                fdc_id=4,
+                data_type="SR Legacy",
+                description="Mangos, raw",
+                category="Fruits",
+            ),
+            FdcFood(
+                fdc_id=5,
+                data_type="SR Legacy",
+                description="Milk, 100% whole",
+                category="Dairy",
+            ),
         ]
     )
     await db_session.commit()
@@ -27,7 +52,12 @@ async def catalog(db_session: AsyncSession) -> None:
 async def test_all_tokens_must_match_case_insensitive(client: AsyncClient, catalog: None) -> None:
     body = (await client.get("/foods", params={"q": "RAW cabbage"})).json()
     assert [f["description"] for f in body] == ["Cabbage, raw", "Cabbage, red, raw"]
-    assert body[0] == {"fdc_id": 1, "description": "Cabbage, raw", "data_type": "SR Legacy", "category": "Vegetables"}
+    assert body[0] == {
+        "fdc_id": 1,
+        "description": "Cabbage, raw",
+        "data_type": "SR Legacy",
+        "category": "Vegetables",
+    }
 
 
 @pytest.mark.asyncio
