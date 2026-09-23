@@ -1485,3 +1485,15 @@ git commit -m "docs: record Direction 3 reversal for KEGG-sourced biochemistry d
 - **Placeholder scan:** clean — no TBD/TODO markers, no "similar to Task N" references, every code block is complete and runnable as written.
 - **Type consistency:** `BatchOrganism.source` default `"custom"` (model, Task 1) matches the router always setting overrides via the POST endpoint (Task 7) and the response tagging defaults as `"default"` at read time (Task 7) — no code path ever writes `source="default"` to the table itself, consistent with the spec's resolution rule.
 - **Deviation from spec flagged in Global Constraints:** organism↔enzyme linkage is hand-curated rather than derived from KEGG ortholog data, to avoid a fragile per-genome API pipeline. Data quality and spec intent (KEGG for identity, curation for fermentation-domain linkage) are preserved.
+
+---
+
+## Execution notes (deviations from the plan text above)
+
+Rulings made while executing; the code in the repo is authoritative, not the snippets above.
+
+- **Task 2:** `kegg_find_first_id(text)` was replaced by `kegg_find_id(text, query)`, which returns the first KEGG `find` hit whose semicolon-separated names exactly match the query (case-insensitive) and raises ValueError otherwise — KEGG `find` is a keyword search and the first hit can be the wrong compound. It also accepts bare IDs (`C00469`) as returned by the real API, not only `cpd:`-prefixed ones. `kegg_entry_name` raises ValueError (not KeyError) when NAME is missing. Kefir defaults changed to Lactococcus lactis + Kluyveromyces marxianus (added to ORGANISMS).
+- **Task 3:** the script builds its HTTP client with `verify=ssl.create_default_context()` (OS trust store) because corporate TLS inspection makes certifi's bundle fail; verification stays on. Per-item fetch failures are wrapped in RuntimeError naming the EC number / compound. The snapshot stores KEGG's canonical compound names ("(S)-Lactate", "Acetate"), which differ from the curated search names in COMPOUNDS ("L-Lactic acid", "Acetic acid").
+- **Task 4:** `batch_organisms.created_at` is NOT NULL in the migration (matching the ORM), not nullable as the snippet above shows.
+- **Task 6:** `GET /organisms` uses `limit` with `ge=1, le=50` and `.contains(..., autoescape=True)` (matching `GET /foods`), not the raw `.like()` shown above.
+- **Task 7:** `.in_(list(enzymes))` instead of a dict; `POST /batches/{id}/organisms` returns 409 if the organism is already attached to that batch.
