@@ -31,12 +31,16 @@ ORGANISMS: dict[str, str] = {
     "Lactococcus lactis": "bacteria",
     "Tetragenococcus halophilus": "bacteria",
     "Kluyveromyces marxianus": "yeast",
+    # Spec-named organisms; pre-reclassification synonyms (now
+    # Fructilactobacillus sanfranciscensis / Komagataeibacter xylinus).
+    "Gluconacetobacter xylinus": "bacteria",
+    "Lactobacillus sanfranciscensis": "bacteria",
 }
 
 # Hand-curated: fermentation_type -> default organisms (dominant, not exhaustive).
 FERMENTATION_TYPE_ORGANISMS: dict[str, list[str]] = {
-    "kombucha": ["Saccharomyces cerevisiae", "Acetobacter aceti"],
-    "sourdough": ["Saccharomyces cerevisiae", "Lactobacillus plantarum"],
+    "kombucha": ["Saccharomyces cerevisiae", "Acetobacter aceti", "Gluconacetobacter xylinus"],
+    "sourdough": ["Saccharomyces cerevisiae", "Lactobacillus sanfranciscensis"],
     "koji": ["Aspergillus oryzae"],
     "cheese": ["Lactococcus lactis"],
     "kefir": ["Lactococcus lactis", "Kluyveromyces marxianus"],
@@ -51,7 +55,11 @@ FERMENTATION_TYPE_ORGANISMS: dict[str, list[str]] = {
 ENZYME_ORGANISMS: dict[str, list[str]] = {
     "1.1.1.1": ["Saccharomyces cerevisiae"],  # alcohol dehydrogenase
     "4.1.1.1": ["Saccharomyces cerevisiae"],  # pyruvate decarboxylase
-    "1.1.1.27": ["Lactobacillus plantarum", "Lactococcus lactis"],  # L-lactate dehydrogenase
+    "1.1.1.27": [  # L-lactate dehydrogenase
+        "Lactobacillus plantarum",
+        "Lactococcus lactis",
+        "Lactobacillus sanfranciscensis",
+    ],
     "3.2.1.1": ["Aspergillus oryzae"],  # alpha-amylase
     "1.2.1.3": ["Acetobacter aceti"],  # aldehyde dehydrogenase (NAD+)
 }
@@ -67,7 +75,7 @@ COMPOUNDS: dict[str, str] = {
 }
 
 # Hand-curated: EC number -> (substrate compound name, product compound name),
-# one representative fermentation-relevant reaction per enzyme (not full
+# at most one representative fermentation-relevant reaction per enzyme (not full
 # pathway completeness). Names must be keys of COMPOUNDS.
 ENZYME_REACTIONS: dict[str, tuple[str, str]] = {
     "4.1.1.1": ("Pyruvate", "Acetaldehyde"),
