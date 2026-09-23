@@ -10,7 +10,16 @@ from sqlalchemy.orm import selectinload
 
 from fermenttrack.composition import RecipeItem, compose, suggest_salt
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch, BatchIngredient, Culture, Ingredient, Measurement, Reminder
+from fermenttrack.models import (
+    Batch,
+    BatchIngredient,
+    Culture,
+    FdcFood,
+    Ingredient,
+    IngredientNutrient,
+    Measurement,
+    Reminder,
+)
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.safety.service import get_safety_report
 from fermenttrack.schemas import (
@@ -200,14 +209,59 @@ async def compare_batches(
     return BatchCompare(batches=[BatchOut.model_validate(b) for b in batches], measurements=measurements)
 
 
+async def _ingredient_for_fdc_food(
+    db: AsyncSession, fdc_id: int, ferment_type: str, role: str | None
+) -> Ingredient:
+    """Find-or-create the Ingredient for a USDA catalog food and tag it for this ferment.
+
+    Spec: docs/superpowers/specs/2026-09-23-usda-food-catalog-design.md § Pick.
+    ponytail: check-then-create isn't race-safe (unique index -> 500 on a simultaneous
+    first pick); fine single-user, catch IntegrityError + re-select if that changes.
+    """
+    food = await db.get(FdcFood, fdc_id, options=[selectinload(FdcFood.nutrients)])
+    if food is None:
+        raise HTTPException(status_code=404, detail="USDA food not found")
+    result = await db.execute(select(Ingredient).where(Ingredient.fdc_id == fdc_id))
+    ingredient = result.scalar_one_or_none()
+    if ingredient is None:
+        ingredient = Ingredient(
+            name=food.description,
+            default_role=role or "base",
+            fermentation_systems=[ferment_type],
+            fdc_id=fdc_id,
+            nutrients=[
+                IngredientNutrient(
+                    nutrient=n.nutrient,
+                    amount_per_100g=n.amount_per_100g,
+                    source="usda_fdc",
+                    source_food_id=str(fdc_id),
+                    source_version="fdc_catalog_v1",
+                )
+                for n in food.nutrients
+            ],
+        )
+        db.add(ingredient)
+        await db.flush()
+    elif ingredient.is_active and ferment_type not in ingredient.fermentation_systems:
+        # Reassign: the JSON column doesn't track in-place mutation.
+        ingredient.fermentation_systems = [*ingredient.fermentation_systems, ferment_type]
+    return ingredient
+
+
 @router.post("/{batch_id}/ingredients", response_model=BatchIngredientOut, status_code=201)
 async def add_batch_ingredient(
     batch_id: uuid.UUID, payload: BatchIngredientCreate, db: AsyncSession = Depends(get_db)
 ) -> BatchIngredient:
     batch = await _get_batch(batch_id, db, with_culture=True)
-    ingredient = await db.get(Ingredient, payload.ingredient_id)
-    if ingredient is None:
-        raise HTTPException(status_code=404, detail="Ingredient not found")
+    if payload.fdc_id is not None:
+        ingredient = await _ingredient_for_fdc_food(
+            db, payload.fdc_id, batch.culture.type, payload.role
+        )
+    else:
+        found = await db.get(Ingredient, payload.ingredient_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Ingredient not found")
+        ingredient = found
     if not ingredient.is_active:
         raise HTTPException(
             status_code=400,

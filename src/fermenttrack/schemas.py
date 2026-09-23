@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 # ── Culture ──────────────────────────────────────────────────────────────
@@ -136,10 +136,19 @@ Unit = Literal["g", "kg", "mg", "ml", "L"]
 
 
 class BatchIngredientCreate(BaseModel):
-    ingredient_id: uuid.UUID
+    """Exactly one of ingredient_id (curated, strict ferment check) or fdc_id (USDA catalog)."""
+
+    ingredient_id: uuid.UUID | None = None
+    fdc_id: int | None = None
     quantity: float | None = None
     unit: Unit | None = None
     role: str | None = None  # if omitted, copied from Ingredient.default_role
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> BatchIngredientCreate:
+        if (self.ingredient_id is None) == (self.fdc_id is None):
+            raise ValueError("give exactly one of ingredient_id or fdc_id")
+        return self
 
 
 class BatchIngredientOut(BaseModel):
