@@ -14,7 +14,7 @@ The recipe form only offers the ~37 curated ingredients tagged for the batch's f
 |---|---|
 | Which foods | **SR Legacy + Foundation**: about 8k generic, lab-analysed foods. Branded foods are excluded (about 450k, label-level only, too big for the free DB tier). |
 | Ferment-type rule | **Allow any USDA food, and tag it for next time.** Picking a food for a batch adds that batch's ferment type to the ingredient's `fermentation_systems`, so it shows up in that ferment's quick-pick list afterwards. |
-| Role | **A role dropdown, defaulting to `base`**, shown when a USDA food is picked. The choice becomes the new ingredient's `default_role`. |
+| Role | **A role dropdown**, shown when a USDA food is picked. It starts on "default", which omits `role`: a new ingredient then gets `base`, and an existing (e.g. curated) one keeps its own `default_role`. An explicit choice becomes a new ingredient's `default_role`. (Final-review change: the original "default `base`" logged curated flavorings like Cinnamon as base, which inflated the salt basis.) |
 | Architecture | **A: local catalog, promote on pick.** Rejected: B (all 8k as `Ingredient` rows, which buries the curated list) and C (live FDC API at pick time, which means a runtime dependency, a key on Render, and rate limits). |
 
 ## Design
@@ -43,7 +43,7 @@ ingredients.fdc_id    INT NULL, unique index (created via op.create_index(unique
 
 ### Search: `GET /foods?q=<text>&limit=20`
 
-- `q` has at least 2 characters and is split on whitespace.
+- `q` has 2–100 characters and is split on whitespace. Only the first 6 words are used, which bounds query cost on an unauthenticated endpoint.
 - **Every** token must appear, case-insensitively, in `description`. For example, `raw cabbage` matches "Cabbage, raw".
 - Results are ordered by description length, so shorter and more generic names come first, then alphabetically.
 - `limit` defaults to 20, with a maximum of 50.
@@ -62,7 +62,7 @@ ingredients.fdc_id    INT NULL, unique index (created via op.create_index(unique
    - **Exists and not tagged for `culture.type`:** append the tag. Reassign the list, because the JSON column doesn't track in-place mutation.
 3. Continue exactly like the `ingredient_id` path: `role = payload.role or ingredient.default_role`, then insert the `BatchIngredient`.
 
-Nothing downstream changes: composition, salt suggestion and preview all read `Ingredient` + `ingredient_nutrients` as before. The `ingredient_id` path keeps its strict ferment-type check. Curated quick picks stay tagged.
+Composition, salt suggestion and preview still read `Ingredient` + `ingredient_nutrients`. The one downstream change is how salt is recognised: an ingredient counts as salt when it is named "Salt" **or** has ≥ 30 g sodium per 100 g (NaCl is about 39 %). In the v1 catalog that matches only "Salt, table" and "Salt, table, iodized", so a salt picked from the catalog behaves like curated Salt in `salt_pct` and `suggest_salt`. The `ingredient_id` path keeps its strict ferment-type check. Curated quick picks stay tagged. `role` accepts only `base | flavoring | additive | starter` (422 otherwise).
 
 `# ponytail:` the check-then-create isn't race-safe. Two simultaneous first picks of the same food would hit the unique index, and the second request returns a 500. That's acceptable for a single-user app; catch `IntegrityError` and re-select if it's ever multi-user.
 
@@ -70,8 +70,9 @@ Nothing downstream changes: composition, salt suggestion and preview all read `I
 
 - The curated dropdown stays as the quick-pick list.
 - Below it is a **"Search all USDA foods…"** input. It's debounced (about 250 ms, no dependency) and calls `/foods?q=`. Up to 20 results show as a clickable list, each with a small SR Legacy / Foundation label.
-- Picking a result clears the dropdown selection and shows the chosen food plus a **role select** (base / flavoring / additive / starter, default `base`).
-- Submitting sends `{fdc_id, role, quantity, unit}`.
+- Picking a result clears the dropdown selection and shows the chosen food plus a **role select** ("default", then base / flavoring / additive / starter).
+- Submitting sends `{fdc_id, quantity, unit}`, plus `role` only when one was chosen.
+- Pressing Enter in the search box does nothing, so it can't accidentally submit a selected quick pick; there's no endpoint to delete a recipe line.
 - Units and the composition card are unchanged. The salt pre-fill still triggers only on curated **Salt**.
 - After an add, the ingredient options are re-fetched so a newly created ingredient's name resolves in the recipe list and joins the quick picks.
 
