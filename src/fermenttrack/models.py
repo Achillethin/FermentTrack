@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Boolean, Float, ForeignKey, Interval, JSON, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Interval, JSON, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -109,6 +109,7 @@ class Ingredient(Base):
     default_role: Mapped[str] = mapped_column(Text, nullable=False)  # base | starter | flavoring | additive
     fermentation_systems: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    nutrients: Mapped[list[IngredientNutrient]] = relationship()
 
 
 class BatchIngredient(Base):
@@ -129,3 +130,20 @@ class BatchIngredient(Base):
 
     batch: Mapped["Batch"] = relationship(back_populates="batch_ingredients")
     ingredient: Mapped["Ingredient"] = relationship()
+
+
+class IngredientNutrient(Base):
+    """Reference nutrient per 100 g (always grams). No row = not reported = unknown, never 0."""
+
+    __tablename__ = "ingredient_nutrients"
+    __table_args__ = (UniqueConstraint("ingredient_id", "nutrient", "source"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    ingredient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ingredients.id"), nullable=False
+    )
+    nutrient: Mapped[str] = mapped_column(Text, nullable=False)  # key of nutrients.NUTRIENTS
+    amount_per_100g: Mapped[float] = mapped_column(Float, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)  # "usda_fdc"
+    source_food_id: Mapped[str] = mapped_column(Text, nullable=False)  # FDC fdcId
+    source_version: Mapped[str] = mapped_column(Text, nullable=False)  # snapshot file stem

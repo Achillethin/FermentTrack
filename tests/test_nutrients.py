@@ -9,8 +9,15 @@ import pytest
 from fermenttrack.nutrients import (
     SnapshotRow,
     fdc_amount_to_grams,
+    load_snapshot,
     nutrient_seed_rows,
     snapshot_rows,
+)
+from fermenttrack.seed_data import (
+    INGREDIENT_SEED_DATA,
+    INGREDIENT_SEED_DATA_V2,
+    INGREDIENT_SEED_DATA_V3,
+    RETIRED_V3,
 )
 
 
@@ -81,3 +88,13 @@ def test_nutrient_seed_rows_carries_provenance() -> None:
     assert rows[0]["source"] == "usda_fdc"
     assert rows[0]["source_food_id"] == "169975"
     assert rows[0]["source_version"] == "fdc_nutrients_v1"
+
+
+def test_nutrient_seed_rows_names_all_covered_by_active_ingredient_seed_data() -> None:
+    """Every ingredient_name in the frozen v1 snapshot must exist among active seed
+    names (V1+V2+V3 minus RETIRED_V3) — this is what migration 0006 relies on."""
+    all_seed_data = INGREDIENT_SEED_DATA + INGREDIENT_SEED_DATA_V2 + INGREDIENT_SEED_DATA_V3
+    retired = set(RETIRED_V3)
+    active_names = {name for name, _role, _systems in all_seed_data if name not in retired}
+    ids_by_name = {name: uuid.uuid4() for name in active_names}
+    nutrient_seed_rows(load_snapshot(), ids_by_name)  # must not raise

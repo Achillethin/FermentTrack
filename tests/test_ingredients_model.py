@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from fermenttrack.models import Batch, BatchIngredient, Culture, Ingredient
+from fermenttrack.models import Batch, BatchIngredient, Culture, Ingredient, IngredientNutrient
 
 
 @pytest.mark.asyncio
@@ -56,3 +58,37 @@ async def test_batch_ingredient_round_trip(db_session: AsyncSession) -> None:
     assert fetched.quantity == 100.0
     assert fetched.unit == "g"
     assert fetched.role == "base"
+
+
+@pytest.mark.asyncio
+async def test_ingredient_nutrients_roundtrip_and_unique_per_source(
+    db_session: AsyncSession,
+) -> None:
+    salt = Ingredient(name="Salt", default_role="additive", fermentation_systems=["lacto_ferment"])
+    salt.nutrients.append(
+        IngredientNutrient(
+            nutrient="sodium", amount_per_100g=38.758, source="usda_fdc",
+            source_food_id="173468", source_version="fdc_nutrients_v1",
+        )
+    )
+    db_session.add(salt)
+    await db_session.commit()
+
+    loaded = (
+        await db_session.execute(
+            select(Ingredient)
+            .where(Ingredient.id == salt.id)
+            .options(selectinload(Ingredient.nutrients))
+        )
+    ).scalar_one()
+    assert {n.nutrient: n.amount_per_100g for n in loaded.nutrients} == {"sodium": 38.758}
+
+    db_session.add(
+        IngredientNutrient(
+            ingredient_id=salt.id, nutrient="sodium", amount_per_100g=1.0, source="usda_fdc",
+            source_food_id="x", source_version="fdc_nutrients_v1",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
