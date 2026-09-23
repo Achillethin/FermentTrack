@@ -98,6 +98,8 @@ GET    /reminders             Upcoming reminders (next 48h)
 PATCH  /reminders/{id}/done   Mark reminder complete
 PATCH  /reminders/{id}/snooze Snooze reminder
 
+GET    /foods?q=...                Search the USDA catalog (SR Legacy + Foundation)
+
 # FermentGraph integration (phase 3)
 GET    /suggestions/{batch_id}  Get experiment suggestions for current context
 GET    /insights/{batch_id}     Get compound/outcome insights

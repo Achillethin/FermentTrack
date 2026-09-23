@@ -117,6 +117,17 @@ class IngredientOut(BaseModel):
     is_active: bool
 
 
+# ── USDA catalog ─────────────────────────────────────────────────────────
+
+class FdcFoodOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    fdc_id: int
+    description: str
+    data_type: str  # "SR Legacy" | "Foundation"
+    category: str | None
+
+
 # ── BatchIngredient ──────────────────────────────────────────────────────
 
 # Closed set so composition can convert every new row to grams. Rows logged
