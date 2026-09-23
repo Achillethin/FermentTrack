@@ -200,10 +200,18 @@ async def compare_batches(
 async def add_batch_ingredient(
     batch_id: uuid.UUID, payload: BatchIngredientCreate, db: AsyncSession = Depends(get_db)
 ) -> BatchIngredient:
-    batch = await _get_batch(batch_id, db)
+    batch = await _get_batch(batch_id, db, with_culture=True)
     ingredient = await db.get(Ingredient, payload.ingredient_id)
     if ingredient is None:
         raise HTTPException(status_code=404, detail="Ingredient not found")
+    if batch.culture.type not in ingredient.fermentation_systems:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{ingredient.name!r} isn't tagged for {batch.culture.type!r} "
+                f"(tagged for {ingredient.fermentation_systems})"
+            ),
+        )
 
     batch_ingredient = BatchIngredient(
         batch_id=batch.id,

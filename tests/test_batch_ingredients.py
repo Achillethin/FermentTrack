@@ -66,6 +66,26 @@ async def test_add_batch_ingredient_role_override_persists(
 
 
 @pytest.mark.asyncio
+async def test_add_batch_ingredient_wrong_substrate_400s(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    ingredient = Ingredient(name="Rennet", default_role="starter", fermentation_systems=["cheese"])
+    db_session.add(ingredient)
+    await db_session.commit()
+    await db_session.refresh(ingredient)
+
+    # kombucha batch, cheese-only ingredient — not the same taxonomy.
+    _culture_id, batch_id = await _create_culture_and_batch(client)
+
+    resp = await client.post(
+        f"/batches/{batch_id}/ingredients",
+        json={"ingredient_id": str(ingredient.id)},
+    )
+    assert resp.status_code == 400
+    assert "Rennet" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_add_batch_ingredient_unknown_ingredient_404s(client: AsyncClient) -> None:
     _culture_id, batch_id = await _create_culture_and_batch(client)
     resp = await client.post(

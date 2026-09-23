@@ -30,3 +30,25 @@ async def test_list_ingredients_returns_only_active(
     assert resp.status_code == 200
     names = {i["name"] for i in resp.json()}
     assert names == {"Black/green tea"}
+
+
+@pytest.mark.asyncio
+async def test_list_ingredients_filters_by_substrate(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    db_session.add_all(
+        [
+            Ingredient(name="Black/green tea", default_role="base", fermentation_systems=["kombucha"]),
+            Ingredient(
+                name="Salt",
+                default_role="additive",
+                fermentation_systems=["cheese", "lacto_ferment", "garum"],
+            ),
+            Ingredient(name="Rennet", default_role="starter", fermentation_systems=["cheese"]),
+        ]
+    )
+    await db_session.commit()
+
+    resp = await client.get("/ingredients", params={"substrate": "lacto_ferment"})
+    assert resp.status_code == 200
+    assert {i["name"] for i in resp.json()} == {"Salt"}
