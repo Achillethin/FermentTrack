@@ -78,7 +78,7 @@ def upgrade() -> None:
         sa.Column("organism_id", UUID(as_uuid=True), sa.ForeignKey("organisms.id"), nullable=False),
         sa.Column("source", sa.Text(), nullable=False, server_default="custom"),
         sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=True),
+        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False),
     )
 
     # KEGG_BIOCHEM_V1 is frozen, so this migration stays a faithful record of what it inserted.
