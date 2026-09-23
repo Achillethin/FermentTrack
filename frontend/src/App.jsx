@@ -245,7 +245,7 @@ function LogObservation({ batchId, onLogged }) {
   );
 }
 
-function Recipe({ batchId, substrate, recipe, onAdded }) {
+function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
   const [options, setOptions] = useState([]);
   const [ingredientId, setIngredientId] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -254,7 +254,7 @@ function Recipe({ batchId, substrate, recipe, onAdded }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/ingredients?substrate=${encodeURIComponent(substrate)}`)
+    fetch(`${API_URL}/ingredients?substrate=${encodeURIComponent(substrate)}&include_retired=true`)
       .then((r) => r.json())
       .then(setOptions)
       .catch(() => {});
@@ -311,10 +311,18 @@ function Recipe({ batchId, substrate, recipe, onAdded }) {
         <select
           className="min-w-[9rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
           value={ingredientId}
-          onChange={(e) => setIngredientId(e.target.value)}
+          onChange={(e) => {
+            const id = e.target.value;
+            setIngredientId(id);
+            const picked = options.find((o) => o.id === id);
+            if (picked?.name === "Salt" && saltSuggestion && quantity === "") {
+              setQuantity(String(saltSuggestion.grams));
+              setUnit("g");
+            }
+          }}
         >
           <option value="">Add ingredient…</option>
-          {options.map((o) => (
+          {options.filter((o) => o.is_active).map((o) => (
             <option key={o.id} value={o.id}>
               {o.name}
             </option>
@@ -326,12 +334,18 @@ function Recipe({ batchId, substrate, recipe, onAdded }) {
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
         />
-        <input
-          className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
-          placeholder="unit"
+        <select
+          className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
           value={unit}
           onChange={(e) => setUnit(e.target.value)}
-        />
+        >
+          <option value="">unit</option>
+          {["g", "kg", "mg", "ml", "L"].map((u) => (
+            <option key={u} value={u}>
+              {u}
+            </option>
+          ))}
+        </select>
         <button
           type="submit"
           disabled={busy || !ingredientId}
@@ -340,7 +354,66 @@ function Recipe({ batchId, substrate, recipe, onAdded }) {
           Add
         </button>
       </form>
+      {saltSuggestion && (
+        <p className="mt-2 text-xs text-slate-500">
+          Suggested salt: {saltSuggestion.grams} g ({saltSuggestion.pct}% of{" "}
+          {Math.round(saltSuggestion.basis_g)} g base). Pick Salt to pre-fill it — edit the
+          amount, or log 0 g for a deliberately unsalted batch.
+        </p>
+      )}
       {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+    </Card>
+  );
+}
+
+const NUTRIENT_LABELS = {
+  sugars_total: "Sugars (total)",
+  sucrose: "Sucrose",
+  glucose: "Glucose",
+  fructose: "Fructose",
+  lactose: "Lactose",
+  starch: "Starch",
+  protein: "Protein",
+  fat: "Fat",
+  alcohol: "Alcohol",
+};
+
+function Composition({ data }) {
+  if (!data || (data.total_mass_g === 0 && data.unquantified.length === 0)) return null;
+  const rows = data.nutrients.filter((n) => NUTRIENT_LABELS[n.nutrient]);
+
+  return (
+    <Card title="Starting composition">
+      <p className="mb-3 text-xs text-slate-500">
+        {Math.round(data.total_mass_g)} g total · {Math.round(data.coverage * 100)}% of mass has
+        reference data (USDA FoodData Central)
+        {data.coverage < 1 && " — figures are lower bounds"}
+      </p>
+      <ul className="divide-y divide-slate-800 text-sm">
+        {data.salt_pct != null && (
+          <li className="flex justify-between py-1.5">
+            <span>Added salt</span>
+            <span>{data.salt_pct.toFixed(2)} %</span>
+          </li>
+        )}
+        {rows.map((n) => (
+          <li key={n.nutrient} className="flex justify-between py-1.5">
+            <span>{NUTRIENT_LABELS[n.nutrient]}</span>
+            <span>
+              {n.missing_from.length > 0 && "≥ "}
+              {n.grams.toFixed(1)} g · {n.per_100g.toFixed(2)} g/100 g
+            </span>
+          </li>
+        ))}
+      </ul>
+      {data.unmapped.length > 0 && (
+        <p className="mt-2 text-xs text-slate-500">No reference data: {data.unmapped.join(", ")}</p>
+      )}
+      {data.unquantified.length > 0 && (
+        <p className="mt-1 text-xs text-slate-500">
+          Not counted (no quantity or unit): {data.unquantified.join(", ")}
+        </p>
+      )}
     </Card>
   );
 }
@@ -503,6 +576,7 @@ export default function App() {
   const params = new URLSearchParams(window.location.search);
   const [batchId, setBatchId] = useState(params.get("batch") || "");
   const [preview, setPreview] = useState(null);
+  const [composition, setComposition] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -511,10 +585,13 @@ export default function App() {
     setLoading(true);
     setError(null);
     setPreview(null);
+    setComposition(null);
     try {
       const res = await fetch(`${API_URL}/batches/${id}/preview`);
       if (!res.ok) throw new Error(res.status === 404 ? "Batch not found" : `API error (${res.status})`);
       setPreview(await res.json());
+      const comp = await fetch(`${API_URL}/batches/${id}/composition`);
+      setComposition(comp.ok ? await comp.json() : null);
       const url = new URL(window.location);
       url.searchParams.set("batch", id);
       window.history.replaceState({}, "", url);
@@ -578,8 +655,10 @@ export default function App() {
             batchId={batchId}
             substrate={preview.culture.type}
             recipe={preview.recipe}
+            saltSuggestion={composition?.salt_suggestion}
             onAdded={() => loadPreview(batchId)}
           />
+          <Composition data={composition} />
           <Timeline timeline={preview.timeline} />
           <Safety safety={preview.safety} />
         </>
