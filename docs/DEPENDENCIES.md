@@ -33,6 +33,8 @@ SafetyRuleEngine().evaluate(state.state_vars(), scheme="lactic")  # -> SafetyRep
 
 ## 2. `fermentgraph` — DON'T USE YET
 
+**2026-09-23 note:** this verdict is unchanged. A separate reference layer (organisms/enzymes/compounds keyed by fermentation type) was added sourced from KEGG instead of fermentgraph — see `docs/superpowers/specs/2026-09-23-fermentation-biochemistry-design.md`. That spec does not depend on this repo at all; it reverses only `STRATEGY.md` Direction 3's UI-deferral condition, not this dependency verdict.
+
 **Reality.** `generate_suggestions(context)` and `query_analogs(...)` — the exact calls `ARCHITECTURE.md` documented — **do not exist anywhere in the codebase** (zero hits for "analog", "generate_suggestions", "query_analogs" in `src/`). They were invented during the strategy sprint, not verified. What's real: the package installs cleanly and 364 tests pass; the gold-tier knowledge graph is materialized and at 100% readiness. But the two things FermentTrack actually wanted are evaluated and found not to work: the LightGBM ranker *regresses* Recall@50 vs. a trivial popularity baseline (-0.001, needs +0.05 to promote), and the fermentation-specific knowledge prior produces **exactly 0.0000 delta** on every metric — the repo's own verdict is "the supervised re-ranking channel for this knowledge layer is null at the current scale." The one channel with any signal is self-labeled exploratory/hypothesis-generation, curated (not blind), and only 2 of 4 test foods survive multiple-comparison correction.
 
 **The only real, deterministic building block:**
