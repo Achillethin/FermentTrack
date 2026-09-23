@@ -120,3 +120,51 @@ async def test_biochemistry_empty_when_type_has_no_defaults(
     resp = await client.get(f"/batches/{batch_id}/biochemistry")
     assert resp.status_code == 200
     assert resp.json() == {"organisms": [], "enzymes": [], "compounds": []}
+
+
+@pytest.mark.asyncio
+async def test_add_batch_organism_duplicate_returns_409(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    yeast = await _seed_kombucha_biochem(db_session)
+    culture = Culture(name="Jun SCOBY", type="kombucha")
+    db_session.add(culture)
+    await db_session.commit()
+    batch_id = (await client.post("/batches", json={"culture_id": str(culture.id)})).json()["id"]
+
+    body = {"organism_id": str(yeast.id)}
+    assert (await client.post(f"/batches/{batch_id}/organisms", json=body)).status_code == 201
+    resp = await client.post(f"/batches/{batch_id}/organisms", json=body)
+    assert resp.status_code == 409
+
+    resp = await client.get(f"/batches/{batch_id}/biochemistry")
+    assert [o["id"] for o in resp.json()["organisms"]] == [str(yeast.id)]
+
+
+@pytest.mark.asyncio
+async def test_same_organism_can_attach_to_different_batch(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    yeast = await _seed_kombucha_biochem(db_session)
+    culture = Culture(name="Jun SCOBY", type="kombucha")
+    db_session.add(culture)
+    await db_session.commit()
+    body = {"organism_id": str(yeast.id)}
+    for _ in range(2):
+        batch_id = (await client.post("/batches", json={"culture_id": str(culture.id)})).json()[
+            "id"
+        ]
+        resp = await client.post(f"/batches/{batch_id}/organisms", json=body)
+        assert resp.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_add_batch_organism_404_for_unknown_batch(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    yeast = await _seed_kombucha_biochem(db_session)
+    resp = await client.post(
+        "/batches/00000000-0000-0000-0000-000000000000/organisms",
+        json={"organism_id": str(yeast.id)},
+    )
+    assert resp.status_code == 404

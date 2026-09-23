@@ -413,6 +413,17 @@ async def add_batch_organism(
     organism = await db.get(Organism, payload.organism_id)
     if organism is None:
         raise HTTPException(status_code=404, detail="Organism not found")
+    # ponytail: check-then-insert isn't race-safe; add a unique constraint +
+    # IntegrityError handling if this ever becomes multi-user.
+    existing = await db.execute(
+        select(BatchOrganism.id).where(
+            BatchOrganism.batch_id == batch.id, BatchOrganism.organism_id == organism.id
+        )
+    )
+    if existing.first() is not None:
+        raise HTTPException(
+            status_code=409, detail=f"{organism.name!r} is already attached to this batch"
+        )
 
     batch_organism = BatchOrganism(
         batch_id=batch.id, organism_id=organism.id, notes=payload.notes
