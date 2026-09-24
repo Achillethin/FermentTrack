@@ -127,6 +127,7 @@ Recorded here so a future session doesn't have to re-derive them:
 - **FooDB** (foodb.ca) — food-specific flavor/volatile compound data, richer than KEGG for "what does this actually taste/smell like." No skill wraps it here; would need a plain bulk download, evaluated separately.
 - **NCBI Taxonomy** — canonical taxon IDs, already reserved as a column (`organisms.ncbi_taxon_id`) but not synced yet.
 - **`fermentgraph`** — remains a "don't use yet" dependency per `DEPENDENCIES.md`, independent of this spec. If its hygiene/trigger conditions are ever met, its `associated_microbes`/`associated_compounds` export (already scoped in `fermentgraph-evolution.md`) could reconcile against these same tables via a `canonical_id`, mirroring how `Ingredient.canonical_id` is reserved today.
+- **v2 curation (2026-09-24)** — additive second snapshot (koji/miso/kefir/vinegar/CO2 gaps, LDH correction): see `2026-09-24-biochemistry-v2-curation-draft.md`, shipped as `kegg_biochem_v2.json.gz` + migration 0009.
 
 ### Outbound calls
 
