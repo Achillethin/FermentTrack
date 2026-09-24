@@ -1,8 +1,8 @@
 # Biochemistry v2 — Curation Record
 
 **Date:** 2026-09-24
-**Status:** FINAL — implemented (v2). Snapshot `kegg_biochem_v2.json.gz` + migration 0009.
-**Scope (your call, 2026-09-24):** option A only — curation gaps in koji, miso, plus the adjacent low-risk kefir/vinegar/CO2 gaps. Garum's ingredient-driven enzymes (fish digestive proteases; option B, the ingredient→enzyme table) are still out of scope, but garum's biochemistry is no longer empty because *T. halophilus* gained lactate dehydrogenase. Cheese protease/rennet is also out for the same reason.
+**Status:** FINAL — implemented (v2). Snapshot `kegg_biochem_v2.json.gz` + migration 0009. Amended by v3 (koji-garum): see section 9.
+**Scope (your call, 2026-09-24):** option A only — curation gaps in koji, miso, plus the adjacent low-risk kefir/vinegar/CO2 gaps. Garum's ingredient-driven enzymes (fish digestive proteases; option B, the ingredient→enzyme table) are still out of scope. Garum's biochemistry is not empty: *T. halophilus* gained lactate dehydrogenase in v2, and from v3 garum also gets the *A. oryzae* enzyme set (koji-garum, section 9). Cheese protease/rennet is also out for the same reason.
 **Builds on:** `2026-09-23-fermentation-biochemistry-design.md`; v1 data in `src/fermenttrack/biochem.py`.
 
 ## How v2 shipped (structural, no app-code or API change)
@@ -78,23 +78,25 @@ Categories reuse v1's set (`acid|alcohol|gas|flavor|other`). `flavor` stays unus
 - kefir: + *L. kefiri*, *L. kefiranofaciens*
 - all other types keep their organism sets (kombucha, sourdough, koji, cheese, garum); their `/biochemistry` output still changes through the new enzyme links and compounds above (see section 6).
 
-## 6. Expected `/biochemistry` output after v2 (for sanity-checking the list)
+## 6. Expected `/biochemistry` output after v3 (for sanity-checking the list)
+
+Generated from the v3 snapshot with the same logic as `get_batch_biochemistry` (default organisms of the type -> `organism_enzymes` -> `enzyme_reactions` substrates/products). Order is snapshot order; the API does not guarantee one. Only the garum row differs from v2 (v2: L-lactate dehydrogenase; Pyruvate, (S)-Lactate).
 
 | Type | Enzymes | Compounds |
 |---|---|---|
-| kombucha | alcohol dehydrogenase, pyruvate decarboxylase, alcohol dehydrogenase (quinone), aldehyde dehydrogenase (NAD+), aldehyde dehydrogenase (quinone) | Ethanol, Acetaldehyde, Pyruvate, Acetate, CO2 |
-| sourdough | alcohol dehydrogenase, pyruvate decarboxylase, L-lactate dehydrogenase, D-lactate dehydrogenase | Ethanol, Acetaldehyde, Pyruvate, (S)-Lactate, CO2, (R)-Lactate |
-| koji | alpha-amylase, glucan 1,4-alpha-glucosidase, alpha-glucosidase, oryzin, deuterolysin, aspergillopepsin I, carboxypeptidase C, glutaminase | Maltose, D-Glucose, L-Glutamine, L-Glutamate |
+| kombucha | alcohol dehydrogenase, pyruvate decarboxylase, alcohol dehydrogenase (quinone), aldehyde dehydrogenase (NAD+), aldehyde dehydrogenase (quinone) | Pyruvate, Acetaldehyde, CO2, Ethanol, Acetate |
+| sourdough | alcohol dehydrogenase, pyruvate decarboxylase, L-lactate dehydrogenase, D-lactate dehydrogenase | Pyruvate, Acetaldehyde, CO2, Ethanol, (S)-Lactate, (R)-Lactate |
+| koji | alpha-amylase, glucan 1,4-alpha-glucosidase, alpha-glucosidase, oryzin, deuterolysin, aspergillopepsin I, carboxypeptidase C, glutaminase | L-Glutamine, L-Glutamate, Maltose, D-Glucose |
 | cheese | L-lactate dehydrogenase | Pyruvate, (S)-Lactate |
-| kefir | alcohol dehydrogenase, pyruvate decarboxylase, L-lactate dehydrogenase, beta-galactosidase | Ethanol, Acetaldehyde, Pyruvate, (S)-Lactate, D-Glucose, CO2, Lactose, D-Galactose |
-| miso | alcohol dehydrogenase, pyruvate decarboxylase, L-lactate dehydrogenase, alpha-amylase, glucan 1,4-alpha-glucosidase, alpha-glucosidase, oryzin, deuterolysin, aspergillopepsin I, carboxypeptidase C, glutaminase | Ethanol, Acetaldehyde, Pyruvate, (S)-Lactate, Maltose, D-Glucose, L-Glutamine, L-Glutamate, CO2 |
-| garum | L-lactate dehydrogenase | Pyruvate, (S)-Lactate |
-| vinegar | alcohol dehydrogenase (quinone), aldehyde dehydrogenase (NAD+), aldehyde dehydrogenase (quinone) | Ethanol, Acetaldehyde, Acetate |
+| kefir | L-lactate dehydrogenase, alcohol dehydrogenase, pyruvate decarboxylase, beta-galactosidase | Pyruvate, Acetaldehyde, CO2, Ethanol, (S)-Lactate, Lactose, D-Glucose, D-Galactose |
+| miso | alpha-amylase, glucan 1,4-alpha-glucosidase, alpha-glucosidase, oryzin, deuterolysin, aspergillopepsin I, carboxypeptidase C, glutaminase, L-lactate dehydrogenase, alcohol dehydrogenase, pyruvate decarboxylase | Pyruvate, Acetaldehyde, CO2, Ethanol, (S)-Lactate, L-Glutamine, L-Glutamate, Maltose, D-Glucose |
+| garum | L-lactate dehydrogenase, alpha-amylase, glucan 1,4-alpha-glucosidase, alpha-glucosidase, oryzin, deuterolysin, aspergillopepsin I, carboxypeptidase C, glutaminase | Pyruvate, (S)-Lactate, L-Glutamine, L-Glutamate, Maltose, D-Glucose |
+| vinegar | alcohol dehydrogenase (quinone), aldehyde dehydrogenase (NAD+), aldehyde dehydrogenase (quinone) | Acetaldehyde, Acetate, Ethanol |
 | lacto_ferment | L-lactate dehydrogenase, D-lactate dehydrogenase | Pyruvate, (S)-Lactate, (R)-Lactate |
 
 ## 7. Explicitly not in v2
 
-- Garum's ingredient-driven enzymes (fish digestive proteases) and cheese protease/chymosin: need the ingredient→enzyme table (option B). Garum is thin, not empty: it gains lactate dehydrogenase through *T. halophilus* (section 6).
+- Garum's ingredient-driven enzymes (fish digestive proteases) and cheese protease/chymosin: need the ingredient→enzyme table (option B). Garum's derived enzymes (section 6) cover *T. halophilus* LDH and, from v3, the *A. oryzae* set, but still not fish digestive proteases.
 - Starch, protein and peptides as compounds (not KEGG compounds); aroma/flavor compounds (esters, pyrazines); *A. oryzae* lipases/cellulases/phytase; *T. halophilus* enzymes beyond LDH; NCBI taxon ids.
 
 ## 8. Research verification (2026-09-24)
@@ -109,7 +111,18 @@ Categories reuse v1's set (`acid|alcohol|gas|flavor|other`). `flavor` stays unus
    - 1.2.1.3 on *Acetobacter* kept but low weight: it is a cytoplasmic NAD+ ALDH; the PQQ route 1.2.5.2 is the main one.
 5. **Still open, needs a domain expert.** *T. halophilus* L-only rests on genus-level evidence and unreviewed annotations; *F. sanfranciscensis* DL rests on unreviewed entries and a 1984 species description; *L. mesenteroides* "predominantly D" (genome has 3 D-LDH and 1 L-LDH).
 
-## 9. As shipped
+## 8b. As shipped (v2)
 
 `kegg_biochem_v2.json.gz` holds 14 organisms, 16 enzymes, 13 compounds, 27 organism-enzyme links, 12 enzyme reactions and 19 fermentation-type defaults; the delta over v1 is 5 organisms, 11 enzymes, 8 compounds, 20 organism-enzyme links, 8 reactions and 5 fermentation-type defaults. All new enzyme names and compound ids resolved against live KEGG by exact name at build time (the search name "D-Lactic acid" matched C00256 directly). Migration 0009 applies and reverses on SQLite (`tests/test_migration_0009.py`, plus a manual upgrade head / downgrade 0007 / upgrade head round trip); Postgres is still to be checked after deploy.
 
+## 9. v3 (2026-09-24): koji-garum
+
+**Change.** `FERMENTATION_TYPE_ORGANISMS["garum"]` becomes [*Tetragenococcus halophilus*, *Aspergillus oryzae*]. One new `fermentation_type_organisms` row (garum, *A. oryzae*); no new organisms, enzymes, compounds or reactions. Snapshot `kegg_biochem_v3.json.gz` (14 organisms, 16 enzymes, 13 compounds, 27 organism-enzyme links, 12 reactions, 20 fermentation-type defaults); `snapshot_delta(v2, v3)` is exactly that one row. v1 and v2 stay frozen.
+
+**Rationale.** Modern koji-based fish sauce ("koji garum") uses *A. oryzae* for its proteases, amylase and glutaminase. Traditional garum relies on fish digestive enzymes and halophilic bacteria and has no koji. A batch can pick its own organism set through a `batch_organisms` override; any override row REPLACES the type defaults for that batch (it does not add to them).
+
+**Migrations.**
+- **0010** (data): adds the link by natural key (fermentation_type text, organism name), skipping existing rows. Link-only by design: it raises if the v2 to v3 delta holds anything else. Downgrade deletes exactly that link; `batch_organisms` rows are untouched.
+- **0011** (schema): unique index `ix_organisms_name` on `organisms.name` (migrations resolve organisms by name). A unique index rather than ADD CONSTRAINT so it runs on SQLite and PostgreSQL; production has no duplicates because only migrations insert organisms and 0008/0009 skip existing names.
+
+**Effect on output.** Garum's derived enzymes now include the *A. oryzae* set (alpha-amylase, glucoamylase, alpha-glucosidase, oryzin, deuterolysin, aspergillopepsin I, carboxypeptidase C, glutaminase) alongside *T. halophilus* LDH, with compounds L-Glutamine, L-Glutamate, Maltose, D-Glucose added (section 6). It still does NOT include fish digestive proteases: that needs the ingredient-to-enzyme table (option B), not started.
