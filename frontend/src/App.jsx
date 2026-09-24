@@ -1,4 +1,8 @@
 import { useEffect, useState } from "react";
+import PredictionPanel from "./prediction/PredictionPanel.jsx";
+import TemperatureEstimate from "./prediction/TemperatureEstimate.jsx";
+import TemperatureField from "./prediction/TemperatureField.jsx";
+import { parseTemperature } from "./prediction/temperature.js";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
@@ -79,7 +83,7 @@ function StageControl({ batchId, onAdvanced }) {
   );
 }
 
-function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced }) {
+function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced, onTemperatureSaved }) {
   return (
     <Card title="Batch">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -95,6 +99,7 @@ function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced }) {
         </div>
       </div>
       {batch.target && <p className="mt-2 text-sm text-slate-300">Target: {batch.target}</p>}
+      <TemperatureEstimate apiUrl={API_URL} batch={batch} type={culture.type} onSaved={onTemperatureSaved} />
       <p className="mt-2 text-xs text-slate-500">
         Started {new Date(batch.started_at).toLocaleString()} · outcome: {batch.outcome}
       </p>
@@ -555,8 +560,10 @@ function NewBatch({ onCreated }) {
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState("kombucha");
   const [target, setTarget] = useState("");
+  const [expectedTemp, setExpectedTemp] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const selectedType = cultureId ? cultures.find((c) => c.id === cultureId)?.type : newType;
 
   useEffect(() => {
     fetch(`${API_URL}/cultures`)
@@ -570,6 +577,8 @@ function NewBatch({ onCreated }) {
     setBusy(true);
     setError(null);
     try {
+      const temp = parseTemperature(expectedTemp);
+      if (temp.error) throw new Error(temp.error);
       let id = cultureId;
       if (!id) {
         if (!newName.trim()) throw new Error("Pick a culture or name a new one");
@@ -584,7 +593,11 @@ function NewBatch({ onCreated }) {
       const res = await fetch(`${API_URL}/batches`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ culture_id: id, target: target || null }),
+        body: JSON.stringify({
+          culture_id: id,
+          target: target || null,
+          expected_temperature_c: temp.value,
+        }),
       });
       if (!res.ok) throw new Error("Could not start batch");
       const batch = await res.json();
@@ -641,6 +654,7 @@ function NewBatch({ onCreated }) {
           value={target}
           onChange={(e) => setTarget(e.target.value)}
         />
+        <TemperatureField type={selectedType} value={expectedTemp} onChange={setExpectedTemp} />
         {error && <p className="text-sm text-red-400">{error}</p>}
         <button
           type="submit"
@@ -731,6 +745,13 @@ export default function App() {
             culture={preview.culture}
             daysInStage={preview.days_in_stage}
             onAdvanced={() => loadPreview(batchId)}
+            onTemperatureSaved={() => loadPreview(preview.batch.id)}
+          />
+          <PredictionPanel
+            key={preview.batch.id}
+            apiUrl={API_URL}
+            batchId={preview.batch.id}
+            startedAt={preview.batch.started_at}
           />
           <LogObservation batchId={batchId} onLogged={() => loadPreview(batchId)} />
           <Recipe
