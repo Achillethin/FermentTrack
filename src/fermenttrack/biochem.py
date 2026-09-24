@@ -336,6 +336,10 @@ def snapshot_delta(v1: dict[str, Any], v2: dict[str, Any]) -> dict[str, list[dic
     (fermentation_type, organism), enzyme_reactions by (ec_number, substrate,
     product) compared via KEGG compound ids. Reaction rows in the result also
     carry substrate_kegg_id / product_kegg_id so callers can resolve DB ids.
+
+    Migration 0009 consumes this output contract (table names, row keys incl.
+    substrate_kegg_id / product_kegg_id): changing it changes what 0009 does on a
+    fresh database.
     """
 
     def reactions(snap: dict[str, Any]) -> list[dict[str, Any]]:

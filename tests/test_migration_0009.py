@@ -46,9 +46,16 @@ def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "database_url", url)  # env.py reads settings at each run
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(ROOT / "alembic"))
+
+    # Enforce FKs (SQLite default is OFF) on every engine, including the one env.py creates.
+    def _fk_on(dbapi_conn, _record) -> None:  # type: ignore[no-untyped-def]
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
+    sa.event.listen(sa.engine.Engine, "connect", _fk_on)
     engine = sa.create_engine(url)
     yield cfg, engine
     engine.dispose()
+    sa.event.remove(sa.engine.Engine, "connect", _fk_on)
 
 
 CULTURES = sa.Table(
@@ -169,8 +176,9 @@ def test_0009_is_additive_and_reversible(db) -> None:
 def test_0009_downgrade_drops_overrides_on_v2_organisms(db) -> None:
     cfg, engine = db
     command.upgrade(cfg, "0009")
-    zr = _orgs(engine)["Zygosaccharomyces rouxii"][0]
-    _add_override(engine, zr, "miso")
-    command.downgrade(cfg, "0008")  # would leave a dangling row otherwise
+    orgs = _orgs(engine)
+    keep_id = _add_override(engine, orgs["Saccharomyces cerevisiae"][0], "sourdough")
+    _add_override(engine, orgs["Zygosaccharomyces rouxii"][0], "miso")  # dangles once v2 is gone
+    command.downgrade(cfg, "0008")
     with engine.connect() as c:
-        assert c.execute(sa.select(sa.func.count()).select_from(BatchOrganism)).scalar_one() == 0
+        assert c.execute(sa.select(BatchOrganism.id)).scalars().all() == [keep_id]

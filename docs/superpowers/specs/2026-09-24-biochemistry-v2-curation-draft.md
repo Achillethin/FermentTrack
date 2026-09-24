@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-24
 **Status:** FINAL — implemented (v2). Snapshot `kegg_biochem_v2.json.gz` + migration 0009.
-**Scope (your call, 2026-09-24):** option A only — curation gaps in koji, miso, plus the adjacent low-risk kefir/vinegar/CO2 gaps. **Garum is out** (needs the ingredient→enzyme table, option B, not started). Cheese protease/rennet is also out for the same reason.
+**Scope (your call, 2026-09-24):** option A only — curation gaps in koji, miso, plus the adjacent low-risk kefir/vinegar/CO2 gaps. Garum's ingredient-driven enzymes (fish digestive proteases; option B, the ingredient→enzyme table) are still out of scope, but garum's biochemistry is no longer empty because *T. halophilus* gained lactate dehydrogenase. Cheese protease/rennet is also out for the same reason.
 **Builds on:** `2026-09-23-fermentation-biochemistry-design.md`; v1 data in `src/fermenttrack/biochem.py`.
 
 ## How v2 shipped (structural, no app-code or API change)
@@ -82,12 +82,15 @@ Categories reuse v1's set (`acid|alcohol|gas|flavor|other`). `flavor` stays unus
 
 | Type | Enzymes | Compounds |
 |---|---|---|
-| koji | amylase, glucoamylase, alpha-glucosidase, oryzin, deuterolysin, aspergillopepsin I, carboxypeptidase C, glutaminase | maltose, D-glucose, L-glutamine, L-glutamate |
-| miso | all koji + ADH, PDC, L-LDH | koji's + pyruvate, acetaldehyde, ethanol, CO2, lactate |
-| kefir | LDH, ADH, PDC, beta-galactosidase | pyruvate, lactate, acetaldehyde, ethanol, CO2, lactose, D-glucose, D-galactose |
-| vinegar | ADH(quinone), ALDH (NAD+), ALDH(quinone) | ethanol, acetaldehyde, acetate |
-| kombucha / sourdough | as v1 + CO2 via PDC | + CO2 |
-| garum, cheese | **unchanged (still thin)** | **unchanged** |
+| kombucha | alcohol dehydrogenase, pyruvate decarboxylase, alcohol dehydrogenase (quinone), aldehyde dehydrogenase (NAD+), aldehyde dehydrogenase (quinone) | Ethanol, Acetaldehyde, Pyruvate, Acetate, CO2 |
+| sourdough | alcohol dehydrogenase, pyruvate decarboxylase, L-lactate dehydrogenase, D-lactate dehydrogenase | Ethanol, Acetaldehyde, Pyruvate, (S)-Lactate, CO2, (R)-Lactate |
+| koji | alpha-amylase, glucan 1,4-alpha-glucosidase, alpha-glucosidase, oryzin, deuterolysin, aspergillopepsin I, carboxypeptidase C, glutaminase | Maltose, D-Glucose, L-Glutamine, L-Glutamate |
+| cheese | L-lactate dehydrogenase | Pyruvate, (S)-Lactate |
+| kefir | alcohol dehydrogenase, pyruvate decarboxylase, L-lactate dehydrogenase, beta-galactosidase | Ethanol, Acetaldehyde, Pyruvate, (S)-Lactate, D-Glucose, CO2, Lactose, D-Galactose |
+| miso | alcohol dehydrogenase, pyruvate decarboxylase, L-lactate dehydrogenase, alpha-amylase, glucan 1,4-alpha-glucosidase, alpha-glucosidase, oryzin, deuterolysin, aspergillopepsin I, carboxypeptidase C, glutaminase | Ethanol, Acetaldehyde, Pyruvate, (S)-Lactate, Maltose, D-Glucose, L-Glutamine, L-Glutamate, CO2 |
+| garum | L-lactate dehydrogenase | Pyruvate, (S)-Lactate |
+| vinegar | alcohol dehydrogenase (quinone), aldehyde dehydrogenase (NAD+), aldehyde dehydrogenase (quinone) | Ethanol, Acetaldehyde, Acetate |
+| lacto_ferment | L-lactate dehydrogenase, D-lactate dehydrogenase | Pyruvate, (S)-Lactate, (R)-Lactate |
 
 ## 7. Explicitly not in v2
 
