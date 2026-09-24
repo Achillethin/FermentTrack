@@ -76,7 +76,7 @@ Categories reuse v1's set (`acid|alcohol|gas|flavor|other`). `flavor` stays unus
 - lacto_ferment: + *L. mesenteroides*
 - vinegar: + *A. pasteurianus*
 - kefir: + *L. kefiri*, *L. kefiranofaciens*
-- all other types unchanged (kombucha, sourdough, koji, cheese, garum change only through the new enzymes/compounds above, if at all).
+- all other types keep their organism sets (kombucha, sourdough, koji, cheese, garum); their `/biochemistry` output still changes through the new enzyme links and compounds above (see section 6).
 
 ## 6. Expected `/biochemistry` output after v2 (for sanity-checking the list)
 
@@ -94,7 +94,7 @@ Categories reuse v1's set (`acid|alcohol|gas|flavor|other`). `flavor` stays unus
 
 ## 7. Explicitly not in v2
 
-- Garum (all of it) and cheese protease/chymosin: need the ingredient→enzyme table (option B).
+- Garum's ingredient-driven enzymes (fish digestive proteases) and cheese protease/chymosin: need the ingredient→enzyme table (option B). Garum is thin, not empty: it gains lactate dehydrogenase through *T. halophilus* (section 6).
 - Starch, protein and peptides as compounds (not KEGG compounds); aroma/flavor compounds (esters, pyrazines); *A. oryzae* lipases/cellulases/phytase; *T. halophilus* enzymes beyond LDH; NCBI taxon ids.
 
 ## 8. Research verification (2026-09-24)
