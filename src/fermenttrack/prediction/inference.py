@@ -87,8 +87,10 @@ class Posterior:
 
 
 def solids_offset(z: FloatArray) -> FloatArray:
-    """g/kg of untracked dissolved solids from the last z column: 3 (0-6) g/kg."""
-    return np.asarray(np.maximum(3.0 + 1.8 * z[:, -1], 0.0))
+    """Untracked dissolved solids plus device bias, g/kg sucrose-equivalent, from the last z
+    column: 3 g/kg median, 90 % range -7 to +13 (about -0.003 to +0.005 SG): tea and fruit
+    solids, and hydrometer/iSpindel calibration offsets, which are commonly 0.002-0.003 SG."""
+    return np.asarray(3.0 + 6.0 * z[:, -1])
 
 
 def _stack(trs: list[Trajectories]) -> Trajectories:

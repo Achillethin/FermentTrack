@@ -110,4 +110,5 @@ async def get_batch_prediction(
         finished=batch.outcome != "in_progress",
     )
     body = await run_in_threadpool(predict, inputs, temperature_c, horizon_h)
+    body["started_at"] = started
     return PredictionOut.model_validate(body)

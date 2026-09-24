@@ -199,7 +199,8 @@ def test_pathways_report_kegg_backing() -> None:
 def test_exploratory_types_say_so() -> None:
     body = predict(_inputs("miso", temp=25.0))
     assert body["model"]["confidence"] == "exploratory"
-    assert any(w.startswith("Exploratory") for w in body["warnings"])
+    assert "sketch of the mechanism" in body["model"]["confidence_note"]
+    assert not any(w.startswith("Exploratory") for w in body["warnings"])
     assert body["reference_lines"] == []
 
 
@@ -209,3 +210,14 @@ def test_horizon_is_respected_and_old_batches_stay_in_window() -> None:
     old = predict(_inputs(now_h=40 * 24))
     assert old["horizon_h"] > 40 * 24
     assert old["horizon_h"] in old["horizon_options_h"]
+
+
+def test_falling_products_are_shown_and_windows_are_whole_days() -> None:
+    body = predict(_inputs("vinegar", temp=27.0))
+    ethanol = _series(body, "ethanol")
+    assert ethanol["p50"][-1] < ethanol["p50"][0]  # consumed, still charted
+    wine = {"water": 86.5, "carbohydrate": 2.6, "sugars_total": 0.6, "alcohol": 10.6}
+    red = predict(_inputs("vinegar", recipe=(RecipeIn("Red wine", 1, "L", wine, "base"),)))
+    assert red["initial"]["values"]["starch"] == 0.0  # no starch invented for wine
+    assert all(h % 24 == 0 for h in body["horizon_options_h"])
+    assert body["model"]["confidence_note"] is None

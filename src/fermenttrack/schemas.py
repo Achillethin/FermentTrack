@@ -347,6 +347,7 @@ class PredictionModelOut(BaseModel):
     members: int
     effective_members: float
     confidence: Literal["established", "exploratory"]
+    confidence_note: str | None  # why an exploratory forecast is only a sketch
     validated: bool
     sources: list[str]
 
@@ -431,6 +432,7 @@ class PredictionInitialOut(BaseModel):
 class PredictionOut(BaseModel):
     model: PredictionModelOut
     fermentation_type: str
+    started_at: datetime  # UTC; t_h values are hours since this
     now_h: float
     horizon_h: float
     horizon_options_h: list[float]

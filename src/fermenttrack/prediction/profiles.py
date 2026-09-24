@@ -207,7 +207,10 @@ PROFILES: dict[str, FermentProfile] = {
             show_ph=False,
             ph_safety_line=False,
             confidence="exploratory",
-            sources=("te Biesebeke et al. 2002 FEMS Yeast Res 2:245", "Bechman et al. 2012"),
+            sources=(
+                "te Biesebeke et al. 2002 FEMS Yeast Res 2:245",
+                "Bechman et al. 2012 J Food Sci 77:M318",
+            ),
             notes=(
                 "Koji heats itself as it grows; the model assumes you hold the bed at the set "
                 "temperature (keep it below 40 °C).",

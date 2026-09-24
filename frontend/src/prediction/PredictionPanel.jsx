@@ -26,8 +26,9 @@ const MEASURABLE = { ph: "pH", gravity: "gravity", brix: "Brix" };
 
 const NO_REF_LINES = [];
 
-// The exploratory explanation arrives as a warning ("Exploratory: …"); it is
-// shown once, in the calm exploratory note, instead of in the warning box.
+// The exploratory explanation arrives as model.confidence_note (older API versions
+// sent it as an "Exploratory: …" warning); it is shown once, in the calm exploratory
+// note, never in the warning box.
 const isExploratoryWarning = (w) => /^exploratory\b/i.test(w);
 
 function chartMeta(group, unit) {
@@ -367,6 +368,7 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
   const exploratory = data.model?.confidence === "exploratory";
   const warnings = (data.warnings || []).filter((w) => !exploratory || !isExploratoryWarning(w));
   const exploratoryText =
+    data.model?.confidence_note ||
     (data.warnings || []).find(isExploratoryWarning)?.replace(/^exploratory\s*[:.-]?\s*/i, "") ||
     "There is little published kinetic data for this ferment. Read the curves as a sketch of the mechanism, not a calibrated forecast.";
   const measurable = [...new Set((data.series || []).map((x) => x.key).filter((k) => MEASURABLE[k]))];

@@ -34,6 +34,7 @@ from fermenttrack.prediction.priors import FloatArray, Prior
 from fermenttrack.prediction.profiles import (
     ADDED_MOLD_INOCULUM,
     ADDED_ORGANISM_INOCULUM,
+    PROFILES,
     FermentProfile,
     Milestone,
     profile_for,
@@ -122,7 +123,7 @@ class OrganismIn:
 @dataclass(frozen=True)
 class PredictionInputs:
     fermentation_type: str
-    now_h: float
+    now_h: float  # hours since the batch started
     expected_temperature_c: float | None
     organisms: tuple[OrganismIn, ...]
     organism_source: str  # "default" | "custom"
@@ -194,11 +195,12 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
         if unexplained > 0:
             add(profile.sugar_default, unexplained)
         starch = n.get("starch")
-        if starch is None and "carbohydrate" in n:
+        if starch is None and "carbohydrate" in n and "starch" in profile.typical_recipe:
             # SR Legacy often omits starch for grains/flours: carbohydrate by difference
-            # minus fiber and sugars is mostly starch there.
+            # minus fiber and sugars is mostly starch there. Not elsewhere (wine: glycerol
+            # and extract; soybeans: non-starch polysaccharides), hence the two guards.
             est = n["carbohydrate"] - n.get("fiber", 0.0) - n.get("sugars_total", 0.0)
-            if est > 1.0:
+            if est >= 20.0:
                 starch = est
                 starch_estimated.append(item.name)
         add("starch", (starch or 0.0) * f * profile.starch_accessible)
@@ -503,12 +505,13 @@ def _series_values(
     return out
 
 
-def _relevant(key: str, q: FloatArray, init: FloatArray) -> bool:
+def _relevant(key: str, q: FloatArray) -> bool:
     if key in ("ph", "gravity", "brix", "mycelium", "koji_enzyme") or key.startswith("pop:"):
         return True
     if key in SUBSTRATES:
         return float(np.max(q[2])) >= 0.3
-    return float(np.max(q[2])) >= 0.3 and float(np.max(q[2]) - np.min(init)) >= 0.2
+    # products: present, and changing (rising acids, or ethanol consumed in vinegar)
+    return float(np.max(q[2])) >= 0.3 and float(np.ptp(q[1])) >= 0.2
 
 
 def _first_crossing(t: FloatArray, v: FloatArray, target: FloatArray, below: bool) -> FloatArray:
@@ -667,6 +670,12 @@ def _store(key: str, value: Any) -> None:
             _CACHE.popitem(last=False)
 
 
+def _nice_horizon(h: float) -> float:
+    """Window choices in whole days past two days, whole hours below."""
+    h = min(h, MAX_HORIZON_H)
+    return float(max(round(h / 24.0), 1) * 24 if h >= 48 else max(round(h), 1))
+
+
 def default_horizon(profile: FermentProfile, now_h: float) -> float:
     h = profile.horizon_h
     if now_h > 0.85 * h:  # an older batch: keep "now" inside the window
@@ -728,7 +737,7 @@ def predict(
     for key, v in values.items():
         vg = v[:, grid_idx]
         q = weighted_quantiles(vg, weights, (0.05, 0.5, 0.95))
-        if not _relevant(key, q, vg[:, 0]):
+        if not _relevant(key, q):
             continue
         group, unit = _group(key)
         label = LABELS.get(key) or key.removeprefix("pop:")
@@ -803,12 +812,15 @@ def predict(
             "so their influence was reduced and the bands widened. Check the readings, or "
             "treat this forecast as rough."
         )
-    if profile.confidence == "exploratory":
-        warnings.append(
-            f"Exploratory: {profile.type} is driven by enzymes and salt-tolerant microbes with "
-            "little published kinetic data. Read the curves as a sketch of the mechanism, "
-            "not a calibrated forecast."
-        )
+    confidence_note = (
+        f"{profile.type} is driven by enzymes and salt-tolerant microbes with little published "
+        "kinetic data. Read the curves as a sketch of the mechanism, not a calibrated forecast."
+        if profile.type in PROFILES and profile.confidence == "exploratory"
+        else f"No kinetic profile exists for '{inputs.fermentation_type}': a generic lactic "
+        "ferment stands in. Read the curves as a rough sketch."
+        if profile.confidence == "exploratory"
+        else None
+    )
     if inputs.finished:
         warnings.append("This batch is marked finished; the forecast runs as if it continued.")
 
@@ -868,9 +880,8 @@ def predict(
         if profile.ph_safety_line and profile.show_ph
         else []
     )
-    base_h = profile.horizon_h
     options = sorted(
-        {round(min(base_h * f, MAX_HORIZON_H), 1) for f in (0.25, 0.5, 1.0, 2.0)} | {horizon}
+        {_nice_horizon(profile.horizon_h * f) for f in (0.25, 0.5, 1.0, 2.0)} | {horizon}
     )
     result = {
         "model": {
@@ -882,10 +893,12 @@ def predict(
                 float(1.0 / np.sum(weights**2)), 1
             ),
             "confidence": profile.confidence,
+            "confidence_note": confidence_note,
             "validated": False,
             "sources": sources,
         },
         "fermentation_type": inputs.fermentation_type,
+        "started_at": None,  # filled in by the router (not part of the cached model output)
         "now_h": round(inputs.now_h, 3),
         "horizon_h": horizon,
         "horizon_options_h": options,

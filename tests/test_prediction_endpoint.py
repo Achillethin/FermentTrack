@@ -82,6 +82,7 @@ async def test_prediction_endpoint(client: AsyncClient, db_session: AsyncSession
         "range_c": [16.0, 24.0], "readings": 0,
     }  # fmt: skip
     assert 29.0 < body["now_h"] < 31.0
+    assert body["started_at"].startswith(batch.started_at.isoformat()[:16])
     assert [o["value"] for o in body["observations"]] == [6.1, 5.3]
     (org,) = body["organisms"]
     assert org["name"] == "Lactobacillus plantarum"
