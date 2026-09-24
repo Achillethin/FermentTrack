@@ -66,6 +66,9 @@ class Batch(Base):
     batch_ingredients: Mapped[list["BatchIngredient"]] = relationship(
         back_populates="batch", cascade="all, delete-orphan"
     )
+    batch_organisms: Mapped[list["BatchOrganism"]] = relationship(
+        back_populates="batch", cascade="all, delete-orphan"
+    )
 
 
 class Measurement(Base):
@@ -170,3 +173,112 @@ class FdcFoodNutrient(Base):
     fdc_id: Mapped[int] = mapped_column(Integer, ForeignKey("fdc_foods.fdc_id"), primary_key=True)
     nutrient: Mapped[str] = mapped_column(Text, primary_key=True)  # key of nutrients.NUTRIENTS
     amount_per_100g: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class Organism(Base):
+    __tablename__ = "organisms"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    kingdom: Mapped[str] = mapped_column(Text, nullable=False)  # bacteria | yeast | mold
+    ncbi_taxon_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kegg_organism_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_version: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class Enzyme(Base):
+    __tablename__ = "enzymes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    ec_number: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    kegg_entry_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_version: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class Compound(Base):
+    __tablename__ = "compounds"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    kegg_compound_id: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)  # acid|alcohol|gas|flavor|other
+    source_version: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class OrganismEnzyme(Base):
+    """'This organism expresses this enzyme' — hand-curated, see biochem.py."""
+
+    __tablename__ = "organism_enzymes"
+    __table_args__ = (UniqueConstraint("organism_id", "enzyme_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    organism_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organisms.id"), nullable=False
+    )
+    enzyme_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("enzymes.id"), nullable=False
+    )
+
+    enzyme: Mapped["Enzyme"] = relationship()
+
+
+class EnzymeReaction(Base):
+    """'This enzyme converts substrate to product' (one representative
+    reaction per curated enzyme, not full pathway completeness)."""
+
+    __tablename__ = "enzyme_reactions"
+    __table_args__ = (UniqueConstraint("enzyme_id", "substrate_id", "product_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    enzyme_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("enzymes.id"), nullable=False
+    )
+    substrate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("compounds.id"), nullable=False
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("compounds.id"), nullable=False
+    )
+
+    substrate: Mapped["Compound"] = relationship(foreign_keys=[substrate_id])
+    product: Mapped["Compound"] = relationship(foreign_keys=[product_id])
+
+
+class FermentationTypeOrganism(Base):
+    """Default organisms per fermentation_type (the STAGE_MACHINES vocabulary
+    plus kefir/vinegar) — hand-curated, see biochem.py."""
+
+    __tablename__ = "fermentation_type_organisms"
+    __table_args__ = (UniqueConstraint("fermentation_type", "organism_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    fermentation_type: Mapped[str] = mapped_column(Text, nullable=False)
+    organism_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organisms.id"), nullable=False
+    )
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    organism: Mapped["Organism"] = relationship()
+
+
+class BatchOrganism(Base):
+    """A row here overrides/extends its batch's organism set for the
+    /biochemistry endpoint; a batch with zero rows uses
+    FermentationTypeOrganism defaults for its culture.type instead."""
+
+    __tablename__ = "batch_organisms"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("batches.id"), nullable=False
+    )
+    organism_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organisms.id"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="custom")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
+
+    batch: Mapped["Batch"] = relationship(back_populates="batch_organisms")
+    organism: Mapped["Organism"] = relationship()

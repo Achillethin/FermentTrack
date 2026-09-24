@@ -118,7 +118,9 @@ Target: r/selfhosted (1.5M subscribers). Tandoor Recipes reached 8,375⭐ throug
 
 ---
 
-## Direction 3: 🧠 Knowledge-Powered Intelligence (The FermentGraph Moat) — DEFERRED, corrected 2026-09-17
+## Direction 3: 🧠 Knowledge-Powered Intelligence (The FermentGraph Moat) — DEFERRED, corrected 2026-09-17; partially superseded 2026-09-23
+
+**2026-09-23 update:** the UI-deferral below no longer blocks a KEGG-sourced organism/enzyme/compound reference layer — see `docs/superpowers/specs/2026-09-23-fermentation-biochemistry-design.md` § "Reversing the Direction 3 deferral". KEGG supplies canonical enzyme and compound identity (EC-number validity and names, compound ids and names); the organism-enzyme, enzyme-reaction and fermentation-type-organism mappings are hand-curated domain knowledge pending owner review. The original objection was about *sourcing* (presenting fermentgraph's unvalidated, null-result heuristic priors as intelligence); KEGG is a different, citable provenance. **The rest of this Direction — anything sourced from `fermentgraph` specifically — stays deferred on its original trigger** (ranker beats popularity baseline by ≥+0.05 Recall@50, `docs/DEPENDENCIES.md`).
 
 **Status check (audit, 2026-09-17):** this direction assumed a working `generate_suggestions`/`query_analogs` API. Neither exists in `fermentgraph`'s codebase, and its evaluated ranker *regresses* vs. a popularity baseline (Recall@50 -0.001, needs +0.05 to promote); the fermentation-knowledge-prior channel shows an exact 0.0000 effect on every metric. Full detail: [`DEPENDENCIES.md`](DEPENDENCIES.md#2-fermentgraph--dont-use-yet). This direction is **not a Phase 1 or Phase 2 differentiator** — it's research-stage, revisit only if the trigger there fires. Do not market "knowledge-graph intelligence" as a current feature.
 

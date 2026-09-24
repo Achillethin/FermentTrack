@@ -4,7 +4,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from fermenttrack.config import settings
-from fermenttrack.routers import batches, cultures, foods, ingredients, reminders, safety, webhooks
+from fermenttrack.routers import (
+    batches,
+    cultures,
+    foods,
+    ingredients,
+    organisms,
+    reminders,
+    safety,
+    webhooks,
+)
 
 app = FastAPI(
     title="FermentTrack",
@@ -23,6 +32,7 @@ app.include_router(cultures.router)
 app.include_router(batches.router)
 app.include_router(ingredients.router)
 app.include_router(foods.router)
+app.include_router(organisms.router)
 app.include_router(reminders.router)
 app.include_router(safety.router)
 app.include_router(webhooks.router)

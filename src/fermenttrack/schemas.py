@@ -242,11 +242,12 @@ class SafetyReportOut(BaseModel):
 
 # ── Preview ──────────────────────────────────────────────────────────────
 # Presentation-shaped for the (future) batch-preview UI page. Scope ceiling:
-# owned by that one page's needs — any other consumer uses /timeline and
-# /safety directly rather than extending this. No compound/microbial data
-# here by design (see docs/superpowers/specs/2026-09-18-experiment-logging-
-# design.md § 2 — deferred until FermentGraph's ranker clears its promotion
-# bar, to avoid presenting unvalidated heuristics as a current feature).
+# owned by that one page's needs — any other consumer uses /timeline,
+# /safety, and /biochemistry directly rather than extending this. No
+# organism/enzyme/compound data here: that's GET /batches/{id}/biochemistry
+# (docs/superpowers/specs/2026-09-23-fermentation-biochemistry-design.md),
+# a separate endpoint, not folded into this one — same scope-ceiling
+# reasoning as /timeline and /safety already getting their own endpoints.
 
 class BatchPreview(BaseModel):
     batch: BatchOut
@@ -255,6 +256,69 @@ class BatchPreview(BaseModel):
     recipe: list[BatchIngredientOut]
     timeline: list[TimelineEvent]
     safety: SafetyReportOut
+
+
+# ── Biochemistry ─────────────────────────────────────────────────────────
+# Reference data for fermentation organisms/enzymes/compounds, sourced from
+# KEGG. See docs/superpowers/specs/2026-09-23-fermentation-biochemistry-
+# design.md — this reverses the 2026-09-18 UI deferral for compound/
+# microbial data (that deferral was about presenting fermentgraph's
+# unvalidated heuristic priors as intelligence; KEGG is a different,
+# citable provenance). fermentgraph itself remains a "don't use yet"
+# dependency per docs/DEPENDENCIES.md, untouched by this reversal.
+
+class OrganismOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    kingdom: str
+    ncbi_taxon_id: str | None
+    kegg_organism_code: str | None
+
+
+class EnzymeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ec_number: str
+    name: str
+
+
+class CompoundOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    category: str
+
+
+class BiochemOrganismOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    kingdom: str
+    source: str  # "default" | "custom"
+
+
+class BatchBiochemistryOut(BaseModel):
+    organisms: list[BiochemOrganismOut]
+    enzymes: list[EnzymeOut]
+    compounds: list[CompoundOut]
+
+
+class BatchOrganismCreate(BaseModel):
+    organism_id: uuid.UUID
+    notes: str | None = None
+
+
+class BatchOrganismOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    batch_id: uuid.UUID
+    organism_id: uuid.UUID
+    source: str
+    notes: str | None
 
 
 CultureWithBatches.model_rebuild()

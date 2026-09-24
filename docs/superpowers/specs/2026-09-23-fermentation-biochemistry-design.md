@@ -82,6 +82,8 @@ batch_organisms            id UUID PK, batch_id FK->batches (cascade delete, mat
 - **Fermentation-type mapping:** a hand-maintained table in the build script (not KEGG data) mapping each of the 9 fermentation types above to its dominant organism(s) — e.g. `kombucha -> [Saccharomyces cerevisiae, Acetobacter aceti, Gluconacetobacter xylinus]`, `sourdough -> [Saccharomyces cerevisiae, Lactobacillus sanfranciscensis]`, `koji/miso -> [Aspergillus oryzae]`, `cheese -> [Lactococcus lactis]`. This mapping is domain knowledge, not something KEGG exposes directly — it's the one hand-curated piece, kept small and explicit in one place.
 - Loaded in a single migration data step (this dataset is small — dozens of rows, not thousands — no chunking needed unlike the FDC snapshot).
 
+**As built (v1):** the script fetches only canonical identity from KEGG for a curated set of 5 EC numbers (enzyme names) and 5 compound names (ids and canonical names), not whole pathways. All relations (organism-enzyme, enzyme-reaction, fermentation-type-organism) are hand-curated in `fermenttrack/biochem.py`. The per-pathway and ortholog-derived text above was aspirational and is deferred to a v2 snapshot.
+
 ### Read endpoint: `GET /batches/{id}/biochemistry`
 
 Returns, for one batch:
