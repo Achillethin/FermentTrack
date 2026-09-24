@@ -1,5 +1,5 @@
 # scripts/build_kegg_biochem.py
-"""Build the frozen KEGG fermentation-biochemistry snapshot.
+"""Build the frozen KEGG fermentation-biochemistry snapshot (v2).
 
     python scripts/build_kegg_biochem.py [--force]
 
@@ -9,8 +9,10 @@ term). Which organisms/enzymes/compounds are fermentation-relevant, and how
 they link together, is hand-curated domain knowledge in
 fermenttrack/biochem.py — KEGG supplies identity, not the curation itself.
 
-Writes src/fermenttrack/kegg_biochem_v1.json.gz — FROZEN once migration 0008
-has run anywhere: a new snapshot is _v2 + a new migration.
+Writes src/fermenttrack/kegg_biochem_v2.json.gz — FROZEN once migration 0009
+has run anywhere: a new snapshot is _v3 + a new migration. kegg_biochem_v1.json.gz
+is a committed frozen artifact and is no longer regenerable from this script (the
+curated dicts describe v2, a superset of v1).
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ import httpx
 from fermenttrack.biochem import (
     COMPOUNDS,
     ENZYME_ORGANISMS,
-    KEGG_BIOCHEM_V1,
+    KEGG_BIOCHEM_V2,
     build_snapshot,
     kegg_entry_name,
     kegg_find_id,
@@ -64,10 +66,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
-    if KEGG_BIOCHEM_V1.exists() and not args.force:
+    if KEGG_BIOCHEM_V2.exists() and not args.force:
         raise SystemExit(
-            "kegg_biochem_v1.json.gz is frozen; a new snapshot is _v2 + a new "
-            "migration (use --force only to regenerate v1 before it has ever "
+            "kegg_biochem_v2.json.gz is frozen; a new snapshot is _v3 + a new "
+            "migration (use --force only to regenerate v2 before it has ever "
             "been migrated)"
         )
 
@@ -81,7 +83,7 @@ def main() -> None:
     write_snapshot(data)
     print(
         f"wrote {len(data['organisms'])} organisms, {len(data['enzymes'])} enzymes, "
-        f"{len(data['compounds'])} compounds to {KEGG_BIOCHEM_V1}"
+        f"{len(data['compounds'])} compounds to {KEGG_BIOCHEM_V2}"
     )
 
 
