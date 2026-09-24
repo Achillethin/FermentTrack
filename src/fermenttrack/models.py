@@ -179,7 +179,7 @@ class Organism(Base):
     __tablename__ = "organisms"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
     kingdom: Mapped[str] = mapped_column(Text, nullable=False)  # bacteria | yeast | mold
     ncbi_taxon_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     kegg_organism_code: Mapped[str | None] = mapped_column(Text, nullable=True)

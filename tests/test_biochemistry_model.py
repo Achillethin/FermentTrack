@@ -81,3 +81,13 @@ async def test_batch_organism_override_and_cascade_delete(db_session: AsyncSessi
 
     result = await db_session.execute(select(BatchOrganism))
     assert result.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_organism_name_is_unique(db_session: AsyncSession) -> None:
+    db_session.add(Organism(name="Aspergillus oryzae", kingdom="mold", source_version="v1"))
+    await db_session.commit()
+    db_session.add(Organism(name="Aspergillus oryzae", kingdom="mold", source_version="v1"))
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
