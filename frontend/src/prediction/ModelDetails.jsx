@@ -63,6 +63,20 @@ function Pathways({ pathways }) {
   );
 }
 
+function Disclosure({ summary, children }) {
+  return (
+    <details className="group border-t border-slate-800">
+      <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-3 rounded text-sm text-slate-300 hover:text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 [&::-webkit-details-marker]:hidden">
+        <span>{summary}</span>
+        <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden="true">
+          <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </summary>
+      <div className="pb-3 text-sm">{children}</div>
+    </details>
+  );
+}
+
 export function Warnings({ warnings }) {
   if (!warnings?.length) return null;
   return (

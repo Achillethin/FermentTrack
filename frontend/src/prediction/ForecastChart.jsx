@@ -662,7 +662,12 @@ function ChartTable({ series, grid, nowH, horizonH, timeUnit, observations, titl
         </span>
         Table view
       </summary>
-      <div className="overflow-x-auto">
+      <div
+        className="overflow-x-auto rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+        tabIndex={0}
+        role="region"
+        aria-label={`${title}: table of model values`}
+      >
         <table className="ft-num w-full min-w-max text-left text-xs">
           <caption className="sr-only">{title}: model median and 90 % range</caption>
           <thead className="text-slate-400">
