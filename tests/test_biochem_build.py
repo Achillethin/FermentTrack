@@ -9,11 +9,13 @@ import pytest
 from fermenttrack.biochem import (
     COMPOUNDS,
     ENZYME_ORGANISMS,
+    ENZYME_REACTIONS,
     build_snapshot,
     kegg_entry_name,
     kegg_find_id,
     load_snapshot,
     parse_kegg_flatfile,
+    snapshot_delta,
     snapshot_seed_rows,
     write_snapshot,
 )
@@ -106,7 +108,7 @@ def test_build_snapshot_requires_every_curated_enzyme_and_compound() -> None:
 
 def test_build_snapshot_and_seed_rows_round_trip(tmp_path: Path) -> None:
     data = build_snapshot(_fake_enzyme_names(), _fake_compound_lookup())
-    assert data["schema_version"] == "kegg_biochem_v1"
+    assert data["schema_version"] == "kegg_biochem_v2"
     assert {o["name"] for o in data["organisms"]} >= {"Saccharomyces cerevisiae"}
     assert {e["ec_number"] for e in data["enzymes"]} == set(ENZYME_ORGANISMS)
 
@@ -125,6 +127,83 @@ def test_build_snapshot_and_seed_rows_round_trip(tmp_path: Path) -> None:
         row["substrate_id"] in compound_ids and row["product_id"] in compound_ids
         for row in seed["enzyme_reactions"]
     )
+
+
+def test_enzyme_reactions_reference_curated_names() -> None:
+    assert set(ENZYME_REACTIONS) <= set(ENZYME_ORGANISMS)
+    for pairs in ENZYME_REACTIONS.values():
+        assert pairs
+        for substrate, product in pairs:
+            assert substrate in COMPOUNDS and product in COMPOUNDS
+
+
+def test_build_snapshot_emits_every_reaction_of_an_enzyme() -> None:
+    data = build_snapshot(_fake_enzyme_names(), _fake_compound_lookup())
+    pdc = {
+        (r["substrate"], r["product"])
+        for r in data["enzyme_reactions"]
+        if r["ec_number"] == "4.1.1.1"
+    }
+    assert pdc == {("Pyruvate", "Acetaldehyde"), ("Pyruvate", "Carbon dioxide")}
+    assert len(data["enzyme_reactions"]) == sum(map(len, ENZYME_REACTIONS.values()))
+
+
+def _tiny_snapshot(extra: bool) -> dict:
+    snap = {
+        "organisms": [{"name": "A", "kingdom": "yeast"}],
+        "enzymes": [{"ec_number": "1.1.1.1", "name": "adh"}],
+        "compounds": [
+            {"name": "Ethanol", "kegg_compound_id": "C00469", "category": "alcohol"},
+            {"name": "Acetate", "kegg_compound_id": "C00033", "category": "acid"},
+        ],
+        "organism_enzymes": [{"organism": "A", "ec_number": "1.1.1.1"}],
+        "enzyme_reactions": [
+            {"ec_number": "1.1.1.1", "substrate": "Ethanol", "product": "Acetate"}
+        ],
+        "fermentation_type_organisms": [{"fermentation_type": "koji", "organism": "A"}],
+    }
+    if extra:
+        snap["organisms"].append({"name": "B", "kingdom": "mold"})
+        # v2 renames a v1 compound: matching must go by kegg_compound_id
+        snap["compounds"][1] = {
+            "name": "Acetic acid", "kegg_compound_id": "C00033", "category": "acid",
+        }
+        snap["compounds"].append({"name": "CO2", "kegg_compound_id": "C00011", "category": "gas"})
+        snap["enzyme_reactions"] = [
+            {"ec_number": "1.1.1.1", "substrate": "Ethanol", "product": "Acetic acid"},
+            {"ec_number": "1.1.1.1", "substrate": "Ethanol", "product": "CO2"},
+        ]
+        snap["organism_enzymes"].append({"organism": "B", "ec_number": "1.1.1.1"})
+        snap["fermentation_type_organisms"].append({"fermentation_type": "miso", "organism": "B"})
+    return snap
+
+
+def test_snapshot_delta_returns_only_additions() -> None:
+    delta = snapshot_delta(_tiny_snapshot(False), _tiny_snapshot(True))
+    assert [o["name"] for o in delta["organisms"]] == ["B"]
+    assert delta["enzymes"] == []
+    assert [c["kegg_compound_id"] for c in delta["compounds"]] == ["C00011"]
+    assert delta["organism_enzymes"] == [{"organism": "B", "ec_number": "1.1.1.1"}]
+    assert [(r["substrate_kegg_id"], r["product_kegg_id"]) for r in delta["enzyme_reactions"]] == [
+        ("C00469", "C00011")
+    ]
+    assert delta["fermentation_type_organisms"] == [
+        {"fermentation_type": "miso", "organism": "B"}
+    ]
+    assert all(v == [] for v in snapshot_delta(_tiny_snapshot(True), _tiny_snapshot(True)).values())
+
+
+def test_snapshot_delta_rejects_non_additive_v2() -> None:
+    v1, v2 = _tiny_snapshot(False), _tiny_snapshot(True)
+    v2["organism_enzymes"] = []
+    with pytest.raises(ValueError, match="not additive: organism_enzymes"):
+        snapshot_delta(v1, v2)
+    v2 = _tiny_snapshot(True)
+    v2["compounds"][2]["kegg_compound_id"] = "C99999"  # ok, only additions differ
+    assert snapshot_delta(v1, v2)["compounds"][0]["kegg_compound_id"] == "C99999"
+    v2["compounds"][0]["kegg_compound_id"] = "C11111"  # a v1 compound id vanishes
+    with pytest.raises(ValueError, match="not additive: compounds"):
+        snapshot_delta(v1, v2)
 
 
 def test_unknown_fermentation_type_rejected() -> None:

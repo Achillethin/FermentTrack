@@ -7,11 +7,12 @@ from collections import Counter
 
 from fermenttrack.biochem import (
     FERMENTATION_TYPE_ORGANISMS,
+    KEGG_BIOCHEM_V1,
     KNOWN_FERMENTATION_TYPES,
     load_snapshot,
 )
 
-SNAP = load_snapshot()
+SNAP = load_snapshot(KEGG_BIOCHEM_V1)  # repointed to v2 once the v2 snapshot is built
 ORGANISMS = {o["name"] for o in SNAP["organisms"]}
 ENZYMES = {e["ec_number"] for e in SNAP["enzymes"]}
 COMPOUNDS = {c["name"] for c in SNAP["compounds"]}

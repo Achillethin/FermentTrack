@@ -16,9 +16,11 @@ from typing import Any
 
 from fermenttrack.stages import STAGE_MACHINES
 
+# V1 is frozen (migration 0008 loads it by explicit path); the curated dicts below describe V2.
 KEGG_BIOCHEM_V1 = Path(__file__).resolve().parent / "kegg_biochem_v1.json.gz"
+KEGG_BIOCHEM_V2 = Path(__file__).resolve().parent / "kegg_biochem_v2.json.gz"
 
-SCHEMA_VERSION = "kegg_biochem_v1"
+SCHEMA_VERSION = "kegg_biochem_v2"
 
 KNOWN_FERMENTATION_TYPES = set(STAGE_MACHINES) | {"kefir", "vinegar"}
 
@@ -35,6 +37,14 @@ ORGANISMS: dict[str, str] = {
     # Fructilactobacillus sanfranciscensis / Komagataeibacter xylinus).
     "Gluconacetobacter xylinus": "bacteria",
     "Lactobacillus sanfranciscensis": "bacteria",
+    # v2: same convention, widely used pre-reclassification names kept.
+    # Current names: Lactiplantibacillus plantarum, Fructilactobacillus
+    # sanfranciscensis, Komagataeibacter xylinus, Lentilactobacillus kefiri.
+    "Zygosaccharomyces rouxii": "yeast",
+    "Leuconostoc mesenteroides": "bacteria",
+    "Acetobacter pasteurianus": "bacteria",
+    "Lactobacillus kefiri": "bacteria",
+    "Lactobacillus kefiranofaciens": "bacteria",
 }
 
 # Hand-curated: fermentation_type -> default organisms (dominant, not exhaustive).
@@ -43,45 +53,92 @@ FERMENTATION_TYPE_ORGANISMS: dict[str, list[str]] = {
     "sourdough": ["Saccharomyces cerevisiae", "Lactobacillus sanfranciscensis"],
     "koji": ["Aspergillus oryzae"],
     "cheese": ["Lactococcus lactis"],
-    "kefir": ["Lactococcus lactis", "Kluyveromyces marxianus"],
-    "miso": ["Aspergillus oryzae", "Tetragenococcus halophilus"],
+    "kefir": [
+        "Lactococcus lactis",
+        "Kluyveromyces marxianus",
+        "Lactobacillus kefiri",
+        "Lactobacillus kefiranofaciens",
+    ],
+    "miso": ["Aspergillus oryzae", "Tetragenococcus halophilus", "Zygosaccharomyces rouxii"],
     "garum": ["Tetragenococcus halophilus"],
-    "vinegar": ["Acetobacter aceti"],
-    "lacto_ferment": ["Lactobacillus plantarum"],
+    "vinegar": ["Acetobacter aceti", "Acetobacter pasteurianus"],
+    "lacto_ferment": ["Lactobacillus plantarum", "Leuconostoc mesenteroides"],
 }
 
 # Hand-curated: EC number -> organisms known to express it. Names are fetched
 # from KEGG (/get/ec:<num>), not hardcoded here.
 ENZYME_ORGANISMS: dict[str, list[str]] = {
-    "1.1.1.1": ["Saccharomyces cerevisiae"],  # alcohol dehydrogenase
-    "4.1.1.1": ["Saccharomyces cerevisiae"],  # pyruvate decarboxylase
-    "1.1.1.27": [  # L-lactate dehydrogenase
+    "1.1.1.1": [  # alcohol dehydrogenase
+        "Saccharomyces cerevisiae",
+        "Zygosaccharomyces rouxii",
+        "Kluyveromyces marxianus",
+    ],
+    "4.1.1.1": [  # pyruvate decarboxylase
+        "Saccharomyces cerevisiae",
+        "Zygosaccharomyces rouxii",
+        "Kluyveromyces marxianus",
+    ],
+    "1.1.1.27": [  # L-lactate dehydrogenase (Lactococcus, Tetragenococcus: L only)
         "Lactobacillus plantarum",
         "Lactococcus lactis",
         "Lactobacillus sanfranciscensis",
+        "Tetragenococcus halophilus",
+    ],
+    "1.1.1.28": [  # D-lactate dehydrogenase (Leuconostoc: D only; the two lactobacilli: DL)
+        "Lactobacillus plantarum",
+        "Lactobacillus sanfranciscensis",
+        "Leuconostoc mesenteroides",
     ],
     "3.2.1.1": ["Aspergillus oryzae"],  # alpha-amylase
+    "3.2.1.3": ["Aspergillus oryzae"],  # glucan 1,4-alpha-glucosidase (glucoamylase)
+    "3.2.1.20": ["Aspergillus oryzae"],  # alpha-glucosidase
+    "3.4.21.63": ["Aspergillus oryzae"],  # oryzin
+    "3.4.24.39": ["Aspergillus oryzae"],  # deuterolysin
+    "3.4.23.18": ["Aspergillus oryzae"],  # aspergillopepsin I
+    "3.4.16.5": ["Aspergillus oryzae"],  # carboxypeptidase C
+    "3.5.1.2": ["Aspergillus oryzae"],  # glutaminase
+    # beta-galactosidase. Deliberately NOT on Lactococcus lactis: it uses
+    # phospho-beta-galactosidase (EC 3.2.1.85), a different enzyme.
+    "3.2.1.23": ["Kluyveromyces marxianus"],
+    "1.1.5.5": ["Acetobacter aceti", "Acetobacter pasteurianus"],  # ADH (quinone)
     "1.2.1.3": ["Acetobacter aceti"],  # aldehyde dehydrogenase (NAD+)
+    "1.2.5.2": ["Acetobacter aceti", "Acetobacter pasteurianus"],  # ALDH (quinone)
 }
 
 # Hand-curated: our search name -> category. KEGG compound id + canonical
-# name are resolved at build time (/find/compound/<name>, /get/cpd:<id>).
+# name are resolved at build time (/find/compound/<name>, /get/cpd:<id>); the
+# stored name is KEGG's canonical one (e.g. "Carbon dioxide" -> "CO2").
 COMPOUNDS: dict[str, str] = {
     "Ethanol": "alcohol",
     "Acetaldehyde": "other",
     "Pyruvate": "other",
     "L-Lactic acid": "acid",
     "Acetic acid": "acid",
+    "Maltose": "other",
+    "D-Glucose": "other",
+    "L-Glutamine": "other",
+    "L-Glutamate": "other",
+    "Carbon dioxide": "gas",
+    "Lactose": "other",
+    "D-Galactose": "other",
+    "D-Lactic acid": "acid",
 }
 
-# Hand-curated: EC number -> (substrate compound name, product compound name),
-# at most one representative fermentation-relevant reaction per enzyme (not full
-# pathway completeness). Names must be keys of COMPOUNDS.
-ENZYME_REACTIONS: dict[str, tuple[str, str]] = {
-    "4.1.1.1": ("Pyruvate", "Acetaldehyde"),
-    "1.1.1.1": ("Acetaldehyde", "Ethanol"),
-    "1.1.1.27": ("Pyruvate", "L-Lactic acid"),
-    "1.2.1.3": ("Acetaldehyde", "Acetic acid"),
+# Hand-curated: EC number -> [(substrate compound name, product compound name)],
+# representative fermentation-relevant reactions (not full pathway completeness).
+# Names must be keys of COMPOUNDS. Enzymes with no entry (proteases, amylases)
+# act on protein/starch, which are not KEGG compounds.
+ENZYME_REACTIONS: dict[str, list[tuple[str, str]]] = {
+    "4.1.1.1": [("Pyruvate", "Acetaldehyde"), ("Pyruvate", "Carbon dioxide")],
+    "1.1.1.1": [("Acetaldehyde", "Ethanol")],
+    "1.1.1.27": [("Pyruvate", "L-Lactic acid")],
+    "1.1.1.28": [("Pyruvate", "D-Lactic acid")],
+    "1.2.1.3": [("Acetaldehyde", "Acetic acid")],
+    "1.1.5.5": [("Ethanol", "Acetaldehyde")],
+    "1.2.5.2": [("Acetaldehyde", "Acetic acid")],
+    "3.5.1.2": [("L-Glutamine", "L-Glutamate")],
+    "3.2.1.20": [("Maltose", "D-Glucose")],
+    "3.2.1.23": [("Lactose", "D-Glucose"), ("Lactose", "D-Galactose")],
 }
 
 
@@ -189,7 +246,8 @@ def build_snapshot(
                 "substrate": compound_lookup[substrate][1],
                 "product": compound_lookup[product][1],
             }
-            for ec, (substrate, product) in ENZYME_REACTIONS.items()
+            for ec, pairs in ENZYME_REACTIONS.items()
+            for substrate, product in pairs
         ],
         "fermentation_type_organisms": [
             {"fermentation_type": ftype, "organism": organism}
@@ -199,13 +257,13 @@ def build_snapshot(
     }
 
 
-def write_snapshot(data: dict[str, Any], path: Path = KEGG_BIOCHEM_V1) -> None:
+def write_snapshot(data: dict[str, Any], path: Path = KEGG_BIOCHEM_V2) -> None:
     payload = json.dumps(data, indent=2, sort_keys=True).encode("utf-8")
     with path.open("wb") as f, gzip.GzipFile(filename="", mode="wb", fileobj=f, mtime=0) as gz:
         gz.write(payload)
 
 
-def load_snapshot(path: Path = KEGG_BIOCHEM_V1) -> dict[str, Any]:
+def load_snapshot(path: Path = KEGG_BIOCHEM_V2) -> dict[str, Any]:
     with gzip.open(path, "rt", encoding="utf-8") as f:
         return json.load(f)
 
@@ -267,3 +325,51 @@ def snapshot_seed_rows(data: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
             for fo in data["fermentation_type_organisms"]
         ],
     }
+
+
+def snapshot_delta(v1: dict[str, Any], v2: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Rows v2 adds over v1, by natural key; ValueError if v2 drops any v1 row.
+
+    Natural keys: organisms by name, enzymes by ec_number, compounds by
+    kegg_compound_id (canonical names may differ across snapshots),
+    organism_enzymes by (organism, ec_number), fermentation_type_organisms by
+    (fermentation_type, organism), enzyme_reactions by (ec_number, substrate,
+    product) compared via KEGG compound ids. Reaction rows in the result also
+    carry substrate_kegg_id / product_kegg_id so callers can resolve DB ids.
+    """
+
+    def reactions(snap: dict[str, Any]) -> list[dict[str, Any]]:
+        cid = {c["name"]: c["kegg_compound_id"] for c in snap["compounds"]}
+        return [
+            {**r, "substrate_kegg_id": cid[r["substrate"]], "product_kegg_id": cid[r["product"]]}
+            for r in snap["enzyme_reactions"]
+        ]
+
+    specs = {
+        "organisms": (lambda r: r["name"], v1["organisms"], v2["organisms"]),
+        "enzymes": (lambda r: r["ec_number"], v1["enzymes"], v2["enzymes"]),
+        "compounds": (lambda r: r["kegg_compound_id"], v1["compounds"], v2["compounds"]),
+        "organism_enzymes": (
+            lambda r: (r["organism"], r["ec_number"]),
+            v1["organism_enzymes"],
+            v2["organism_enzymes"],
+        ),
+        "enzyme_reactions": (
+            lambda r: (r["ec_number"], r["substrate_kegg_id"], r["product_kegg_id"]),
+            reactions(v1),
+            reactions(v2),
+        ),
+        "fermentation_type_organisms": (
+            lambda r: (r["fermentation_type"], r["organism"]),
+            v1["fermentation_type_organisms"],
+            v2["fermentation_type_organisms"],
+        ),
+    }
+    delta: dict[str, list[dict[str, Any]]] = {}
+    for table, (key, rows1, rows2) in specs.items():
+        keys1 = {key(r) for r in rows1}
+        lost = keys1 - {key(r) for r in rows2}
+        if lost:
+            raise ValueError(f"v2 is not additive: {table} lost {sorted(map(str, lost))}")
+        delta[table] = [r for r in rows2 if key(r) not in keys1]
+    return delta
