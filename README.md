@@ -36,6 +36,9 @@ Plugin-based sensor integration. iSpindel, Tilt, GravityMon, Pioreactor — all 
 ### 🛡️ Safety Advisory — real today
 Cited food-safety rules (EFSA/ANSES/CDC) evaluated against your batch's own logged measurements — e.g. flags a low-salt lacto-ferment held too warm before it becomes a botulism risk. Vendored from a tested digital-twin/safety-rule engine, not a research promise.
 
+### 📈 Fermentation Forecast — model estimate, clearly labelled
+A mechanistic kinetic model (Monod growth, cardinal temperature/pH/salt models, charge-balance pH) compiled from each batch's organisms, recipe (USDA) and estimated fermentation temperature, with literature priors and uncertainty bands, re-calibrated on the pH/gravity readings you log. Forecasts pH, sugars, acids, ethanol, populations and milestones ("pH below 4.6 in ~3 days"), with a what-if temperature slider. Not validated against real batches yet and never a safety decision — see [`docs/superpowers/specs/2026-09-24-fermentation-prediction-design.md`](docs/superpowers/specs/2026-09-24-fermentation-prediction-design.md).
+
 ### 🧠 Knowledge Engine — deferred, research-stage
 Originally scoped as a FermentGraph-powered compound knowledge graph ("similar batches reached target pH by day 7"). An audit (2026-09-17) found the suggestion/analog API this depended on doesn't exist yet and the underlying ranker doesn't beat a trivial baseline — see [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md). Not marketed as a current feature; revisit once FermentGraph's ranking actually works.
 
@@ -80,6 +83,7 @@ Originally scoped as a FermentGraph-powered compound knowledge graph ("similar b
 - Stage-aware reminders (per-substrate progressions, e.g. kombucha's 1F → 2F → bottling → ready)
 - Photo timeline per batch
 - pH / temperature / tasting notes logging
+- Estimated fermentation temperature per batch, and a fermentation forecast (`GET /batches/{id}/prediction`)
 - **iSpindel/GravityMon webhook** (live sensor data → batch timeline)
 - **FermentJSON v0.1 export** (kombucha + koji extensions)
 - Compare two batches side-by-side
