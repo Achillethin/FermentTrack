@@ -108,7 +108,7 @@ def test_build_snapshot_requires_every_curated_enzyme_and_compound() -> None:
 
 def test_build_snapshot_and_seed_rows_round_trip(tmp_path: Path) -> None:
     data = build_snapshot(_fake_enzyme_names(), _fake_compound_lookup())
-    assert data["schema_version"] == "kegg_biochem_v2"
+    assert data["schema_version"] == "kegg_biochem_v3"
     assert {o["name"] for o in data["organisms"]} >= {"Saccharomyces cerevisiae"}
     assert {e["ec_number"] for e in data["enzymes"]} == set(ENZYME_ORGANISMS)
 

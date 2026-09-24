@@ -16,11 +16,13 @@ from typing import Any
 
 from fermenttrack.stages import STAGE_MACHINES
 
-# V1 is frozen (migration 0008 loads it by explicit path); the curated dicts below describe V2.
+# V1 and V2 are frozen (migrations 0008/0009/0010 load them by explicit path); the curated
+# dicts below describe V3, the default snapshot.
 KEGG_BIOCHEM_V1 = Path(__file__).resolve().parent / "kegg_biochem_v1.json.gz"
 KEGG_BIOCHEM_V2 = Path(__file__).resolve().parent / "kegg_biochem_v2.json.gz"
+KEGG_BIOCHEM_V3 = Path(__file__).resolve().parent / "kegg_biochem_v3.json.gz"
 
-SCHEMA_VERSION = "kegg_biochem_v2"
+SCHEMA_VERSION = "kegg_biochem_v3"
 
 KNOWN_FERMENTATION_TYPES = set(STAGE_MACHINES) | {"kefir", "vinegar"}
 
@@ -60,7 +62,11 @@ FERMENTATION_TYPE_ORGANISMS: dict[str, list[str]] = {
         "Lactobacillus kefiranofaciens",
     ],
     "miso": ["Aspergillus oryzae", "Tetragenococcus halophilus", "Zygosaccharomyces rouxii"],
-    "garum": ["Tetragenococcus halophilus"],
+    # v3: modern koji-based fish sauce ("koji garum") uses A. oryzae for its proteases,
+    # amylase and glutaminase. Traditional garum relies on fish digestive enzymes and
+    # halophilic bacteria and has no koji. A batch can pick its own organism set through a
+    # batch_organisms override; any override row REPLACES these type defaults for that batch.
+    "garum": ["Tetragenococcus halophilus", "Aspergillus oryzae"],
     "vinegar": ["Acetobacter aceti", "Acetobacter pasteurianus"],
     "lacto_ferment": ["Lactobacillus plantarum", "Leuconostoc mesenteroides"],
 }
@@ -257,13 +263,13 @@ def build_snapshot(
     }
 
 
-def write_snapshot(data: dict[str, Any], path: Path = KEGG_BIOCHEM_V2) -> None:
+def write_snapshot(data: dict[str, Any], path: Path = KEGG_BIOCHEM_V3) -> None:
     payload = json.dumps(data, indent=2, sort_keys=True).encode("utf-8")
     with path.open("wb") as f, gzip.GzipFile(filename="", mode="wb", fileobj=f, mtime=0) as gz:
         gz.write(payload)
 
 
-def load_snapshot(path: Path = KEGG_BIOCHEM_V2) -> dict[str, Any]:
+def load_snapshot(path: Path = KEGG_BIOCHEM_V3) -> dict[str, Any]:
     with gzip.open(path, "rt", encoding="utf-8") as f:
         return json.load(f)
 

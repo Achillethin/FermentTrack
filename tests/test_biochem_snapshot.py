@@ -1,4 +1,4 @@
-"""Sanity checks on the committed, frozen KEGG biochemistry snapshot (v2)."""
+"""Sanity checks on the committed, frozen KEGG biochemistry snapshot (v3, the default)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,13 @@ from collections import Counter
 from fermenttrack.biochem import (
     FERMENTATION_TYPE_ORGANISMS,
     KEGG_BIOCHEM_V1,
+    KEGG_BIOCHEM_V2,
     KNOWN_FERMENTATION_TYPES,
     load_snapshot,
     snapshot_delta,
 )
 
-SNAP = load_snapshot()  # v2
+SNAP = load_snapshot()  # v3
 ORGANISMS = {o["name"] for o in SNAP["organisms"]}
 ENZYMES = {e["ec_number"] for e in SNAP["enzymes"]}
 COMPOUNDS = {c["name"] for c in SNAP["compounds"]}
@@ -57,12 +58,14 @@ def test_enzymes_have_ec_shape_and_names() -> None:
         assert e["name"].strip()
 
 
-def test_v1_is_a_subset_of_v2() -> None:
-    v1 = load_snapshot(KEGG_BIOCHEM_V1)
-    assert SNAP["schema_version"] == "kegg_biochem_v2" and v1["schema_version"] == "kegg_biochem_v1"
-    delta = snapshot_delta(v1, SNAP)  # raises ValueError if any v1 row is missing
-    for table, rows in delta.items():
-        assert len(SNAP[table]) == len(v1[table]) + len(rows)
+def test_snapshots_are_nested_v1_v2_v3() -> None:
+    v1, v2 = load_snapshot(KEGG_BIOCHEM_V1), load_snapshot(KEGG_BIOCHEM_V2)
+    assert SNAP["schema_version"] == "kegg_biochem_v3"
+    assert v2["schema_version"] == "kegg_biochem_v2" and v1["schema_version"] == "kegg_biochem_v1"
+    for old, new in ((v1, v2), (v2, SNAP)):
+        delta = snapshot_delta(old, new)  # raises ValueError if any old row is missing
+        for table, rows in delta.items():
+            assert len(new[table]) == len(old[table]) + len(rows)
 
 
 def _enzymes_of(organism: str) -> set[str]:
@@ -92,3 +95,23 @@ def test_v2_curation_outcomes() -> None:
     assert ("4.1.1.1", "C00022", "C00084") in reactions  # ... alongside pyruvate -> acetaldehyde
     assert ("1.1.5.5", "C00469", "C00084") in reactions  # ethanol -> acetaldehyde
     assert ("1.1.1.28", "C00022", "C00256") in reactions  # pyruvate -> D-lactate
+
+
+def _derived_enzymes(ftype: str) -> set[str]:
+    """EC numbers a batch of this type gets by default (mirrors get_batch_biochemistry)."""
+    return {ec for org in _organisms_of(ftype) for ec in _enzymes_of(org)}
+
+
+def test_v3_koji_garum() -> None:
+    v2 = load_snapshot(KEGG_BIOCHEM_V2)
+    assert _organisms_of("garum") == {"Tetragenococcus halophilus", "Aspergillus oryzae"}
+    assert {"3.5.1.2", "3.4.21.63"} <= _derived_enzymes("garum")  # glutaminase, oryzin
+    v2_types = {
+        r["fermentation_type"]: {
+            x["organism"] for x in v2["fermentation_type_organisms"]
+            if x["fermentation_type"] == r["fermentation_type"]
+        }
+        for r in v2["fermentation_type_organisms"]
+    }
+    for ftype in FTYPES - {"garum"}:
+        assert _organisms_of(ftype) == v2_types[ftype], ftype
