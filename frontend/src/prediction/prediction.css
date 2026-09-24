@@ -18,6 +18,7 @@
   --viz-crosshair: #e2e8f0;
   --viz-ref: #fab219; /* status "warning" step: 4.6 food-safety reference */
   --viz-obs: #f8fafc; /* measured points wear ink, not a series hue */
+  --viz-misfit: #fab219; /* warning ring: a reading the calibrated model cannot explain */
   --viz-s1: #3987e5; /* blue */
   --viz-s2: #d95926; /* orange */
   --viz-s3: #199e70; /* aqua */

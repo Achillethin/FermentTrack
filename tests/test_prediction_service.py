@@ -8,12 +8,19 @@ import numpy as np
 import pytest
 
 from fermenttrack.biochem import FERMENTATION_TYPE_ORGANISMS, ORGANISMS
-from fermenttrack.prediction import inference
+from fermenttrack.prediction import engine, inference
+from fermenttrack.prediction.model import ModelSpec, TemperatureSchedule
+from fermenttrack.prediction.organisms import ORGANISM_KINETICS
+from fermenttrack.prediction.profiles import PROFILES
 from fermenttrack.prediction.service import (
+    MAX_OBS_PER_KEY,
     MeasurementIn,
     OrganismIn,
     PredictionInputs,
     RecipeIn,
+    _schedule,
+    clear_caches,
+    default_horizon,
     predict,
 )
 
@@ -115,14 +122,20 @@ def test_what_if_temperature_moves_milestones() -> None:
     cold = predict(base, temperature_c=15.0)
     warm = predict(base, temperature_c=26.0)
     assert cold["temperature"]["source"] == warm["temperature"]["source"] == "override"
-    t = lambda b: b["milestones"][1]["t_h"]["p50"] or 1e9  # noqa: E731  pH below 4.0
+    def t(b: Any) -> float:  # pH below 4.0; None = not reached in the window
+        p50 = b["milestones"][1]["t_h"]["p50"]
+        return float("inf") if p50 is None else float(p50)
+
     assert t(warm) < t(cold)
+    # a what-if resamples the posterior: it reports the posterior's effective size
+    assert cold["model"]["effective_members"] == predict(base)["model"]["effective_members"]
 
 
-def test_cache_returns_identical_results() -> None:
+def test_forecast_is_deterministic_and_cached() -> None:
     a = predict(_kraut(2))
-    b = predict(_kraut(2))
-    assert a == b
+    clear_caches()
+    assert predict(_kraut(2)) == a  # recomputed from scratch: same seeds, same answer
+    assert predict(_kraut(2)) == a  # cache hit
 
 
 def test_missing_recipe_falls_back_to_typical_with_warning() -> None:
@@ -199,14 +212,14 @@ def test_pathways_report_kegg_backing() -> None:
 def test_exploratory_types_say_so() -> None:
     body = predict(_inputs("miso", temp=25.0))
     assert body["model"]["confidence"] == "exploratory"
-    assert "sketch of the mechanism" in body["model"]["confidence_note"]
+    assert "sketch the mechanism" in body["model"]["confidence_note"]
     assert not any(w.startswith("Exploratory") for w in body["warnings"])
     assert body["reference_lines"] == []
 
 
 def test_horizon_is_respected_and_old_batches_stay_in_window() -> None:
-    body = predict(_kraut(), horizon_h=100.0)
-    assert body["horizon_h"] == 100.0 and _series(body, "ph")["t_h"][-1] == 100.0
+    body = predict(_kraut(), horizon_h=100.0)  # snapped to whole days: 96 h
+    assert body["horizon_h"] == 96.0 and _series(body, "ph")["t_h"][-1] == 96.0
     old = predict(_inputs(now_h=40 * 24))
     assert old["horizon_h"] > 40 * 24
     assert old["horizon_h"] in old["horizon_options_h"]
@@ -221,3 +234,101 @@ def test_falling_products_are_shown_and_windows_are_whole_days() -> None:
     assert red["initial"]["values"]["starch"] == 0.0  # no starch invented for wine
     assert all(h % 24 == 0 for h in body["horizon_options_h"])
     assert body["model"]["confidence_note"] is None
+
+
+def test_readings_the_model_cannot_explain_are_flagged() -> None:
+    # pH 7.0 in a sourdough: above any plausible matrix pH, never mind acidifying dough
+    readings = tuple(MeasurementIn("pH", t, 7.0) for t in (2.0, 10.0, 20.0))
+    body = predict(_inputs("sourdough", measurements=readings, now_h=21.0, temp=26.0))
+    assert [o["fits"] for o in body["observations"]] == [False, False, False]
+    assert any("fall outside what the model can explain" in w for w in body["warnings"])
+    good = predict(_kraut(3))
+    assert all(o["fits"] for o in good["observations"])
+    assert not any("outside" in w for w in good["warnings"])
+
+
+def test_old_batches_get_a_stable_whole_day_window() -> None:
+    profile = PROFILES["lacto_ferment"]
+    a, b = default_horizon(profile, 720.2), default_horizon(profile, 720.45)
+    assert a == b and a % 24 == 0 and a > 720.45
+
+
+def test_readings_past_a_short_window_still_calibrate() -> None:
+    readings = tuple(MeasurementIn("pH", t, v) for t, v in [(1, 6.1), (48, 4.6), (300, 3.7)])
+    body = predict(_inputs(measurements=readings, now_h=310.0), horizon_h=168.0)
+    assert body["horizon_h"] == 168.0
+    assert all(o["used"] for o in body["observations"])
+    assert _series(body, "ph")["t_h"][-1] == 168.0
+
+
+def test_non_finite_and_negative_inputs_are_ignored() -> None:
+    body = predict(
+        _inputs(
+            recipe=(
+                RecipeIn("Cabbage", 1000, "g", CABBAGE, "base"),
+                RecipeIn("Cabbage", -500, "g", CABBAGE, "base"),
+                RecipeIn("Salt", 20, "g", SALT, "additive"),
+            ),
+            measurements=(
+                MeasurementIn("pH", 5.0, float("nan")),
+                MeasurementIn("gravity", 5.0, float("inf")),
+                MeasurementIn("temperature", 5.0, float("nan")),
+            ),
+            now_h=6.0,
+        )
+    )
+    assert body["observations"] == [] and body["status"] == "prior_only"
+    assert body["initial"]["values"]["sugars_total"] == pytest.approx(31.4, abs=0.5)
+    assert any("-500" not in w and "Cabbage" in w for w in body["warnings"])  # unquantified
+
+
+def test_garum_from_fish_and_salt_keeps_the_recipe() -> None:
+    fish = {"water": 73.4, "protein": 20.35, "fat": 4.84, "carbohydrate": 0.0}
+    body = predict(
+        _inputs(
+            "garum",
+            recipe=(
+                RecipeIn("Anchovies", 1000, "g", fish, "base"),
+                RecipeIn("Salt", 300, "g", SALT, "additive"),
+            ),
+            temp=30.0,
+        )
+    )
+    assert body["initial"]["source"] == "recipe"
+    assert body["initial"]["values"]["protein"] == pytest.approx(156.5, abs=1.0)
+
+
+def test_heat_kills_salt_loving_bacteria_in_hot_koji_garum() -> None:
+    body = predict(_inputs("garum", temp=60.0), horizon_h=30 * 24)
+    pop = _series(body, "pop:Tetragenococcus halophilus")["p50"]
+    assert pop[-1] < pop[0] - 1.0
+
+
+def test_a_single_old_temperature_reading_does_not_set_the_whole_past() -> None:
+    inputs = _inputs(measurements=(MeasurementIn("temperature", 0.5, 25.0),), now_h=480.0)
+    sched, forecast, source, n, _ = _schedule(inputs, PROFILES["lacto_ferment"], None, 672.0)
+    temp_at = lambda t: float(np.interp(t, sched.t_h, sched.temp_c))  # noqa: E731
+    assert temp_at(0.5) == 25.0
+    assert temp_at(240.0) == 20.0  # back to the estimate between sparse readings
+    assert (forecast, source, n) == (20.0, "expected", 1)
+
+
+def test_binned_streams_stay_within_the_reading_cap() -> None:
+    for span in (300, 360, 900):
+        stream = tuple(MeasurementIn("pH", span * i / 499, 6.0 - i / 400) for i in range(500))
+        body = predict(_inputs(measurements=stream, now_h=float(span)))
+        assert 0 < len(body["observations"]) <= MAX_OBS_PER_KEY
+
+
+def test_ctmi_parameters_never_create_a_cold_pole() -> None:
+    leuco = ORGANISM_KINETICS["Leuconostoc mesenteroides"]
+    profile = PROFILES["lacto_ferment"]
+    spec = ModelSpec(
+        profile, [leuco], [True], [profile.inoculum[leuco.name]], {"hexoses": 30.0}, 2.0,
+        TemperatureSchedule([0.0], [20.0], [0.0]),
+    )  # fmt: skip
+    z = np.random.default_rng(0).standard_normal((4000, spec.dim)) * 1.5
+    o = spec.params(z).organisms[0]
+    assert np.all(o.t_opt > (o.t_min + o.t_max) / 2)
+    cold = engine.ctmi(o.t_min + 1.0, o.t_min, o.t_opt, o.t_max)
+    assert float(np.max(cold)) < 0.5

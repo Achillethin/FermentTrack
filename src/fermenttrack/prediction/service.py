@@ -18,8 +18,9 @@ from typing import Any
 import numpy as np
 
 from fermenttrack.composition import to_grams
-from fermenttrack.prediction.engine import PI, Trajectories, simulate
+from fermenttrack.prediction.engine import PI, SimulationError, Trajectories, simulate
 from fermenttrack.prediction.inference import (
+    MIN_ESS,
     OBS_SIGMA,
     Observation,
     density_series,
@@ -34,7 +35,6 @@ from fermenttrack.prediction.priors import FloatArray, Prior
 from fermenttrack.prediction.profiles import (
     ADDED_MOLD_INOCULUM,
     ADDED_ORGANISM_INOCULUM,
-    PROFILES,
     FermentProfile,
     Milestone,
     profile_for,
@@ -42,11 +42,15 @@ from fermenttrack.prediction.profiles import (
 
 MODEL_VERSION = "kinetic-v1"
 N_MEMBERS = 160  # prior draws per inference round
-N_WHATIF = 96  # posterior members re-simulated for a what-if temperature
+N_FALLBACK = 64  # retry size when the full ensemble exceeds its solver budget
+N_RESAMPLE = 128  # posterior members re-simulated for a what-if or another window
 GRID_POINTS = 161
-MAX_HORIZON_H = 8760.0
+MAX_HORIZON_H = 3 * 8760.0  # multi-year miso and garum
 MAX_OBS_PER_KEY = 30  # denser streams (iSpindel) are binned: correlated errors
+MAX_MODELLED_ORGANISMS = 6  # each adds states and stiffness; defaults are kept first
 TEMP_RANGE_C = (-5.0, 60.0)
+READING_HOLD_H = 12.0  # a temperature reading stands for this long, then the estimate
+MISFIT_SIGMAS = 3.0
 
 DISCLAIMER = (
     "Model estimate from literature kinetics, not a measurement. Bands show the 90 % range "
@@ -84,7 +88,10 @@ SUBSTRATES = ("sugars_total", "sucrose", "hexoses", "lactose", "maltose", "starc
 PRODUCTS = ("lactic_acid", "acetic_acid", "gluconic_acid", "ethanol", "co2", "amino_acids")
 SUGAR_KEYS = ("sucrose", "hexoses", "lactose", "maltose")
 MEASUREMENT_KEYS = {"ph": "ph", "gravity": "gravity", "brix": "brix", "sg": "gravity"}
-DENSITY_TYPES_IGNORED = "milk and solid ferments"
+
+
+class PredictionUnavailable(RuntimeError):
+    """No forecast could be computed within budget for this batch."""
 
 # Marker enzymes per pathway, to check against the batch's KEGG reference graph.
 _LDH = ("1.1.1.27", "1.1.1.28")
@@ -166,7 +173,7 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
 
     for item in recipe:
         grams = to_grams(item.quantity, item.unit)
-        if grams is None:
+        if grams is None or not math.isfinite(grams) or grams <= 0:
             unquantified.append(item.name)
             continue
         total += grams
@@ -225,6 +232,8 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
             "Log cooked weights for a closer forecast."
         )
     fermentable = sum(pools.get(k, 0.0) for k in (*SUGAR_KEYS, "starch", "ethanol"))
+    if profile.fish_protease is not None or profile.koji_enzyme0 is not None:
+        fermentable += pools.get("protein", 0.0)  # proteolysis ferments (garum: fish + salt)
     if total <= 0 or fermentable <= 0:
         rec = dict(profile.typical_recipe)
         water_g = rec.pop("water")
@@ -300,63 +309,87 @@ class _OrganismPlan:
 
 
 def _plan_organisms(inputs: PredictionInputs, profile: FermentProfile) -> list[_OrganismPlan]:
+    # the type's own organisms first, so a cap drops added extras, not the defaults
+    ordered = sorted(inputs.organisms, key=lambda o: (o.name not in profile.inoculum, o.name))
     plans = []
-    for o in inputs.organisms:
+    modelled = 0
+    for o in ordered:
         kin = ORGANISM_KINETICS.get(o.name)
         note = None
         can_grow = True
-        if kin is None:
+        if kin is not None and modelled >= MAX_MODELLED_ORGANISMS:
+            kin = None
+            note = f"not modelled: a forecast models at most {MAX_MODELLED_ORGANISMS} organisms"
+            can_grow = False
+        elif kin is None:
             note = "no kinetic profile yet: not modelled"
             can_grow = False
-        elif kin.obligate_aerobe and not profile.aerobic:
-            can_grow = False
-            note = (
-                "its enzymes (carried in by the koji) are modelled; the mold itself cannot "
-                "grow in this closed, airless ferment"
-                if kin.makes_enzymes
-                else "needs air: cannot grow in this closed ferment"
-            )
+        else:
+            modelled += 1
+            if kin.obligate_aerobe and not profile.aerobic:
+                can_grow = False
+                note = (
+                    "its enzymes (carried in by the koji) are modelled; the mold itself cannot "
+                    "grow in this closed, airless ferment"
+                    if kin.makes_enzymes
+                    else "needs air: cannot grow in this closed ferment"
+                )
         plans.append(_OrganismPlan(o, kin, can_grow, note))
     return plans
 
 
 def _schedule(
-    inputs: PredictionInputs, profile: FermentProfile, override: float | None, horizon: float
+    inputs: PredictionInputs, profile: FermentProfile, override: float | None, end_h: float
 ) -> tuple[TemperatureSchedule, float, str, int, int]:
     readings = sorted(
         (max(m.t_h, 0.0), m.value)
         for m in inputs.measurements
-        if m.type == "temperature" and m.value is not None and m.t_h <= inputs.now_h + 1.0
+        if m.type == "temperature"
+        and m.value is not None
+        and math.isfinite(m.value)
+        and m.t_h <= inputs.now_h + 1.0
     )
     valid = [(t, v) for t, v in readings if TEMP_RANGE_C[0] <= v <= TEMP_RANGE_C[1]]
     ignored = len(readings) - len(valid)
+    now = max(inputs.now_h, 0.0)
+    if inputs.expected_temperature_c is not None:
+        estimate = inputs.expected_temperature_c
+    elif valid:
+        estimate = float(np.mean([v for _, v in valid]))
+    else:
+        estimate = profile.temp_c
     if override is not None:
         forecast, source, est_future = override, "override", 0.0
     elif inputs.expected_temperature_c is not None:
         forecast, source, est_future = inputs.expected_temperature_c, "expected", 1.0
     elif valid:
-        forecast, source, est_future = valid[-1][1], "measured", 1.0
+        # the last day's readings, not one noisy point, stand for the future
+        recent = [v for t, v in valid if t >= valid[-1][0] - 24.0]
+        forecast, source, est_future = float(np.median(recent)), "measured", 1.0
     else:
         forecast, source, est_future = profile.temp_c, "type_default", 1.0
+    forecast = round(forecast, 1)
 
-    now = max(inputs.now_h, 0.0)
-    past_estimate = (
-        inputs.expected_temperature_c
-        if inputs.expected_temperature_c is not None
-        else profile.temp_c
-    )
     # (hours, °C, estimated) knots; `estimated` spans get the ensemble's temperature offset.
-    # Before the first reading the first reading is held (half-trusted); readings are exact.
+    # A reading is exact at its time and stands for READING_HOLD_H; longer gaps go back to
+    # the estimate (one warm reading on day 0 must not set the next three weeks).
+    hold = READING_HOLD_H
     k: list[tuple[float, float, float]] = []
-    if valid:
-        k.append((0.0, valid[0][1], 0.5))
-        k += [(t, v, 0.0) for t, v in valid]
-        k.append((now, valid[-1][1], 0.0))
+    if not valid:
+        k += [(0.0, estimate, 1.0), (now, estimate, 1.0)]
     else:
-        k += [(0.0, past_estimate, 1.0), (now, past_estimate, 1.0)]
-    k += [(now + 0.01, forecast, est_future), (max(horizon, now + 0.02), forecast, est_future)]
+        t0, v0 = valid[0]
+        k += [(0.0, estimate, 1.0), (t0 - hold, estimate, 1.0)] if t0 > hold else [(0.0, v0, 0.5)]
+        for i, (t, v) in enumerate(valid):
+            k.append((t, v, 0.0))
+            t_next = valid[i + 1][0] if i + 1 < len(valid) else now
+            if t_next - t > 2 * hold:
+                k += [(t + hold, estimate, 1.0), (t_next - hold, estimate, 1.0)]
+        t_last, v_last = valid[-1]
+        k.append((now, v_last if now - t_last <= 2 * hold else estimate, 0.0))
+    k += [(now + 0.01, forecast, est_future), (max(end_h, now + 0.02), forecast, est_future)]
     # np.interp needs increasing knots: the last value wins at duplicate times
-    knots = {round(t, 6): (v, e) for t, v, e in k}
+    knots = {round(max(t, 0.0), 6): (v, e) for t, v, e in k}
     ts = sorted(knots)
     sched = TemperatureSchedule(ts, [knots[t][0] for t in ts], [knots[t][1] for t in ts])
     return sched, forecast, source, len(valid), ignored
@@ -369,22 +402,21 @@ class _ObsPlan:
     ignored_density: int
 
 
-def _observations(
-    inputs: PredictionInputs, profile: FermentProfile, horizon: float
-) -> _ObsPlan:
+def _observations(inputs: PredictionInputs, profile: FermentProfile) -> _ObsPlan:
     by_key: dict[str, list[tuple[float, float]]] = {}
     shown: list[dict[str, Any]] = []
     ignored_density = 0
     # An iSpindel set to °Plato reads e.g. 12 -> 0.8: decide the unit per stream, not per
     # reading, or the low end of a Plato stream would pass for specific gravity.
+    finite = [m for m in inputs.measurements if m.value is not None and math.isfinite(m.value)]
     plato = any(
-        m.value is not None and m.value > 1.5
-        for m in inputs.measurements
+        m.value is not None and 1.5 < m.value < 40.0
+        for m in finite
         if MEASUREMENT_KEYS.get(m.type.strip().lower()) == "gravity"
     )
-    for m in inputs.measurements:
+    for m in finite:
         key = MEASUREMENT_KEYS.get(m.type.strip().lower())
-        if key is None or m.value is None or m.t_h < -1.0:
+        if key is None or m.value is None or m.t_h < -1.0 or m.t_h > inputs.now_h + 1.0:
             continue
         v = m.value
         t = max(m.t_h, 0.0)
@@ -395,20 +427,23 @@ def _observations(
             "gravity": 0.95 <= v <= 1.2,
             "brix": 0.0 <= v <= 60.0,
         }[key]
-        usable = valid and t <= horizon and (key == "ph" or profile.show_density)
+        modelled = profile.show_ph if key == "ph" else profile.show_density
+        usable = valid and modelled
         if key != "ph" and not profile.show_density:
             ignored_density += 1
         if usable:
             by_key.setdefault(key, []).append((t, v))
         else:
-            shown.append({"key": key, "t_h": round(t, 3), "value": v, "used": False})
+            shown.append(
+                {"key": key, "t_h": round(t, 3), "value": v, "used": False, "fits": None}
+            )
 
     used: list[Observation] = []
     for key, pts in by_key.items():
         pts.sort()
         if len(pts) > MAX_OBS_PER_KEY:
             span = pts[-1][0] - pts[0][0]
-            width = max(6.0, span / MAX_OBS_PER_KEY)
+            width = max(6.0, span / (MAX_OBS_PER_KEY - 1))  # at most MAX_OBS_PER_KEY bins
             bins: dict[int, list[tuple[float, float]]] = {}
             for t, v in pts:
                 bins.setdefault(int((t - pts[0][0]) // width), []).append((t, v))
@@ -419,7 +454,7 @@ def _observations(
         for t, v in pts:
             t = round(t, 3)
             used.append(Observation(key, t, v))
-            shown.append({"key": key, "t_h": t, "value": round(v, 4), "used": True})
+            shown.append({"key": key, "t_h": t, "value": round(v, 4), "used": True, "fits": True})
     shown.sort(key=lambda o: (o["key"], o["t_h"]))
     return _ObsPlan(used, shown, ignored_density)
 
@@ -460,6 +495,42 @@ class _PosteriorLite:
     z: FloatArray
     weights: FloatArray
     tempered: float
+    ess: float
+
+
+def _check_fit(
+    obs: _ObsPlan, tr: Trajectories, z: FloatArray, w: FloatArray, t_eval: FloatArray
+) -> list[str]:
+    """Flag readings the (weighted) ensemble cannot explain: more than MISFIT_SIGMAS
+    predictive standard deviations (ensemble spread + reading error) from the median.
+    Marks `fits` on the shown observations; returns short labels of the misfits."""
+    if not obs.used:
+        return []
+    idx = {float(t): i for i, t in enumerate(t_eval)}
+    sg = brix = None
+    if any(o.key != "ph" for o in obs.used):
+        sg, brix = density_series(tr.pools, solids_offset(z))
+    bad: set[tuple[str, float]] = set()
+    labels = []
+    for o in obs.used:
+        i = idx[o.t_h]
+        pred = {"ph": tr.ph, "gravity": sg, "brix": brix}[o.key]
+        assert pred is not None
+        p = pred[:, i]
+        med = float(weighted_quantiles(p, w, (0.5,))[0])
+        spread = float(np.sqrt(np.sum(w * (p - np.sum(w * p)) ** 2)))
+        s_meas, s_model = OBS_SIGMA[o.key]
+        if abs(o.value - med) > MISFIT_SIGMAS * math.sqrt(spread**2 + s_meas**2 + s_model**2):
+            bad.add((o.key, o.t_h))
+            name = "pH" if o.key == "ph" else o.key
+            when = (
+                f"{o.t_h:.1f}".removesuffix(".0") + " h" if o.t_h < 48 else f"day {o.t_h / 24:.1f}"
+            )
+            labels.append(f"{name} {o.value:g} at {when}")
+    for shown in obs.shown:
+        if shown["used"]:
+            shown["fits"] = (shown["key"], shown["t_h"]) not in bad
+    return labels
 
 
 def _resample(z: FloatArray, weights: FloatArray, k: int, seed: int) -> FloatArray:
@@ -649,25 +720,44 @@ def _round(a: FloatArray, key: str) -> list[float]:
 
 # ── entry point ─────────────────────────────────────────────────────────
 
-_CACHE: OrderedDict[str, Any] = OrderedDict()
-_CACHE_SIZE = 64
-_LOCK = threading.Lock()
+class _LRU:
+    """Tiny thread-safe LRU for forecast outputs and posteriors."""
+
+    def __init__(self, size: int) -> None:
+        self.size = size
+        self.data: OrderedDict[str, Any] = OrderedDict()
+        self.lock = threading.Lock()
+
+    def get(self, key: str) -> Any:
+        with self.lock:
+            if key not in self.data:
+                return None
+            self.data.move_to_end(key)
+            return self.data[key]
+
+    def put(self, key: str, value: Any) -> None:
+        with self.lock:
+            self.data[key] = value
+            self.data.move_to_end(key)
+            while len(self.data) > self.size:
+                self.data.popitem(last=False)
+
+    def clear(self) -> None:
+        with self.lock:
+            self.data.clear()
 
 
-def _cached(key: str) -> Any:
-    with _LOCK:
-        if key in _CACHE:
-            _CACHE.move_to_end(key)
-            return _CACHE[key]
-    return None
+# Outputs are ~0.3-0.6 MB, posteriors (z-vectors + weights) up to ~1.3 MB.
+_OUTPUTS = _LRU(32)
+_POSTERIORS = _LRU(16)
+# One solve at a time: a small instance has one core, and concurrent solves would only
+# multiply memory. A request waiting here for an identical one then hits the cache.
+_SOLVE_LOCK = threading.Lock()
 
 
-def _store(key: str, value: Any) -> None:
-    with _LOCK:
-        _CACHE[key] = value
-        _CACHE.move_to_end(key)
-        while len(_CACHE) > _CACHE_SIZE:
-            _CACHE.popitem(last=False)
+def clear_caches() -> None:
+    _OUTPUTS.clear()
+    _POSTERIORS.clear()
 
 
 def _nice_horizon(h: float) -> float:
@@ -679,8 +769,8 @@ def _nice_horizon(h: float) -> float:
 def default_horizon(profile: FermentProfile, now_h: float) -> float:
     h = profile.horizon_h
     if now_h > 0.85 * h:  # an older batch: keep "now" inside the window
-        h = now_h * 1.15
-    return min(h, MAX_HORIZON_H)
+        h = round(now_h) * 1.15  # from the hour, so the cache key is stable within it
+    return _nice_horizon(h)
 
 
 def predict(
@@ -688,46 +778,82 @@ def predict(
     temperature_c: float | None = None,
     horizon_h: float | None = None,
 ) -> dict[str, Any]:
-    """Forecast for one batch. Deterministic for identical inputs (seeded), cached."""
+    """Forecast for one batch. Deterministic for identical inputs (seeded), cached.
+
+    Raises PredictionUnavailable when even the fallback ensemble exceeds its solver budget.
+    """
     profile = profile_for(inputs.fermentation_type)
-    horizon = min(horizon_h, MAX_HORIZON_H) if horizon_h else default_horizon(profile, inputs.now_h)
+    horizon = _nice_horizon(horizon_h) if horizon_h else default_horizon(profile, inputs.now_h)
     fp = inputs.fingerprint()
     out_key = f"{fp}|{temperature_c}|{horizon}"
-    hit = _cached(out_key)
-    if hit is not None:
-        return dict(hit)
+    hit = _OUTPUTS.get(out_key)
+    if hit is None:
+        with _SOLVE_LOCK:
+            hit = _OUTPUTS.get(out_key)
+            if hit is None:
+                hit = _forecast(inputs, profile, fp, temperature_c, horizon)
+                _OUTPUTS.put(out_key, hit)
+    return dict(hit)
 
+
+def _forecast(
+    inputs: PredictionInputs,
+    profile: FermentProfile,
+    fp: str,
+    temperature_c: float | None,
+    horizon: float,
+) -> dict[str, Any]:
     init = _initial_state(profile, inputs.recipe)
     plans = _plan_organisms(inputs, profile)
-    obs = _observations(inputs, profile, horizon)
-    obs_t = [o.t_h for o in obs.used]
-    t_eval = np.unique(
-        np.concatenate([np.linspace(0.0, horizon, GRID_POINTS), np.asarray(obs_t, dtype=float)])
-    )
-    grid_idx = np.searchsorted(t_eval, np.linspace(0.0, horizon, GRID_POINTS))
+    obs = _observations(inputs, profile)
+    # Every reading calibrates, even past a short display window: simulate to the later of
+    # the window and the last reading, then show only the window.
+    obs_t = np.asarray([o.t_h for o in obs.used], dtype=float)
+    grid = np.linspace(0.0, horizon, GRID_POINTS)
+    t_eval = np.unique(np.concatenate([grid, obs_t]))
+    grid_idx = np.searchsorted(t_eval, grid)
+    in_window = int(np.searchsorted(t_eval, horizon, side="right"))
+    end_h = float(t_eval[-1])
 
     base_sched, forecast_c, t_source, n_temp, temp_ignored = _schedule(
-        inputs, profile, None, horizon
+        inputs, profile, None, end_h
     )
     spec, modelled = _spec(profile, plans, init, base_sched)
+    seed = int(fp[:8], 16) % 2**31
 
-    # Only z-vectors and weights are cached (a few hundred KB); trajectories are ~10 MB.
-    post_key = f"{fp}|post|{horizon}"
-    lite: _PosteriorLite | None = _cached(post_key)
-    tempered = 1.0
-    if temperature_c is None or lite is None:
-        post = run_inference(spec, obs.used, t_eval, n=N_MEMBERS, seed=int(fp[:8], 16) % 2**31)
-        lite = _PosteriorLite(post.z, post.weights, post.tempered)
-        _store(post_key, lite)
-        z, weights, tr = post.z, post.weights, post.traj
+    # The posterior depends on the inputs, not on the display window or a what-if, so it
+    # is cached per fingerprint; other windows and what-ifs re-simulate a resample of it.
+    lite: _PosteriorLite | None = _POSTERIORS.get(fp)
+    tr: Trajectories | None = None
+    if lite is None:
+        for n in (N_MEMBERS, N_FALLBACK):
+            try:
+                post = run_inference(spec, obs.used, t_eval, n=n, seed=seed)
+                break
+            except SimulationError:
+                continue
+        else:
+            raise PredictionUnavailable(
+                "The model could not be computed for this batch within its budget."
+            )
+        lite = _PosteriorLite(post.z, post.weights, post.tempered, post.ess)
+        _POSTERIORS.put(fp, lite)
+        if temperature_c is None:
+            z, weights, tr = post.z, post.weights, post.traj
+
+    if tr is None:
+        if temperature_c is not None:
+            what_sched, forecast_c, t_source, _, _ = _schedule(
+                inputs, profile, temperature_c, end_h
+            )
+            spec, _ = _spec(profile, plans, init, what_sched)
+        z = _resample(lite.z, lite.weights, N_RESAMPLE, seed=int(fp[8:16], 16) % 2**31)
+        try:
+            tr = simulate(spec.params(z[:, : spec.dim]), t_eval)
+        except SimulationError as exc:
+            raise PredictionUnavailable(str(exc)) from exc
+        weights = np.full(len(z), 1.0 / len(z))
     tempered = lite.tempered
-
-    if temperature_c is not None:
-        what_sched, forecast_c, t_source, _, _ = _schedule(inputs, profile, temperature_c, horizon)
-        spec, _ = _spec(profile, plans, init, what_sched)
-        z = _resample(lite.z, lite.weights, N_WHATIF, seed=int(fp[8:16], 16) % 2**31)
-        tr = simulate(spec.params(z[:, : spec.dim]), t_eval)
-        weights = np.full(N_WHATIF, 1.0 / N_WHATIF)
     members = len(weights)
 
     want_density = profile.show_density
@@ -768,11 +894,13 @@ def predict(
     series = [s for s in series if s["key"] not in drop]
     series_keys = {s["key"] for s in series}
 
+    window = {k: v[:, :in_window] for k, v in values.items()}
     milestones = [
         m
         for ms in profile.milestones
-        if (m := _milestone(ms, t_eval, values, weights)) is not None
+        if (m := _milestone(ms, t_eval[:in_window], window, weights)) is not None
     ]
+    misfits = _check_fit(obs, tr, z, weights, t_eval)
 
     ph0 = weighted_quantiles(tr.ph[:, 0], weights, (0.5,))[0]
     initial_values = {
@@ -806,23 +934,23 @@ def predict(
             "Gravity/Brix readings are not used for this ferment type (solids and fat "
             "dominate them); pH readings are."
         )
-    if tempered < 1.0:
+    if misfits:
+        listed = ", ".join(misfits[:4]) + (" …" if len(misfits) > 4 else "")
         warnings.append(
-            "Your readings sit outside what the model's plausible parameter range explains, "
-            "so their influence was reduced and the bands widened. Check the readings, or "
-            "treat this forecast as rough."
+            f"{len(misfits)} of your readings ({listed}) fall outside what the model can "
+            "explain for this batch, so the calibration is approximate. Check those readings "
+            "(and the recipe and temperature), or treat this forecast as rough."
         )
-    confidence_note = (
-        f"{profile.type} is driven by enzymes and salt-tolerant microbes with little published "
-        "kinetic data. Read the curves as a sketch of the mechanism, not a calibrated forecast."
-        if profile.type in PROFILES and profile.confidence == "exploratory"
-        else f"No kinetic profile exists for '{inputs.fermentation_type}': a generic lactic "
-        "ferment stands in. Read the curves as a rough sketch."
-        if profile.confidence == "exploratory"
-        else None
-    )
+    elif tempered < 1.0 or lite.ess < 2 * MIN_ESS:
+        warnings.append(
+            "Calibration is approximate: few plausible parameter sets explain your readings "
+            "(they sit at the edge of what the model covers), so the bands are rough."
+        )
     if inputs.finished:
-        warnings.append("This batch is marked finished; the forecast runs as if it continued.")
+        warnings.append(
+            "This batch is marked finished: \"now\" is when it ended, and the curves after "
+            "that show how it would have continued."
+        )
 
     n_used = len(obs.used)
     counts: dict[str, int] = {}
@@ -889,11 +1017,10 @@ def predict(
             "version": MODEL_VERSION,
             "method": METHOD,
             "members": int(members),
-            "effective_members": round(
-                float(1.0 / np.sum(weights**2)), 1
-            ),
+            # the posterior's, also for a resampled what-if (duplicates add no information)
+            "effective_members": round(min(float(lite.ess), float(members)), 1),
             "confidence": profile.confidence,
-            "confidence_note": confidence_note,
+            "confidence_note": profile.confidence_note,
             "validated": False,
             "sources": sources,
         },
@@ -920,5 +1047,4 @@ def predict(
         "warnings": warnings,
         "disclaimer": DISCLAIMER,
     }
-    _store(out_key, result)
-    return dict(result)
+    return result

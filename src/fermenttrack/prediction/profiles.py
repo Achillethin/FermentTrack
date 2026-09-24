@@ -72,6 +72,7 @@ class FermentProfile:
     # enzyme- and halophile-driven ferments with little published kinetics (bands are
     # wide and the curves sketch the mechanism rather than a calibrated forecast).
     confidence: Literal["established", "exploratory"] = "established"
+    confidence_note: str | None = None  # why an exploratory forecast is only a sketch
     sources: tuple[str, ...] = ()  # trajectory data the defaults were checked against
     notes: tuple[str, ...] = ()
 
@@ -87,6 +88,12 @@ _SUGARS_90 = Milestone(
     "sugars_90pct_used", "90 % of the sugars fermented", "most of the sweetness gone",
     "sugars_total", "consumed_fraction", 0.9,
 )  # fmt: skip
+
+
+_ENZYME_FERMENT_NOTE = (
+    "Driven by koji enzymes and salt-tolerant microbes with little published kinetic data: the "
+    "curves sketch the mechanism, not a calibrated forecast."
+)
 
 
 def _hydrolysed(pct: int) -> Milestone:
@@ -207,6 +214,10 @@ PROFILES: dict[str, FermentProfile] = {
             show_ph=False,
             ph_safety_line=False,
             confidence="exploratory",
+            confidence_note=(
+                "Koji growth on steamed grain is sparsely published: the curves sketch the "
+                "mechanism (mould growth, enzyme build-up), not a calibrated forecast."
+            ),
             sources=(
                 "te Biesebeke et al. 2002 FEMS Yeast Res 2:245",
                 "Bechman et al. 2012 J Food Sci 77:M318",
@@ -316,6 +327,7 @@ PROFILES: dict[str, FermentProfile] = {
             ),
             ph_safety_line=False,
             confidence="exploratory",
+            confidence_note=_ENZYME_FERMENT_NOTE,
             sources=("Allwood et al. 2021 J Food Sci", "Ito & Matsuyama 2021 J Fungi 7:658"),
             notes=("The koji mold does not grow in the mash; its enzymes do the work.",),
         ),
@@ -335,6 +347,7 @@ PROFILES: dict[str, FermentProfile] = {
             milestones=(_hydrolysed(30), _hydrolysed(60)),
             ph_safety_line=False,
             confidence="exploratory",
+            confidence_note=_ENZYME_FERMENT_NOTE,
             sources=("Lopetcharat et al. 2001 Food Rev Int 17:65", "Redzepi & Zilber 2018"),
             notes=(
                 "Traditional garum relies on salt (2-3 parts fish to 1 part salt, 12-18 "
@@ -394,6 +407,10 @@ GENERIC_PROFILE = FermentProfile(
     inoculum={},
     milestones=(_PH_46,),
     confidence="exploratory",
+    confidence_note=(
+        "No kinetic profile exists for this fermentation type: a generic lactic ferment stands "
+        "in. Read the curves as a rough sketch."
+    ),
 )
 
 # An organism attached to a batch whose type has no inoculum entry for it: a deliberate

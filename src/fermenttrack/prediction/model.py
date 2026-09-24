@@ -149,7 +149,9 @@ class ModelSpec:
             v: dict[str, FloatArray] = orgs[j]
             t_min = v["t_min"]
             t_opt = np.maximum(v["t_opt"], t_min + 3.0)
-            t_max = np.maximum(v["t_max"], t_opt + 2.0)
+            # CTMI has a pole unless Topt > (Tmin + Tmax) / 2; clamp Tmax (only extreme
+            # prior draws are affected) so cold temperatures never read as optimal.
+            t_max = np.clip(v["t_max"], t_opt + 2.0, 2.0 * t_opt - t_min - 0.5)
             ph_min = v["ph_min"]
             ph_opt = np.maximum(v["ph_opt"], ph_min + 0.5)
             ph_max = np.maximum(v["ph_max"], ph_opt + 0.5)

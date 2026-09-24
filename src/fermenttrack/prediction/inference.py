@@ -184,7 +184,8 @@ def run(
         mean = w @ z_all
         var = w @ (z_all - mean) ** 2
         var = np.clip(var * 1.5, 0.05, 1.0)  # inflate: proposals should over-cover
-        z_new = mean + np.sqrt(var) * rng.standard_normal((n, d + 1))
+        # adaptation rounds only need to locate the posterior: half-size batches
+        z_new = mean + np.sqrt(var) * rng.standard_normal((max(n // 2, 48), d + 1))
         tr_new = simulate(spec.params(z_new[:, :d]), t_eval)
         zs.append(z_new)
         trs.append(tr_new)

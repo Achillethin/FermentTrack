@@ -24,6 +24,7 @@ from fermenttrack.prediction.service import (
     MeasurementIn,
     OrganismIn,
     PredictionInputs,
+    PredictionUnavailable,
     RecipeIn,
     predict,
 )
@@ -88,9 +89,13 @@ async def get_batch_prediction(
             enzymes.setdefault(oe.organism_id, []).append(oe.enzyme.ec_number)
 
     started = _utc(batch.started_at)
+    finished = batch.outcome != "in_progress"
+    # a finished batch's "now" is when it ended, not today
+    now = _utc(batch.ended_at) if finished and batch.ended_at is not None else now_utc()
+    now_h = max((now - started).total_seconds() / 3600.0, 0.0)
     inputs = PredictionInputs(
         fermentation_type=batch.culture.type,
-        now_h=max((now_utc() - started).total_seconds() / 3600.0, 0.0),
+        now_h=now_h,
         expected_temperature_c=batch.expected_temperature_c,
         organisms=tuple(
             OrganismIn(o.name, o.kingdom, tuple(sorted(enzymes.get(o.id, []))))
@@ -107,8 +112,13 @@ async def get_batch_prediction(
             for m in sorted(batch.measurements, key=lambda m: m.measured_at)
             if m.type != "note"
         ),
-        finished=batch.outcome != "in_progress",
+        finished=finished,
     )
-    body = await run_in_threadpool(predict, inputs, temperature_c, horizon_h)
+    try:
+        body = await run_in_threadpool(predict, inputs, temperature_c, horizon_h)
+    except PredictionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    # cached outputs are keyed per hour: report the exact start and "now"
     body["started_at"] = started
+    body["now_h"] = round(now_h, 3)
     return PredictionOut.model_validate(body)

@@ -103,3 +103,32 @@ async def test_prediction_endpoint_errors(client: AsyncClient, db_session: Async
     for params in ({"temperature_c": 80}, {"temperature_c": -10}, {"horizon_h": 0}):
         resp = await client.get(f"/batches/{batch.id}/prediction", params=params)
         assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_finished_batch_forecasts_from_its_end(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    batch = await _seed(db_session)
+    batch.outcome = "success"
+    batch.ended_at = batch.started_at + timedelta(hours=12)
+    await db_session.commit()
+    body = (await client.get(f"/batches/{batch.id}/prediction")).json()
+    assert body["now_h"] == pytest.approx(12.0, abs=0.01)
+    assert any("marked finished" in w for w in body["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_budget_exhaustion_is_a_503(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fermenttrack.prediction import engine, service
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise engine.SimulationError("over budget")
+
+    monkeypatch.setattr(service, "run_inference", fail)
+    batch = await _seed(db_session)
+    resp = await client.get(f"/batches/{batch.id}/prediction")
+    assert resp.status_code == 503
+    assert "budget" in resp.json()["detail"]

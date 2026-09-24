@@ -509,18 +509,24 @@ export default function ForecastChart({
               </text>
             ))}
 
-            {/* observations: measured points wear ink with a surface ring */}
+            {/* observations: measured points wear ink with a surface ring; a reading the
+                calibrated model cannot explain (fits === false) gets a warning ring */}
             {obsHere.map((o, i) => (
               <circle
                 key={`o-${i}`}
                 cx={x(o.t_h)}
                 cy={y(o.value)}
-                r={obsDense ? 2.25 : 4.5}
+                r={o.fits === false ? (obsDense ? 3.5 : 5.5) : obsDense ? 2.25 : 4.5}
                 style={{
                   fill: o.used ? "var(--viz-obs)" : "var(--viz-surface)",
-                  stroke: o.used ? "var(--viz-surface)" : "var(--viz-obs)",
+                  stroke:
+                    o.fits === false
+                      ? "var(--viz-misfit)"
+                      : o.used
+                        ? "var(--viz-surface)"
+                        : "var(--viz-obs)",
                 }}
-                strokeWidth={obsDense ? (o.used ? 0.75 : 1.25) : 2}
+                strokeWidth={o.fits === false ? 2.5 : obsDense ? (o.used ? 0.75 : 1.25) : 2}
               />
             ))}
 
@@ -617,6 +623,9 @@ export default function ForecastChart({
                 <span>
                   Your reading <span className="ft-num font-semibold text-slate-50">{hoverObs.value}</span>
                   {!hoverObs.used && <span className="text-slate-400"> · not used by the model</span>}
+                  {hoverObs.fits === false && (
+                    <span className="text-amber-300"> · outside what the model explains</span>
+                  )}
                 </span>
               </div>
             )}
@@ -705,7 +714,12 @@ function ChartTable({ series, grid, nowH, horizonH, timeUnit, observations, titl
           <p className="mt-1 text-xs text-slate-400">
             Your readings:{" "}
             {observations
-              .map((o) => `${o.value} at ${timeLabel(o.t_h, timeUnit)}${o.used ? "" : " (not used)"}`)
+              .map(
+                (o) =>
+                  `${o.value} at ${timeLabel(o.t_h, timeUnit)}${o.used ? "" : " (not used)"}${
+                    o.fits === false ? " (outside what the model explains)" : ""
+                  }`,
+              )
               .join(", ")}
           </p>
         )}

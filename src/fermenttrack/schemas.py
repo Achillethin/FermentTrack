@@ -376,6 +376,7 @@ class PredictionObservationOut(BaseModel):
     t_h: float
     value: float
     used: bool
+    fits: bool | None  # used readings: within what the calibrated ensemble explains
 
 
 class MilestoneTimesOut(BaseModel):

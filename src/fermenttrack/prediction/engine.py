@@ -9,7 +9,8 @@ the Baranyi-Roberts lag variable ln(q). Rates:
 
     mu_j   = mu_max_j * g_T * g_pH * g_HA * g_aw * g_EtOH * g_O2 * f_sub * alpha(q) * (1 - X/Xmax)
     v_j    = mu_j * X / Y_j + m_j * (same environment factors) * f_sub * alpha(q) * X
-    dlnX/dt = mu_j - k_death * (1 - stress)            (stress = g_pH * g_HA * g_aw * g_EtOH)
+    dlnX/dt = mu_j - k_death * [(1 - stress) + 0.5 (1 - f_sub)] - k_heat * (T - Tmax)+
+                                                        (stress = g_pH * g_HA * g_aw * g_EtOH)
     dlnq/dt = mu_max_j * g_T * stress                  (Baranyi & Roberts 1994)
 
 v_j (substrate flux, Luedeking-Piret-style growth + non-growth terms) is split across the
@@ -97,6 +98,13 @@ HYDROLYSABLE_PROTEIN = 0.8
 # at ~3.8, Brandt et al. 2004; Luedeking-Piret beta term, Passos et al. 1994).
 PRODUCTION_PH_MARGIN = 0.3
 PRODUCTION_MIC_FACTOR = 2.5
+# Above an organism's maximum growth temperature cells die: ~0.1 ln-units per hour per °C
+# over Tmax (est.; e.g. salt-loving LAB in 60 °C koji garum are gone within hours).
+K_HEAT = 0.1
+
+
+class SimulationError(RuntimeError):
+    """The ensemble could not be integrated within budget (failure or runaway stiffness)."""
 
 
 def ctmi(t: FloatArray, t_min: FloatArray, t_opt: FloatArray, t_max: FloatArray) -> FloatArray:
@@ -136,10 +144,11 @@ def buffer_groups(beta_mm: FloatArray) -> FloatArray:
 
 
 def acid_ka(ionic_strength: float) -> FloatArray:
-    """Apparent Ka of the organic acids at this ionic strength (Davies; capped at I = 0.5,
-    past which Davies is unreliable, so high-salt ferments keep the I = 0.5 shift)."""
+    """Mixed acidity constants Ka' = a(H+)[A-]/[HA] at this ionic strength, so the solved h is
+    the H+ activity a pH meter reads: pKa' = pKa - 0.51 f(I) (Davies for the anion). Capped
+    at I = 0.5, past which Davies is unreliable (high-salt ferments keep that shift)."""
     i = min(max(ionic_strength, 0.0), 0.5)
-    shift = 1.02 * (math.sqrt(i) / (1.0 + math.sqrt(i)) - 0.3 * i)
+    shift = 0.51 * (math.sqrt(i) / (1.0 + math.sqrt(i)) - 0.3 * i)
     return np.asarray(_ACID_KA * 10.0**shift)
 
 
@@ -276,14 +285,20 @@ def initial_state(p: EnsembleParams) -> FloatArray:
     return y0
 
 
-def make_rhs(p: EnsembleParams) -> Callable[[float, FloatArray], FloatArray]:
+def make_rhs(
+    p: EnsembleParams, max_evals: int | None = None
+) -> Callable[[float, FloatArray], FloatArray]:
     n, m = p.n, len(p.organisms)
+    evals = [0]
     size = _state_size(m)
     h_cache = [10.0 ** -np.full(n, 6.0)]
     ln_x_cap = [np.log(o.x_max_g) + 0.5 for o in p.organisms]
     protein_floor = (1.0 - HYDROLYSABLE_PROTEIN) * p.pools0[:, PI["protein"]]
 
     def rhs(t: float, y_flat: FloatArray) -> FloatArray:
+        evals[0] += 1
+        if max_evals is not None and evals[0] > max_evals:
+            raise SimulationError(f"exceeded {max_evals} right-hand-side evaluations")
         y = y_flat.reshape(n, size)
         pools = np.maximum(y[:, :N_POOLS], 0.0)
         dy = np.zeros_like(y)
@@ -338,7 +353,9 @@ def make_rhs(p: EnsembleParams) -> Callable[[float, FloatArray], FloatArray]:
             else:
                 mu = growth = flux = np.zeros(n)
 
-            death = o.k_death * ((1.0 - stress) + 0.5 * (1.0 - f_sub))
+            death = o.k_death * ((1.0 - stress) + 0.5 * (1.0 - f_sub)) + K_HEAT * np.maximum(
+                temp - o.t_max, 0.0
+            )
             dy[:, N_POOLS + 2 * j] = mu - death
             dy[:, N_POOLS + 2 * j + 1] = np.where(ln_q < 30.0, o.mu_max * g_t * stress, 0.0)
 
@@ -390,10 +407,17 @@ def make_rhs(p: EnsembleParams) -> Callable[[float, FloatArray], FloatArray]:
     return rhs
 
 
-def simulate(p: EnsembleParams, t_eval: FloatArray) -> Trajectories:
+# The step size follows the stiffest member; a budget bounds a request's CPU time (typical
+# forecasts need 100-1500 evaluations).
+MAX_EVALS = 4000
+
+
+def simulate(
+    p: EnsembleParams, t_eval: FloatArray, max_evals: int | None = MAX_EVALS
+) -> Trajectories:
     """Integrate all members over t_eval (hours, increasing, starting at 0)."""
     y0 = initial_state(p)
-    rhs = make_rhs(p)
+    rhs = make_rhs(p, max_evals)
     # Pools to 1e-3 g/kg, log-states (ln X, ln q) to 1 %: finer than any reported digit.
     atol = np.tile(
         np.r_[np.full(N_POOLS, 1e-3), np.full(2 * len(p.organisms), 1e-2)], p.n
@@ -408,7 +432,7 @@ def simulate(p: EnsembleParams, t_eval: FloatArray) -> Trajectories:
         atol=atol,
     )
     if not sol.success:
-        raise RuntimeError(f"kinetic model integration failed: {sol.message}")
+        raise SimulationError(f"kinetic model integration failed: {sol.message}")
     m = len(p.organisms)
     ys = sol.y.reshape(p.n, _state_size(m), -1).transpose(0, 2, 1)  # (N, T, S)
     pools = np.maximum(ys[:, :, :N_POOLS], 0.0)
