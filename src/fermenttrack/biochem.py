@@ -343,9 +343,9 @@ def snapshot_delta(v1: dict[str, Any], v2: dict[str, Any]) -> dict[str, list[dic
     product) compared via KEGG compound ids. Reaction rows in the result also
     carry substrate_kegg_id / product_kegg_id so callers can resolve DB ids.
 
-    Migration 0009 consumes this output contract (table names, row keys incl.
-    substrate_kegg_id / product_kegg_id): changing it changes what 0009 does on a
-    fresh database.
+    Migrations 0009 and 0010 consume this output contract (table names, row keys
+    incl. substrate_kegg_id / product_kegg_id, and the fermentation_type_organisms
+    "organism" key): changing it changes what they do on a fresh database.
     """
 
     def reactions(snap: dict[str, Any]) -> list[dict[str, Any]]:

@@ -80,7 +80,7 @@ Categories reuse v1's set (`acid|alcohol|gas|flavor|other`). `flavor` stays unus
 
 ## 6. Expected `/biochemistry` output after v3 (for sanity-checking the list)
 
-Generated from the v3 snapshot with the same logic as `get_batch_biochemistry` (default organisms of the type -> `organism_enzymes` -> `enzyme_reactions` substrates/products). Order is snapshot order; the API does not guarantee one. Only the garum row differs from v2 (v2: L-lactate dehydrogenase; Pyruvate, (S)-Lactate).
+Generated from the v3 snapshot with the same logic as `get_batch_biochemistry` (default organisms of the type -> `organism_enzymes` -> `enzyme_reactions` substrates/products). Order is snapshot order; the API does not guarantee one. Only garum's contents differ from v2 (the other rows contain the same sets, merely re-ordered by regeneration) (v2: L-lactate dehydrogenase; Pyruvate, (S)-Lactate).
 
 | Type | Enzymes | Compounds |
 |---|---|---|
