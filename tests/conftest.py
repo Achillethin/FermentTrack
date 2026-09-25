@@ -18,6 +18,13 @@ from sqlalchemy.pool import StaticPool
 from fermenttrack import database
 from fermenttrack.database import Base
 from fermenttrack.main import app
+from fermenttrack.prediction.service import clear_caches
+
+
+@pytest.fixture(autouse=True)
+def _fresh_prediction_caches() -> None:
+    """Forecast results are cached per process; each test starts from a cold cache."""
+    clear_caches()
 
 
 @pytest_asyncio.fixture

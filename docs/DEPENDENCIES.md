@@ -31,6 +31,8 @@ SafetyRuleEngine().evaluate(state.state_vars(), scheme="lactic")  # -> SafetyRep
 
 **Explicitly excluded:** `foundation_model.py`, `flavor/tracker.py`, `graph_model.py`, `pinn_model.py` — no trained weights, no validation, don't surface as predictions.
 
+**2026-09-24 note:** the fermentation forecast (`src/fermenttrack/prediction/`, spec `docs/superpowers/specs/2026-09-24-fermentation-prediction-design.md`) is built in this repo from cited literature kinetics, not vendored from the twin. It does not use the excluded GNN/PINN scaffolds (with zero training batches neither can be trained; the spec records the triggers). The vendored `BaselineMonodModel` stays as-is under `safety/`; the Safety Advisory still evaluates measured values only.
+
 ## 2. `fermentgraph` — DON'T USE YET
 
 **2026-09-23 note:** this verdict is unchanged. A separate reference layer (organisms/enzymes/compounds keyed by fermentation type) was added sourced from KEGG instead of fermentgraph — see `docs/superpowers/specs/2026-09-23-fermentation-biochemistry-design.md`. KEGG supplies canonical enzyme and compound identity (EC-number validity and names, compound ids and names); the organism-enzyme, enzyme-reaction and fermentation-type-organism mappings are hand-curated domain knowledge pending owner review. That spec does not depend on this repo at all; it reverses only `STRATEGY.md` Direction 3's UI-deferral condition, not this dependency verdict.
