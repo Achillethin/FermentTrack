@@ -64,8 +64,9 @@ FERMENTATION_TYPE_ORGANISMS: dict[str, list[str]] = {
     "miso": ["Aspergillus oryzae", "Tetragenococcus halophilus", "Zygosaccharomyces rouxii"],
     # v3: modern koji-based fish sauce ("koji garum") uses A. oryzae for its proteases,
     # amylase and glutaminase. Traditional garum relies on fish digestive enzymes and
-    # halophilic bacteria and has no koji. A batch can pick its own organism set through a
-    # batch_organisms override; any override row REPLACES these type defaults for that batch.
+    # halophilic bacteria and has no koji. A batch can ADD organisms through batch_organisms
+    # but cannot remove a type default, so a traditional non-koji garum batch will still
+    # list Aspergillus oryzae (and its enzymes). Accepted trade-off of add-only attachments.
     "garum": ["Tetragenococcus halophilus", "Aspergillus oryzae"],
     "vinegar": ["Acetobacter aceti", "Acetobacter pasteurianus"],
     "lacto_ferment": ["Lactobacillus plantarum", "Leuconostoc mesenteroides"],

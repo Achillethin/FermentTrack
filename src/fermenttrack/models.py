@@ -263,9 +263,10 @@ class FermentationTypeOrganism(Base):
 
 
 class BatchOrganism(Base):
-    """A row here overrides/extends its batch's organism set for the
-    /biochemistry endpoint; a batch with zero rows uses
-    FermentationTypeOrganism defaults for its culture.type instead."""
+    """A custom organism attached to a batch. The /biochemistry endpoint shows the
+    fermentation type's default organisms PLUS these rows, deduped by organism (a
+    custom row supersedes the default entry, so its notes show and source is
+    "custom"). Attachments only add; they never remove a type default."""
 
     __tablename__ = "batch_organisms"
 

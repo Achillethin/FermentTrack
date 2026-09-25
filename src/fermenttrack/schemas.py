@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # ── Culture ──────────────────────────────────────────────────────────────
@@ -277,38 +277,44 @@ class OrganismOut(BaseModel):
     kegg_organism_code: str | None
 
 
-class EnzymeOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    ec_number: str
-    name: str
-
-
 class CompoundOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     name: str
     category: str
+    kegg_compound_id: str | None
 
 
 class BiochemOrganismOut(BaseModel):
     id: uuid.UUID
     name: str
     kingdom: str
-    source: str  # "default" | "custom"
+    source: Literal["default", "custom"]
+    notes: str | None  # only for custom attachments; None for pure type defaults
+
+
+class BiochemEnzymeOut(BaseModel):
+    id: uuid.UUID
+    ec_number: str
+    name: str
+    organism_ids: list[uuid.UUID]  # resolved organisms carrying this enzyme, by organism name
 
 
 class BatchBiochemistryOut(BaseModel):
     organisms: list[BiochemOrganismOut]
-    enzymes: list[EnzymeOut]
+    enzymes: list[BiochemEnzymeOut]
     compounds: list[CompoundOut]
 
 
 class BatchOrganismCreate(BaseModel):
     organism_id: uuid.UUID
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+    @field_validator("notes")
+    @classmethod
+    def _strip_notes(cls, v: str | None) -> str | None:
+        return (v.strip() or None) if v is not None else None
 
 
 class BatchOrganismOut(BaseModel):

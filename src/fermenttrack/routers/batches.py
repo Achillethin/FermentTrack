@@ -16,6 +16,7 @@ from fermenttrack.models import (
     BatchOrganism,
     Compound,
     Culture,
+    Enzyme,
     EnzymeReaction,
     FdcFood,
     FermentationTypeOrganism,
@@ -40,10 +41,10 @@ from fermenttrack.schemas import (
     BatchOut,
     BatchPreview,
     BatchTimeline,
+    BiochemEnzymeOut,
     BiochemOrganismOut,
     CompoundOut,
     CultureOut,
-    EnzymeOut,
     MeasurementCreate,
     MeasurementOut,
     NoteCreate,
@@ -392,16 +393,11 @@ async def get_batch_preview(batch_id: uuid.UUID, db: AsyncSession = Depends(get_
     )
 
 
-async def _resolve_batch_organisms(batch: Batch, db: AsyncSession) -> list[tuple[Organism, str]]:
-    result = await db.execute(
-        select(BatchOrganism)
-        .where(BatchOrganism.batch_id == batch.id)
-        .options(selectinload(BatchOrganism.organism))
-    )
-    overrides = list(result.scalars().all())
-    if overrides:
-        return [(bo.organism, bo.source) for bo in overrides]
-
+async def _resolve_batch_organisms(
+    batch: Batch, db: AsyncSession
+) -> list[tuple[Organism, str, str | None]]:
+    """Type defaults plus the batch's custom attachments, deduped by organism id
+    (a custom attachment supersedes the default entry), sorted by name."""
     result = await db.execute(
         select(FermentationTypeOrganism)
         .where(
@@ -410,8 +406,22 @@ async def _resolve_batch_organisms(batch: Batch, db: AsyncSession) -> list[tuple
         )
         .options(selectinload(FermentationTypeOrganism.organism))
     )
-    defaults = list(result.scalars().all())
-    return [(fo.organism, "default") for fo in defaults]
+    merged: dict[uuid.UUID, tuple[Organism, str, str | None]] = {
+        fo.organism.id: (fo.organism, "default", None) for fo in result.scalars().all()
+    }
+    result = await db.execute(
+        select(BatchOrganism)
+        .where(BatchOrganism.batch_id == batch.id)
+        .options(selectinload(BatchOrganism.organism))
+    )
+    for bo in result.scalars().all():
+        merged[bo.organism.id] = (bo.organism, bo.source, bo.notes)
+    return sorted(merged.values(), key=lambda t: t[0].name.lower())
+
+
+def _ec_key(ec_number: str) -> tuple[tuple[int, int], ...]:
+    # "3.2.1.3" < "3.2.1.20"; non-numeric parts ("-", "n1") sort after numbers.
+    return tuple((0, int(p)) if p.isdigit() else (1, 0) for p in ec_number.split("."))
 
 
 @router.get("/{batch_id}/biochemistry", response_model=BatchBiochemistryOut)
@@ -420,14 +430,18 @@ async def get_batch_biochemistry(
 ) -> BatchBiochemistryOut:
     batch = await _get_batch(batch_id, db, with_culture=True)
     organisms = await _resolve_batch_organisms(batch, db)
-    organism_ids = [o.id for o, _ in organisms]
 
     result = await db.execute(
         select(OrganismEnzyme)
-        .where(OrganismEnzyme.organism_id.in_(organism_ids))
+        .where(OrganismEnzyme.organism_id.in_([o.id for o, _, _ in organisms]))
         .options(selectinload(OrganismEnzyme.enzyme))
     )
-    enzymes = {oe.enzyme.id: oe.enzyme for oe in result.scalars().all()}
+    links = result.scalars().all()
+    enzymes: dict[uuid.UUID, Enzyme] = {}
+    carriers: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for oe in links:
+        enzymes[oe.enzyme.id] = oe.enzyme
+        carriers.setdefault(oe.enzyme.id, set()).add(oe.organism_id)
 
     compounds: dict[uuid.UUID, Compound] = {}
     if enzymes:
@@ -444,11 +458,25 @@ async def get_batch_biochemistry(
 
     return BatchBiochemistryOut(
         organisms=[
-            BiochemOrganismOut(id=o.id, name=o.name, kingdom=o.kingdom, source=source)
-            for o, source in organisms
+            BiochemOrganismOut(
+                id=o.id, name=o.name, kingdom=o.kingdom, source=source, notes=notes
+            )
+            for o, source, notes in organisms
         ],
-        enzymes=[EnzymeOut.model_validate(e) for e in enzymes.values()],
-        compounds=[CompoundOut.model_validate(c) for c in compounds.values()],
+        enzymes=[
+            BiochemEnzymeOut(
+                id=e.id,
+                ec_number=e.ec_number,
+                name=e.name,
+                # `organisms` is already name-sorted, so this keeps that order.
+                organism_ids=[o.id for o, _, _ in organisms if o.id in carriers[e.id]],
+            )
+            for e in sorted(enzymes.values(), key=lambda e: _ec_key(e.ec_number))
+        ],
+        compounds=[
+            CompoundOut.model_validate(c)
+            for c in sorted(compounds.values(), key=lambda c: (c.category, c.name.lower()))
+        ],
     )
 
 
@@ -479,3 +507,20 @@ async def add_batch_organism(
     await db.commit()
     await db.refresh(batch_organism)
     return batch_organism
+
+
+@router.delete("/{batch_id}/organisms/{organism_id}", status_code=204)
+async def remove_batch_organism(
+    batch_id: uuid.UUID, organism_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> None:
+    batch = await _get_batch(batch_id, db)
+    result = await db.execute(
+        select(BatchOrganism).where(
+            BatchOrganism.batch_id == batch.id, BatchOrganism.organism_id == organism_id
+        )
+    )
+    attachment = result.scalar_one_or_none()
+    if attachment is None:
+        raise HTTPException(status_code=404, detail="Organism is not attached to this batch")
+    await db.delete(attachment)
+    await db.commit()

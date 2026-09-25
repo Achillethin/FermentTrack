@@ -119,7 +119,7 @@ Generated from the v3 snapshot with the same logic as `get_batch_biochemistry` (
 
 **Change.** `FERMENTATION_TYPE_ORGANISMS["garum"]` becomes [*Tetragenococcus halophilus*, *Aspergillus oryzae*]. One new `fermentation_type_organisms` row (garum, *A. oryzae*); no new organisms, enzymes, compounds or reactions. Snapshot `kegg_biochem_v3.json.gz` (14 organisms, 16 enzymes, 13 compounds, 27 organism-enzyme links, 12 reactions, 20 fermentation-type defaults); `snapshot_delta(v2, v3)` is exactly that one row. v1 and v2 stay frozen.
 
-**Rationale.** Modern koji-based fish sauce ("koji garum") uses *A. oryzae* for its proteases, amylase and glutaminase. Traditional garum relies on fish digestive enzymes and halophilic bacteria and has no koji. A batch can pick its own organism set through a `batch_organisms` override; any override row REPLACES the type defaults for that batch (it does not add to them).
+**Rationale.** Modern koji-based fish sauce ("koji garum") uses *A. oryzae* for its proteases, amylase and glutaminase. Traditional garum relies on fish digestive enzymes and halophilic bacteria and has no koji. A batch can ADD organisms through `batch_organisms` attachments but cannot remove a type default, so a traditional non-koji garum batch will still list *A. oryzae* and its enzymes. This is a known trade-off of the add-only rule (attachments never replace defaults).
 
 **Migrations.**
 - **0010** (data): adds the link by natural key (fermentation_type text, organism name), skipping existing rows. Link-only by design: it raises if the v2 to v3 delta holds anything else. Downgrade deletes exactly that link; `batch_organisms` rows are untouched.

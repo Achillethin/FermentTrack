@@ -25,7 +25,7 @@ FermentTrack logs *what went into* a batch (`Ingredient`/`BatchIngredient`) and 
 | Question | Decision |
 |---|---|
 | Data source | **KEGG** (REST API, public, free for this use), frozen into an offline snapshot — not a live dependency. BRENDA/FooDB/fuller NCBI Taxonomy sync are noted as future expansions, not built now. |
-| Reference vs per-batch | **Both.** A static default per fermentation type (`fermentation_type_organisms`), with an optional per-batch override/addition (`batch_organisms`) for e.g. a specific commercial yeast strain. |
+| Reference vs per-batch | **Both.** A static default per fermentation type (`fermentation_type_organisms`), with optional per-batch additions (`batch_organisms`, add-only) for e.g. a specific commercial yeast strain. |
 | Fermentation type as a concept | Stays a free-text key (`kombucha`, `sourdough`, ... — the existing `Culture.type`/`STAGE_MACHINES` vocabulary), **not** a new lookup table. Matches the existing convention; no source of drift is introduced since ingestion validates against the known set. |
 | UI this increment | **None.** This increment ships the data model, KEGG ingestion, and a read endpoint. A frontend panel is a natural next increment, not bundled here (keeps this increment reviewable on its own, and the reversal above is scoped to what's actually being built now). |
 
@@ -66,9 +66,9 @@ batch_organisms            id UUID PK, batch_id FK->batches (cascade delete, mat
                            Batch.measurements/reminders/batch_ingredients), organism_id FK->organisms,
                            source TEXT NOT NULL DEFAULT 'custom', notes TEXT NULL,
                            created_at TIMESTAMPTZ DEFAULT now
-                           -- a row here for a batch overrides/extends that batch's
-                           -- organism set; a batch with zero rows uses the
-                           -- fermentation_type_organisms default for its culture.type.
+                           -- a custom attachment: the batch's organism set is the
+                           -- fermentation_type_organisms defaults for its culture.type
+                           -- PLUS these rows (deduped by organism; custom wins).
 ```
 
 `source_version` on the three reference tables tracks which frozen snapshot loaded the row (e.g. `"kegg_biochem_v1"`), the same provenance discipline as `IngredientNutrient.source_version` — so a future re-ingest is traceable and reversible.
@@ -89,25 +89,26 @@ batch_organisms            id UUID PK, batch_id FK->batches (cascade delete, mat
 Returns, for one batch:
 ```json
 {
-  "organisms": [{"id", "name", "kingdom", "source": "default" | "custom"}],
-  "enzymes": [{"id", "ec_number", "name"}],
-  "compounds": [{"id", "name", "category"}]
+  "organisms": [{"id", "name", "kingdom", "source": "default" | "custom", "notes": str | null}],
+  "enzymes": [{"id", "ec_number", "name", "organism_ids": [uuid]}],
+  "compounds": [{"id", "name", "category", "kegg_compound_id": str | null}]
 }
 ```
-Resolution: if `batch_organisms` has any rows for this batch, those are `organisms`, each tagged `source="custom"` (the column's value on every row inserted via the override endpoint). Otherwise, `organisms` is `fermentation_type_organisms` where `fermentation_type = batch.culture.type` and `is_default`, each tagged `source="default"` in the response (a label added at read time — no `batch_organisms` rows are materialized for the default case). `enzymes` is every `organism_enzymes` row for those organisms; `compounds` is every substrate/product reachable from those enzymes via `enzyme_reactions`, deduplicated.
+Resolution: `organisms` is the `fermentation_type_organisms` rows where `fermentation_type = batch.culture.type` and `is_default` (`source="default"`, `notes=null`) PLUS the batch's `batch_organisms` rows (`source="custom"`, with their notes), deduped by organism id: a custom attachment for an organism that is also a type default appears once, as custom, and supersedes the default entry. Attachments only add; a type default can never be removed from a batch. `enzymes` is every `organism_enzymes` row for the resolved organisms, each with `organism_ids` (the resolved organisms carrying it, sorted by organism name); `compounds` is every substrate/product reachable from those enzymes via `enzyme_reactions`, deduplicated. Ordering is deterministic: organisms by name (case-insensitive), enzymes by EC number numerically by dotted part, compounds by (category, name).
 
-### Custom organism override: `GET /organisms?q=` and `POST /batches/{id}/organisms`
+### Custom organism attachments: `GET /organisms?q=`, `POST` and `DELETE /batches/{id}/organisms`
 
-- `GET /organisms?q=<text>` — same shape as the existing `GET /foods` search (case-insensitive substring match on `name`, limit default 20/max 50) — lets the frontend (next increment) look up an organism already in the reference table (e.g. a specific commercial strain already seeded) to attach to a batch.
-- `POST /batches/{id}/organisms` — body `{organism_id, notes}`. Inserts a `batch_organisms` row with `source="custom"`. 404 if `organism_id` doesn't exist.
+- `GET /organisms?q=<text>` — same shape as the existing `GET /foods` search (case-insensitive substring match on `name`, limit default 20/max 50) — lets the frontend look up an organism already in the reference table (e.g. a specific commercial strain already seeded) to attach to a batch.
+- `POST /batches/{id}/organisms` — body `{organism_id, notes}` (`notes` optional, max 500 chars, trimmed, blank stored as null). Inserts a `batch_organisms` row with `source="custom"`. 404 if the batch or `organism_id` doesn't exist; 409 if that organism is already attached to the batch as a custom attachment. Attaching an organism that is also a type default is allowed (it then shows once, as custom, with the notes, e.g. a specific commercial strain of *S. cerevisiae* on a kombucha batch).
+- `DELETE /batches/{id}/organisms/{organism_id}` — 204, removes that custom attachment. 404 "Batch not found" for an unknown batch, 404 "Organism is not attached to this batch" if there is no custom attachment for it. It never touches type defaults (a default organism that was attached-with-note reverts to `source="default"`, `notes=null`).
 - **Out of scope for this increment:** adding a brand-new organism that isn't already in the `organisms` table (e.g. a commercial strain KEGG doesn't catalog). That needs its own small reference-data-entry path, deferred until there's a real case for it — YAGNI until Achille actually buys a strain not already seeded.
 
 ### Testing
 
 - **Snapshot sanity** (reading the real gz): every `fermentation_type` in the hand-maintained mapping resolves to at least one organism; every organism referenced by the mapping exists in `organisms`; no orphan `enzyme_reactions` (both `substrate_id`/`product_id` exist).
 - **Pure build function:** unit test on a small synthetic KEGG response fixture, covering EC-number parsing and the fermentation-type-to-organism mapping.
-- **`/batches/{id}/biochemistry`:** default case (no `batch_organisms` rows) returns the fermentation-type defaults; override case (one `batch_organisms` row) returns only that; 404 for unknown batch.
-- **`/organisms` search + `POST /batches/{id}/organisms`:** search match/limit, successful override insert, 404 for unknown `organism_id`.
+- **`/batches/{id}/biochemistry`:** default case (no `batch_organisms` rows) returns the fermentation-type defaults; attachment case returns defaults plus the custom organism (deduped, custom supersedes); 404 for unknown batch.
+- **`/organisms` search + `POST /batches/{id}/organisms`:** search match/limit, successful attach, DELETE, 409 on duplicate, 404 for unknown batch/`organism_id`.
 - **Migration 0008:** SQLite round-trip (upgrade, downgrade to 0007, upgrade); Postgres check through the deployed API after the Render deploy, per the existing pattern (Docker unavailable locally).
 
 ### Out of scope

@@ -58,7 +58,7 @@ async def test_organism_enzyme_unique_pair(db_session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_batch_organism_override_and_cascade_delete(db_session: AsyncSession) -> None:
+async def test_batch_organism_attachment_and_cascade_delete(db_session: AsyncSession) -> None:
     culture = Culture(name="Jun SCOBY", type="kombucha")
     yeast = Organism(name="Saccharomyces cerevisiae", kingdom="yeast", source_version="v1")
     db_session.add_all([culture, yeast])
