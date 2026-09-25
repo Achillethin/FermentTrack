@@ -1,0 +1,116 @@
+/*
+ * Chart tokens for the forecast panel. The app is dark-only (slate-950 page,
+ * slate-900/60 cards), so these are the dark steps of the dataviz reference
+ * palette, validated against the card surface #0a1022 (slate-900/60 over
+ * slate-950): all 8 slots inside the dark lightness band, >= 3:1 contrast,
+ * worst adjacent CVD dE 8.4, normal-vision dE 19.3; first 3 slots pass all-pairs.
+ * If a light theme is added, define its steps under the same names.
+ */
+.ft-viz {
+  --viz-surface: #0a1022;
+  --viz-text-primary: #f1f5f9; /* slate-100 */
+  --viz-text-secondary: #cbd5e1; /* slate-300 */
+  --viz-text-muted: #94a3b8; /* slate-400, 7.4:1 on surface */
+  --viz-grid: #1e293b; /* slate-800 hairline */
+  --viz-axis: #334155; /* slate-700 baseline */
+  --viz-now: #cbd5e1;
+  --viz-past-wash: rgba(148, 163, 184, 0.06);
+  --viz-crosshair: #e2e8f0;
+  --viz-ref: #fab219; /* status "warning" step: 4.6 food-safety reference */
+  --viz-obs: #f8fafc; /* measured points wear ink, not a series hue */
+  --viz-misfit: #fab219; /* warning ring: a reading the calibrated model cannot explain */
+  --viz-s1: #3987e5; /* blue */
+  --viz-s2: #d95926; /* orange */
+  --viz-s3: #199e70; /* aqua */
+  --viz-s4: #c98500; /* yellow */
+  --viz-s5: #d55181; /* magenta */
+  --viz-s6: #008300; /* green */
+  --viz-s7: #9085e9; /* violet */
+  --viz-s8: #e66767; /* red */
+}
+
+.ft-viz .ft-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* What-if slider: native range input, restyled. The typical-range band is
+   painted on the track via --band-lo / --band-hi (percentages). */
+.ft-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 40px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+.ft-range:focus {
+  outline: none;
+}
+.ft-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #334155 0 var(--band-lo),
+    rgba(52, 211, 153, 0.55) var(--band-lo) var(--band-hi),
+    #334155 var(--band-hi) 100%
+  );
+}
+.ft-range::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #334155 0 var(--band-lo),
+    rgba(52, 211, 153, 0.55) var(--band-lo) var(--band-hi),
+    #334155 var(--band-hi) 100%
+  );
+}
+.ft-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -9px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 3px solid #0a1022;
+  box-shadow: 0 0 0 1px #64748b;
+}
+.ft-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 3px solid #0a1022;
+  box-shadow: 0 0 0 1px #64748b;
+}
+.ft-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px #34d399;
+}
+.ft-range:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px #34d399;
+}
+.ft-range.is-override::-webkit-slider-thumb {
+  background: #fcd34d;
+}
+.ft-range.is-override::-moz-range-thumb {
+  background: #fcd34d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ft-viz * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .ft-viz svg .ft-band {
+    fill: Canvas;
+  }
+  .ft-viz svg .ft-line {
+    stroke: CanvasText;
+  }
+}

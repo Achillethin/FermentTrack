@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ── Culture ──────────────────────────────────────────────────────────────
@@ -35,9 +35,22 @@ class CultureWithBatches(CultureOut):
 
 # ── Batch ────────────────────────────────────────────────────────────────
 
+# °C. The upper bound also catches the most likely slip, a Fahrenheit room temperature
+# (68-80 °F), which read as °C would be far outside any home-fermentation range.
+ExpectedTemperatureC = Annotated[float, Field(ge=-5.0, le=60.0)]
+
+
 class BatchCreate(BaseModel):
     culture_id: uuid.UUID
     target: str | None = None
+    expected_temperature_c: ExpectedTemperatureC | None = None
+
+
+class BatchUpdate(BaseModel):
+    """Partial update: only fields present in the body change; an explicit null clears."""
+
+    target: str | None = None
+    expected_temperature_c: ExpectedTemperatureC | None = None
 
 
 class BatchOut(BaseModel):
@@ -49,6 +62,7 @@ class BatchOut(BaseModel):
     current_stage: str
     stage_entered_at: datetime
     target: str | None
+    expected_temperature_c: float | None
     outcome: str
     ended_at: datetime | None
 
@@ -163,6 +177,14 @@ class BatchIngredientOut(BaseModel):
     role: str
 
 
+class BatchIngredientUpdate(BaseModel):
+    """Partial update: only fields present in the body change; an explicit null clears."""
+
+    quantity: float | None = None
+    unit: Unit | None = None
+    role: Role | None = None
+
+
 # ── Composition ─────────────────────────────────────────────────────────
 
 class NutrientTotalOut(BaseModel):
@@ -214,6 +236,22 @@ class BatchTimeline(BaseModel):
 class BatchCompare(BaseModel):
     batches: list[BatchOut]
     measurements: dict[str, list[MeasurementOut]]
+
+
+class BatchSummaryOut(BaseModel):
+    """One row of a batch list/search result: batch + its culture, flattened."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    culture_id: uuid.UUID
+    culture_name: str
+    culture_type: str
+    started_at: datetime
+    current_stage: str
+    target: str | None
+    outcome: str
+    ended_at: datetime | None
 
 
 # ── Safety ───────────────────────────────────────────────────────────────
@@ -319,6 +357,121 @@ class BatchOrganismOut(BaseModel):
     organism_id: uuid.UUID
     source: str
     notes: str | None
+
+
+# ── Prediction ───────────────────────────────────────────────────────────
+# GET /batches/{id}/prediction. A model estimate, never a measurement: see
+# docs/superpowers/specs/2026-09-24-fermentation-prediction-design.md for the model,
+# its priors and the labelling rules. Shape built by fermenttrack.prediction.service.
+
+class PredictionModelOut(BaseModel):
+    name: str
+    version: str
+    method: str
+    members: int
+    effective_members: float
+    confidence: Literal["established", "exploratory"]
+    confidence_note: str | None  # why an exploratory forecast is only a sketch
+    validated: bool
+    sources: list[str]
+
+
+class PredictionTemperatureOut(BaseModel):
+    forecast_c: float
+    source: Literal["override", "expected", "measured", "type_default"]
+    type_default_c: float
+    range_c: list[float]
+    readings: int
+
+
+class PredictionSeriesOut(BaseModel):
+    key: str  # "ph", "lactic_acid", "pop:<organism>", "mycelium", ...
+    label: str
+    unit: str  # "" | "g/kg" | "log CFU/g" | "SG" | "°Bx" | "%"
+    group: Literal["ph", "density", "substrates", "products", "growth", "population"]
+    t_h: list[float]
+    p05: list[float]
+    p50: list[float]
+    p95: list[float]
+
+
+class PredictionObservationOut(BaseModel):
+    key: str
+    t_h: float
+    value: float
+    used: bool
+    fits: bool | None  # used readings: within what the calibrated ensemble explains
+
+
+class MilestoneTimesOut(BaseModel):
+    p05: float | None
+    p50: float | None
+    p95: float | None
+
+
+class MilestoneThresholdOut(BaseModel):
+    series: str
+    value: float
+    kind: str
+
+
+class PredictionMilestoneOut(BaseModel):
+    key: str
+    label: str
+    title: str
+    note: str
+    threshold: MilestoneThresholdOut
+    t_h: MilestoneTimesOut  # hours from batch start; null = not reached by the horizon
+    probability: float  # weighted share of the ensemble reaching it within the horizon
+
+
+class ReferenceLineOut(BaseModel):
+    series: str
+    value: float
+    label: str
+
+
+class PathwayOut(BaseModel):
+    label: str
+    ec_numbers: list[str]
+    in_reference_graph: bool  # a marker enzyme is linked to this organism in KEGG data
+
+
+class PredictionOrganismOut(BaseModel):
+    name: str
+    kingdom: str
+    modelled: bool
+    growing: bool
+    role: str
+    note: str | None
+    series_key: str | None
+    pathways: list[PathwayOut]
+    sources: list[str]
+
+
+class PredictionInitialOut(BaseModel):
+    source: Literal["recipe", "typical_recipe"]
+    values: dict[str, float]
+
+
+class PredictionOut(BaseModel):
+    model: PredictionModelOut
+    fermentation_type: str
+    started_at: datetime  # UTC; t_h values are hours since this
+    now_h: float
+    horizon_h: float
+    horizon_options_h: list[float]
+    temperature: PredictionTemperatureOut
+    status: Literal["prior_only", "calibrated"]
+    series: list[PredictionSeriesOut]
+    observations: list[PredictionObservationOut]
+    milestones: list[PredictionMilestoneOut]
+    reference_lines: list[ReferenceLineOut]
+    organisms: list[PredictionOrganismOut]
+    initial: PredictionInitialOut
+    assumptions: list[str]
+    warnings: list[str]
+    disclaimer: str
 
 
 CultureWithBatches.model_rebuild()

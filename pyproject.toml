@@ -13,6 +13,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "sqlalchemy>=2.0",
+    "greenlet>=3.0",  # sqlalchemy.ext.asyncio imports it unconditionally, even with psycopg3's native async driver
     "alembic>=1.13",
     "psycopg[binary]>=3.1",
     "pydantic>=2.0",

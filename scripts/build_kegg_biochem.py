@@ -1,5 +1,5 @@
 # scripts/build_kegg_biochem.py
-"""Build the frozen KEGG fermentation-biochemistry snapshot (v2).
+"""Build the frozen KEGG fermentation-biochemistry snapshot (v4).
 
     python scripts/build_kegg_biochem.py [--force]
 
@@ -9,10 +9,10 @@ term). Which organisms/enzymes/compounds are fermentation-relevant, and how
 they link together, is hand-curated domain knowledge in
 fermenttrack/biochem.py — KEGG supplies identity, not the curation itself.
 
-Writes src/fermenttrack/kegg_biochem_v3.json.gz — FROZEN once migration 0010
-has run anywhere: a new snapshot is _v4 + a new migration. kegg_biochem_v1.json.gz
-and kegg_biochem_v2.json.gz are committed frozen artifacts and are no longer
-regenerable from this script (the curated dicts describe v3, a superset of both).
+Writes src/fermenttrack/kegg_biochem_v4.json.gz — FROZEN once migration 0013
+has run anywhere: a new snapshot is _v5 + a new migration. kegg_biochem_v1-v3.json.gz
+are committed frozen artifacts and are no longer regenerable from this script (the
+curated dicts describe v4, a superset of all three).
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import httpx
 from fermenttrack.biochem import (
     COMPOUNDS,
     ENZYME_ORGANISMS,
-    KEGG_BIOCHEM_V3,
+    KEGG_BIOCHEM_V4,
     build_snapshot,
     kegg_entry_name,
     kegg_find_id,
@@ -66,10 +66,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
-    if KEGG_BIOCHEM_V3.exists() and not args.force:
+    if KEGG_BIOCHEM_V4.exists() and not args.force:
         raise SystemExit(
-            "kegg_biochem_v3.json.gz is frozen; a new snapshot is _v4 + a new "
-            "migration (use --force only to regenerate v3 before it has ever "
+            "kegg_biochem_v4.json.gz is frozen; a new snapshot is _v5 + a new "
+            "migration (use --force only to regenerate v4 before it has ever "
             "been migrated)"
         )
 
@@ -83,7 +83,7 @@ def main() -> None:
     write_snapshot(data)
     print(
         f"wrote {len(data['organisms'])} organisms, {len(data['enzymes'])} enzymes, "
-        f"{len(data['compounds'])} compounds to {KEGG_BIOCHEM_V3}"
+        f"{len(data['compounds'])} compounds to {KEGG_BIOCHEM_V4}"
     )
 
 

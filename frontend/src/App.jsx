@@ -1,4 +1,8 @@
 import { useEffect, useState } from "react";
+import PredictionPanel from "./prediction/PredictionPanel.jsx";
+import TemperatureEstimate from "./prediction/TemperatureEstimate.jsx";
+import TemperatureField from "./prediction/TemperatureField.jsx";
+import { parseTemperature } from "./prediction/temperature.js";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
@@ -79,7 +83,7 @@ function StageControl({ batchId, onAdvanced }) {
   );
 }
 
-function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced }) {
+function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced, onTemperatureSaved }) {
   return (
     <Card title="Batch">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -95,6 +99,7 @@ function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced }) {
         </div>
       </div>
       {batch.target && <p className="mt-2 text-sm text-slate-300">Target: {batch.target}</p>}
+      <TemperatureEstimate apiUrl={API_URL} batch={batch} type={culture.type} onSaved={onTemperatureSaved} />
       <p className="mt-2 text-xs text-slate-500">
         Started {new Date(batch.started_at).toLocaleString()} · outcome: {batch.outcome}
       </p>
@@ -245,6 +250,146 @@ function LogObservation({ batchId, onLogged }) {
   );
 }
 
+const ROLES = ["base", "flavoring", "additive", "starter"];
+
+function RecipeRow({ batchId, item, ingredientName, onChanged }) {
+  const [editing, setEditing] = useState(false);
+  const [quantity, setQuantity] = useState(item.quantity ?? "");
+  const [unit, setUnit] = useState(item.unit ?? "");
+  const [role, setRole] = useState(item.role);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/ingredients/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quantity: quantity === "" ? null : parseFloat(quantity),
+          unit: unit || null,
+          role,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Could not update ingredient (${res.status})`);
+      }
+      setEditing(false);
+      onChanged();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Remove ${ingredientName} from this recipe?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/ingredients/${item.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 204) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Could not remove ingredient (${res.status})`);
+      }
+      onChanged();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <li className="py-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-200">{ingredientName}</span>
+          <input
+            className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+            placeholder="qty"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+          />
+          <select
+            className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+            value={unit}
+            onChange={(e) => setUnit(e.target.value)}
+          >
+            <option value="">unit</option>
+            {["g", "kg", "mg", "ml", "L"].map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </select>
+          <select
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={save}
+            className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setEditing(false)}
+            className="rounded-lg bg-slate-700 px-2 py-1 text-xs font-medium hover:bg-slate-600"
+          >
+            Cancel
+          </button>
+        </div>
+        {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-2 py-2 text-sm">
+      <span className="text-slate-200">
+        {ingredientName} {item.quantity ?? ""} {item.unit ?? ""}
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="text-slate-500">{item.role}</span>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="text-xs text-slate-400 hover:text-slate-200"
+        >
+          edit
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={remove}
+          className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+        >
+          remove
+        </button>
+      </span>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </li>
+  );
+}
+
 function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
   const [options, setOptions] = useState([]);
   const [ingredientId, setIngredientId] = useState("");
@@ -322,13 +467,15 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
       ) : (
         <ul className="mb-3 divide-y divide-slate-800">
           {recipe.map((item) => (
-            <li key={item.id} className="flex justify-between py-2 text-sm">
-              <span className="text-slate-200">
-                {options.find((o) => o.id === item.ingredient_id)?.name ?? item.ingredient_id}{" "}
-                {item.quantity ?? ""} {item.unit ?? ""}
-              </span>
-              <span className="text-slate-500">{item.role}</span>
-            </li>
+            <RecipeRow
+              key={item.id}
+              batchId={batchId}
+              item={item}
+              ingredientName={
+                options.find((o) => o.id === item.ingredient_id)?.name ?? item.ingredient_id
+              }
+              onChanged={onAdded}
+            />
           ))}
         </ul>
       )}
@@ -343,7 +490,7 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
                 onChange={(e) => setRole(e.target.value)}
               >
                 <option value="">default</option>
-                {["base", "flavoring", "additive", "starter"].map((r) => (
+                {ROLES.map((r) => (
                   <option key={r} value={r}>
                     {r}
                   </option>
@@ -555,8 +702,10 @@ function NewBatch({ onCreated }) {
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState("kombucha");
   const [target, setTarget] = useState("");
+  const [expectedTemp, setExpectedTemp] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const selectedType = cultureId ? cultures.find((c) => c.id === cultureId)?.type : newType;
 
   useEffect(() => {
     fetch(`${API_URL}/cultures`)
@@ -570,6 +719,8 @@ function NewBatch({ onCreated }) {
     setBusy(true);
     setError(null);
     try {
+      const temp = parseTemperature(expectedTemp);
+      if (temp.error) throw new Error(temp.error);
       let id = cultureId;
       if (!id) {
         if (!newName.trim()) throw new Error("Pick a culture or name a new one");
@@ -584,7 +735,11 @@ function NewBatch({ onCreated }) {
       const res = await fetch(`${API_URL}/batches`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ culture_id: id, target: target || null }),
+        body: JSON.stringify({
+          culture_id: id,
+          target: target || null,
+          expected_temperature_c: temp.value,
+        }),
       });
       if (!res.ok) throw new Error("Could not start batch");
       const batch = await res.json();
@@ -641,6 +796,7 @@ function NewBatch({ onCreated }) {
           value={target}
           onChange={(e) => setTarget(e.target.value)}
         />
+        <TemperatureField type={selectedType} value={expectedTemp} onChange={setExpectedTemp} />
         {error && <p className="text-sm text-red-400">{error}</p>}
         <button
           type="submit"
@@ -650,6 +806,137 @@ function NewBatch({ onCreated }) {
           {busy ? "Starting…" : "Start batch"}
         </button>
       </form>
+    </Card>
+  );
+}
+
+function timeAgo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = ms / 86_400_000;
+  if (days < 1) return "today";
+  if (days < 2) return "yesterday";
+  if (days < 30) return `${Math.floor(days)} days ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function BatchPicker({ onPick }) {
+  const [query, setQuery] = useState("");
+  const [type, setType] = useState("");
+  const [outcome, setOutcome] = useState("in_progress");
+  const [batches, setBatches] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showIdField, setShowIdField] = useState(false);
+  const [manualId, setManualId] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      if (type) params.set("type", type);
+      if (outcome) params.set("outcome", outcome);
+      fetch(`${API_URL}/batches?${params}`)
+        .then((r) => {
+          if (!r.ok) throw new Error(`Could not load batches (${r.status})`);
+          return r.json();
+        })
+        .then(setBatches)
+        .catch((e) => setError(e.message))
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query, type, outcome]);
+
+  return (
+    <Card title="Find a batch">
+      <div className="flex flex-wrap gap-2">
+        <input
+          className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+          placeholder="Search by culture name…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select
+          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+        >
+          <option value="">all substrates</option>
+          {SUBSTRATES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <select
+          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+          value={outcome}
+          onChange={(e) => setOutcome(e.target.value)}
+        >
+          <option value="">any outcome</option>
+          <option value="in_progress">in progress</option>
+          <option value="completed">completed</option>
+          <option value="failed">failed</option>
+        </select>
+      </div>
+
+      {loading && <p className="mt-2 text-xs text-slate-500">Searching…</p>}
+      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+
+      {!loading && batches.length === 0 && !error && (
+        <p className="mt-2 text-sm text-slate-500">No batches match.</p>
+      )}
+
+      {batches.length > 0 && (
+        <ul className="mt-2 max-h-72 divide-y divide-slate-800 overflow-y-auto rounded-lg border border-slate-800">
+          {batches.map((b) => (
+            <li key={b.id}>
+              <button
+                type="button"
+                onClick={() => onPick(b.id)}
+                className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-3 py-2 text-left text-sm hover:bg-slate-800"
+              >
+                <span className="text-slate-200">{b.culture_name}</span>
+                <span className="text-slate-500">{b.culture_type}</span>
+                <span className="text-slate-500">{b.current_stage}</span>
+                <span className="text-xs text-slate-600">{timeAgo(b.started_at)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setShowIdField((v) => !v)}
+        className="mt-3 text-xs text-slate-500 hover:text-slate-300"
+      >
+        {showIdField ? "Hide" : "Have a batch ID instead?"}
+      </button>
+      {showIdField && (
+        <form
+          className="mt-2 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (manualId.trim()) onPick(manualId.trim());
+          }}
+        >
+          <input
+            className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            placeholder="Batch ID"
+            value={manualId}
+            onChange={(e) => setManualId(e.target.value)}
+          />
+          <button
+            type="submit"
+            className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600"
+          >
+            Load
+          </button>
+        </form>
+      )}
     </Card>
   );
 }
@@ -700,27 +987,14 @@ export default function App() {
         }}
       />
 
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          loadPreview(batchId);
+      <BatchPicker
+        onPick={(id) => {
+          setBatchId(id);
+          loadPreview(id);
         }}
-      >
-        <input
-          className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
-          placeholder="Batch ID"
-          value={batchId}
-          onChange={(e) => setBatchId(e.target.value)}
-        />
-        <button
-          type="submit"
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500"
-        >
-          {loading ? "Loading…" : "Load"}
-        </button>
-      </form>
+      />
 
+      {loading && <p className="text-sm text-slate-500">Loading batch…</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {preview && (
@@ -731,6 +1005,13 @@ export default function App() {
             culture={preview.culture}
             daysInStage={preview.days_in_stage}
             onAdvanced={() => loadPreview(batchId)}
+            onTemperatureSaved={() => loadPreview(preview.batch.id)}
+          />
+          <PredictionPanel
+            key={preview.batch.id}
+            apiUrl={API_URL}
+            batchId={preview.batch.id}
+            startedAt={preview.batch.started_at}
           />
           <LogObservation batchId={batchId} onLogged={() => loadPreview(batchId)} />
           <Recipe

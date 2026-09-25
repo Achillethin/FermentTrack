@@ -35,11 +35,14 @@ from fermenttrack.schemas import (
     BatchCreate,
     BatchIngredientCreate,
     BatchIngredientOut,
+    BatchIngredientUpdate,
     BatchOrganismCreate,
     BatchOrganismOut,
     BatchOut,
     BatchPreview,
+    BatchSummaryOut,
     BatchTimeline,
+    BatchUpdate,
     BiochemOrganismOut,
     CompoundOut,
     CultureOut,
@@ -95,6 +98,7 @@ async def create_batch(payload: BatchCreate, db: AsyncSession = Depends(get_db))
         current_stage=initial_stage,
         stage_entered_at=started_at,
         target=payload.target,
+        expected_temperature_c=payload.expected_temperature_c,
     )
     db.add(batch)
     await db.flush()
@@ -103,6 +107,60 @@ async def create_batch(payload: BatchCreate, db: AsyncSession = Depends(get_db))
     if reminder is not None:
         db.add(reminder)
 
+    await db.commit()
+    await db.refresh(batch)
+    return batch
+
+
+@router.get("", response_model=list[BatchSummaryOut])
+async def list_batches(
+    q: str | None = Query(None, description="Substring match on culture name"),
+    type: str | None = Query(None, description="Filter by culture.type (substrate)"),
+    outcome: str | None = Query(None, description="Filter by batch outcome"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> list[BatchSummaryOut]:
+    stmt = (
+        select(Batch, Culture)
+        .join(Culture, Batch.culture_id == Culture.id)
+        .order_by(Batch.started_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    if q:
+        stmt = stmt.where(Culture.name.ilike(f"%{q}%"))
+    if type:
+        stmt = stmt.where(Culture.type == type)
+    if outcome:
+        stmt = stmt.where(Batch.outcome == outcome)
+
+    result = await db.execute(stmt)
+    return [
+        BatchSummaryOut(
+            id=batch.id,
+            culture_id=batch.culture_id,
+            culture_name=culture.name,
+            culture_type=culture.type,
+            started_at=batch.started_at,
+            current_stage=batch.current_stage,
+            target=batch.target,
+            outcome=batch.outcome,
+            ended_at=batch.ended_at,
+        )
+        for batch, culture in result.all()
+    ]
+
+
+@router.patch("/{batch_id}", response_model=BatchOut)
+async def update_batch(
+    batch_id: uuid.UUID,
+    payload: BatchUpdate,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> Batch:
+    batch = await _get_batch(batch_id, db)
+    for field in payload.model_fields_set:
+        setattr(batch, field, getattr(payload, field))
     await db.commit()
     await db.refresh(batch)
     return batch
@@ -308,6 +366,44 @@ async def list_batch_ingredients(
     await _get_batch(batch_id, db)  # raises 404 if the batch doesn't exist
     result = await db.execute(select(BatchIngredient).where(BatchIngredient.batch_id == batch_id))
     return list(result.scalars().all())
+
+
+async def _get_batch_ingredient(
+    batch_id: uuid.UUID, ingredient_row_id: uuid.UUID, db: AsyncSession
+) -> BatchIngredient:
+    result = await db.execute(
+        select(BatchIngredient).where(
+            BatchIngredient.id == ingredient_row_id, BatchIngredient.batch_id == batch_id
+        )
+    )
+    batch_ingredient = result.scalar_one_or_none()
+    if batch_ingredient is None:
+        raise HTTPException(status_code=404, detail="Ingredient not logged on this batch")
+    return batch_ingredient
+
+
+@router.patch("/{batch_id}/ingredients/{ingredient_row_id}", response_model=BatchIngredientOut)
+async def update_batch_ingredient(
+    batch_id: uuid.UUID,
+    ingredient_row_id: uuid.UUID,
+    payload: BatchIngredientUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> BatchIngredient:
+    batch_ingredient = await _get_batch_ingredient(batch_id, ingredient_row_id, db)
+    for field in payload.model_fields_set:
+        setattr(batch_ingredient, field, getattr(payload, field))
+    await db.commit()
+    await db.refresh(batch_ingredient)
+    return batch_ingredient
+
+
+@router.delete("/{batch_id}/ingredients/{ingredient_row_id}", status_code=204)
+async def delete_batch_ingredient(
+    batch_id: uuid.UUID, ingredient_row_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> None:
+    batch_ingredient = await _get_batch_ingredient(batch_id, ingredient_row_id, db)
+    await db.delete(batch_ingredient)
+    await db.commit()
 
 
 @router.get("/{batch_id}/composition", response_model=BatchCompositionOut)
