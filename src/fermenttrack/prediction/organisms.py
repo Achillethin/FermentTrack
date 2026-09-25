@@ -481,14 +481,16 @@ ORGANISM_KINETICS: dict[str, OrganismKinetics] = {
             # SSF growth), so the mold is not limited by free sugar in the bed.
             channels=(Channel(("hexoses", "maltose", "starch"), RESPIRATION),),
             # est.; logistic growth on steamed rice, calibrated to full growth in 40-48 h
-            # at 30 °C (Ito & Matsuyama 2021; Bechman et al. 2012)
-            mu_max=_r(0.15, 0.25, 0.4),
+            # at 30 °C (Ito & Matsuyama 2021; Bechman et al. 2012; Kusumoto et al. 2021)
+            mu_max=_r(0.17, 0.28, 0.45),
             ks=_r(0.5, 1.0, 3.0),
             yield_xs=_r(0.30, 0.45, 0.55),
             maint=_r(0.005, 0.02, 0.06),
             t_min=_t(8.0, 10.0, 13.0),  # est.
-            t_opt=_t(30.0, 32.5, 35.0),  # te Biesebeke 2002
-            t_max=_t(42.0, 44.0, 46.0),  # no growth above 44 °C
+            # growth optimum 38 °C on steamed rice (Narahara et al. 1982); sake koji runs
+            # at 38-43 °C late on (Mishiro et al. 2000); 30-35 °C in te Biesebeke 2002
+            t_opt=_t(33.0, 35.5, 38.0),
+            t_max=_t(43.0, 45.0, 47.0),
             ph_min=_t(2.0, 2.5, 3.0),
             ph_opt=_t(5.0, 5.5, 6.5),
             ph_max=_t(8.0, 8.8, 9.5),
@@ -508,6 +510,8 @@ ORGANISM_KINETICS: dict[str, OrganismKinetics] = {
                 "Bechman et al. 2012 J Food Sci 77:M318",
                 "Oguro et al. 2019 J Biosci Bioeng 127:570",
                 "Ito & Matsuyama 2021 J Fungi 7:658",
+                "Kusumoto et al. 2021 J Fungi 7:579",
+                "Narahara et al. 1982 J Ferment Technol 60:311",
             ),
         ),
     ]

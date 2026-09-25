@@ -55,9 +55,13 @@ class FermentProfile:
     oxygen_factor: Prior = field(default_factory=lambda: Prior(1.0, 1.0, 1.0))
     starch_accessible: float = 1.0  # share of starch enzymes can reach (damaged starch in flour)
     flour_amylase: Prior | None = None  # 1/h at 50 °C, cereal enzymes on accessible starch
-    fish_protease: Prior | None = None  # 1/h at 50 °C, fish digestive enzymes
+    # fish enzyme activity at t=0: 1 = fresh whole fish with viscera, as in fish sauce
+    fish_enzyme0: Prior | None = None
     koji_enzyme0: Prior | None = None  # koji enzyme activity at t=0 (0-1 scale)
-    enzyme_access: float = 1.0  # < 1 for solid-state koji (little free water)
+    # How freely enzymes reach their substrate: 1 in a slurry or brine, ~0.5 in a paste
+    # (miso, ~47 % moisture; proteolysis scales with moisture, Chiou et al. 2001), ~0.05 in
+    # the solid-state koji bed.
+    enzyme_access: float = 1.0
     x_max_override: dict[str, Prior] = field(default_factory=dict)
     h0_factor: float = 1.0  # < 1 when an active, back-slopped starter shortens the lag
     sugar_default: str = "hexoses"  # where sugars without a USDA breakdown are booked
@@ -96,10 +100,21 @@ _ENZYME_FERMENT_NOTE = (
 )
 
 
-def _hydrolysed(pct: int) -> Milestone:
+# Protein breakdown is reported in two steps (Ohnishi 1982): soluble N / total N (peptides
+# + free amino acids, "solubilisation") and formol or amino N / total N (free amino acids,
+# "degradation"). Miso reaches ~55-60 % and ~20 %; fish sauce ~90 % and ~50 %.
+def _solubilised(pct: int) -> Milestone:
     return Milestone(
-        f"protein_{pct}pct_hydrolysed", f"{pct} % of the protein broken down",
-        "amino acids and peptides: savoury depth builds", "amino_acids",
+        f"protein_{pct}pct_soluble", f"{pct} % of the protein solubilised",
+        "peptides and amino acids: body and savoury depth", "soluble_protein",
+        "of_initial_fraction", pct / 100, ref="protein",
+    )  # fmt: skip
+
+
+def _free_amino(pct: int) -> Milestone:
+    return Milestone(
+        f"free_amino_{pct}pct", f"Free amino acids at {pct} % of the protein",
+        "umami: glutamate and other free amino acids", "amino_acids",
         "of_initial_fraction", pct / 100, ref="protein",
     )  # fmt: skip
 
@@ -319,17 +334,29 @@ PROFILES: dict[str, FermentProfile] = {
                 "Tetragenococcus halophilus": _t(1.5, 3.0, 4.5),
                 "Zygosaccharomyces rouxii": _t(1.0, 2.5, 4.0),
             },
-            koji_enzyme0=_r(0.3, 0.5, 0.8),  # koji is ~half the mash
+            # koji share of the mash: ~0.3 at a 60 % koji ratio (shinshu), ~0.4 at 1:1
+            # koji:soybeans, up to ~0.7 for sweet white miso
+            koji_enzyme0=_r(0.25, 0.4, 0.7),
+            enzyme_access=0.5,  # a paste, ~47 % moisture
             min_water_fraction=0.45,  # cooked soybeans + koji
             milestones=(
                 _ph_below(5.0, "finished miso is typically pH 4.8-5.3"),
-                _hydrolysed(30),
+                _solubilised(50),
+                _free_amino(15),
             ),
             ph_safety_line=False,
             confidence="exploratory",
             confidence_note=_ENZYME_FERMENT_NOTE,
-            sources=("Allwood et al. 2021 J Food Sci", "Ito & Matsuyama 2021 J Fungi 7:658"),
-            notes=("The koji mold does not grow in the mash; its enzymes do the work.",),
+            sources=(
+                "Ohnishi 1982 Nippon Shokuhin Kogyo Gakkaishi 29:85",
+                "Kusumoto et al. 2021 J Fungi 7:579",
+                "Allwood et al. 2021 J Food Sci",
+            ),
+            notes=(
+                "The koji mold does not grow in the mash; its enzymes do the work. Protease "
+                "is salt-sensitive and amylase heat-sensitive: warm brewing (30 °C) matures "
+                "miso in ~3 months, against ~1 year unheated.",
+            ),
         ),
         FermentProfile(
             type="garum",
@@ -343,15 +370,24 @@ PROFILES: dict[str, FermentProfile] = {
             typical_recipe={"water": 580.0, "protein": 140.0, "starch": 90.0, "salt": 120.0},
             inoculum={"Tetragenococcus halophilus": _t(1.0, 2.5, 4.0)},
             koji_enzyme0=_r(0.15, 0.3, 0.5),  # koji garum: ~20-30 % koji
-            fish_protease=_r(3e-4, 1e-3, 3e-3),  # fish digestive enzymes (viscera)
-            milestones=(_hydrolysed(30), _hydrolysed(60)),
+            # fish digestive enzymes: whole fish with viscera = 1; gutted fish or fillets less
+            fish_enzyme0=_r(0.3, 1.0, 2.0),
+            milestones=(_solubilised(50), _free_amino(30)),
             ph_safety_line=False,
             confidence="exploratory",
             confidence_note=_ENZYME_FERMENT_NOTE,
-            sources=("Lopetcharat et al. 2001 Food Rev Int 17:65", "Redzepi & Zilber 2018"),
+            sources=(
+                "Udomsil et al. 2011 J Agric Food Chem 59:8401",
+                "Lopetcharat & Park 2002 J Food Sci 67:511",
+                "Lopetcharat et al. 2001 Food Rev Int 17:65",
+                "Redzepi & Zilber 2018",
+            ),
             notes=(
                 "Traditional garum relies on salt (2-3 parts fish to 1 part salt, 12-18 "
                 "months); koji garum on heat (about 60 °C for 10-12 weeks).",
+                "Koji amylase and most koji protease denature within hours to days at "
+                "55-60 °C, so hot koji garum front-loads its breakdown; 45-50 °C keeps the "
+                "enzymes working longer.",
             ),
         ),
         FermentProfile(

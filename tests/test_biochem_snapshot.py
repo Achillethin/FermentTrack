@@ -1,4 +1,4 @@
-"""Sanity checks on the committed, frozen KEGG biochemistry snapshot (v3, the default)."""
+"""Sanity checks on the committed, frozen KEGG biochemistry snapshot (v4, the default)."""
 
 from __future__ import annotations
 
@@ -9,12 +9,13 @@ from fermenttrack.biochem import (
     FERMENTATION_TYPE_ORGANISMS,
     KEGG_BIOCHEM_V1,
     KEGG_BIOCHEM_V2,
+    KEGG_BIOCHEM_V3,
     KNOWN_FERMENTATION_TYPES,
     load_snapshot,
     snapshot_delta,
 )
 
-SNAP = load_snapshot()  # v3
+SNAP = load_snapshot()  # v4
 ORGANISMS = {o["name"] for o in SNAP["organisms"]}
 ENZYMES = {e["ec_number"] for e in SNAP["enzymes"]}
 COMPOUNDS = {c["name"] for c in SNAP["compounds"]}
@@ -58,11 +59,13 @@ def test_enzymes_have_ec_shape_and_names() -> None:
         assert e["name"].strip()
 
 
-def test_snapshots_are_nested_v1_v2_v3() -> None:
+def test_snapshots_are_nested_v1_to_v4() -> None:
     v1, v2 = load_snapshot(KEGG_BIOCHEM_V1), load_snapshot(KEGG_BIOCHEM_V2)
-    assert SNAP["schema_version"] == "kegg_biochem_v3"
+    v3 = load_snapshot(KEGG_BIOCHEM_V3)
+    assert SNAP["schema_version"] == "kegg_biochem_v4"
+    assert v3["schema_version"] == "kegg_biochem_v3"
     assert v2["schema_version"] == "kegg_biochem_v2" and v1["schema_version"] == "kegg_biochem_v1"
-    for old, new in ((v1, v2), (v2, SNAP)):
+    for old, new in ((v1, v2), (v2, v3), (v3, SNAP)):
         delta = snapshot_delta(old, new)  # raises ValueError if any old row is missing
         for table, rows in delta.items():
             assert len(new[table]) == len(old[table]) + len(rows)
@@ -115,3 +118,32 @@ def test_v3_koji_garum() -> None:
     }
     for ftype in FTYPES - {"garum"}:
         assert _organisms_of(ftype) == v2_types[ftype], ftype
+
+
+def test_v4_pathway_enzymes() -> None:
+    v3 = load_snapshot(KEGG_BIOCHEM_V3)
+    delta = snapshot_delta(v3, SNAP)
+    assert {e["ec_number"] for e in delta["enzymes"]} == {
+        "3.2.1.26", "4.1.2.9", "1.1.5.2", "2.4.1.8", "3.2.1.85", "2.4.1.12",
+        "3.2.1.10",  # KEGG's EC for the yeast maltase MAL32
+    }  # fmt: skip
+    assert delta["organisms"] == [] and delta["fermentation_type_organisms"] == []
+    assert "3.2.1.26" in _enzymes_of("Saccharomyces cerevisiae")  # kombucha sucrose split
+    assert "1.1.5.2" in _enzymes_of("Gluconacetobacter xylinus")  # gluconic acid
+    assert "2.4.1.12" in _enzymes_of("Gluconacetobacter xylinus")  # the SCOBY pellicle
+    assert "2.4.1.8" in _enzymes_of("Lactobacillus sanfranciscensis")  # sourdough maltose
+    assert "3.2.1.85" in _enzymes_of("Lactococcus lactis")  # lactose via the PTS
+    assert "3.2.1.23" in _enzymes_of("Lactobacillus kefiri")  # kefir lactobacilli
+    assert "1.1.5.5" in _enzymes_of("Gluconacetobacter xylinus")  # its ethanol oxidation
+    # phosphoketolase only on the obligately heterofermentative LAB
+    assert "4.1.2.9" in _enzymes_of("Leuconostoc mesenteroides")
+    assert "4.1.2.9" not in _enzymes_of("Lactobacillus plantarum")
+    assert "4.1.2.9" not in _enzymes_of("Lactococcus lactis")
+
+    cid = {c["name"]: c["kegg_compound_id"] for c in SNAP["compounds"]}
+    reactions = {
+        (r["ec_number"], cid[r["substrate"]], cid[r["product"]]) for r in SNAP["enzyme_reactions"]
+    }
+    assert ("3.2.1.26", "C00089", "C00095") in reactions  # sucrose -> fructose
+    assert ("1.1.5.2", "C00031", "C00198") in reactions  # glucose -> gluconolactone
+    assert ("2.4.1.8", "C00208", "C00663") in reactions  # maltose -> b-glucose 1-P

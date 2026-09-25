@@ -111,11 +111,13 @@ def test_koji() -> None:
 
 def test_miso() -> None:
     # Miso: pH ~6.2 -> 4.8-5.3 over months; koji enzymes break down starch within weeks
-    # and protein over months (Allwood et al. 2021; Ito & Matsuyama 2021).
+    # and protein over months, solubilising more than they free as amino acids (Allwood
+    # et al. 2021; Ohnishi 1982; more in test_prediction_enzymes.py).
     b = _forecast("miso", 25.0)
     assert 4.7 <= _at(b, "ph", 180 * 24) <= 5.8
     assert _at(b, "starch", 30 * 24) < 0.3 * _at(b, "starch", 0)
     assert _at(b, "amino_acids", 180 * 24) > _at(b, "amino_acids", 30 * 24) > 0.0
+    assert _at(b, "soluble_protein", 90 * 24) > 1.5 * _at(b, "amino_acids", 90 * 24)
 
 
 @pytest.mark.parametrize(

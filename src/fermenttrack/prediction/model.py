@@ -17,6 +17,7 @@ from fermenttrack.prediction.engine import (
     N_POOLS,
     PI,
     EnsembleParams,
+    EnzymeParams,
     OrganismParams,
     acid_ka,
     acid_moles,
@@ -24,18 +25,21 @@ from fermenttrack.prediction.engine import (
     strong_ion_offset,
     water_activity,
 )
+from fermenttrack.prediction.enzymes import (
+    AMYLASE,
+    FISH,
+    FISH_PEPTIDASE_K,
+    PEPTIDASE,
+    PROTEASE,
+    PROTEASE_LATE_PRODUCTION,
+    PROTEASE_THERMOSTABLE,
+    EnzymeClass,
+    salt_factor,
+)
 from fermenttrack.prediction.organisms import OrganismKinetics
 from fermenttrack.prediction.priors import FloatArray, Prior
 from fermenttrack.prediction.profiles import FermentProfile
 
-# Enzyme priors, first order in substrate (1/h per unit of koji enzyme, at 50 °C). Koji
-# enzyme activity is on a 0-1 "fully grown koji" scale. Calibrated to: amazake (koji +
-# rice, 55-60 °C) breaks down up to ~60 % of the rice in 6-10 h (Oguro et al. 2019;
-# Akamatsu et al. 2024); miso koji enzymes do most of their work in ~5 months at 25-30 °C
-# (Allwood et al. 2021); koji garum runs 10-12 weeks at 60 °C. All est.
-KOJI_AMYLASE = Prior(0.12, 0.05, 0.3)
-KOJI_PROTEASE = Prior(4e-3, 1.5e-3, 1.2e-2)
-ENZYME_DECAY_25C = Prior(3e-4, 1e-4, 1e-3)  # 1/h (half-life ~3 months at 25 °C)
 TEMP_OFFSET = Prior(0.0, -1.5, 1.5, "lin")  # °C, error of an estimated temperature
 SUGAR_SCALE = Prior(1.0, 0.85, 1.15)  # real produce vs its USDA reference sugars
 
@@ -81,20 +85,29 @@ class ModelSpec:
         ]
         if any(o.obligate_aerobe for o, g in zip(self.organisms, self.can_grow, strict=True) if g):
             specs.append(ParamSpec("oxygen", p.oxygen_factor))
-        has_koji = any(o.makes_enzymes for o in self.organisms)
-        if has_koji:
+        for c in self.enzyme_classes:
             specs += [
-                ParamSpec("k_koji_amylase", KOJI_AMYLASE),
-                ParamSpec("k_koji_protease", KOJI_PROTEASE),
+                ParamSpec(f"{c.key}.k", c.k),
+                ParamSpec(f"{c.key}.ea", c.ea_kj),
+                ParamSpec(f"{c.key}.t_half", c.t_half_h),
+                ParamSpec(f"{c.key}.ed", c.ed_kj),
+                ParamSpec(f"{c.key}.floor", c.floor_25),
+                ParamSpec(f"{c.key}.salt_s50", c.salt_s50),
+            ]
+        if self.has_koji:
+            specs += [
+                ParamSpec("protease_ts_share", PROTEASE_THERMOSTABLE),
+                ParamSpec("protease_late", PROTEASE_LATE_PRODUCTION),
             ]
             if p.koji_enzyme0 is not None:
                 specs.append(ParamSpec("koji_enzyme0", p.koji_enzyme0))
-        if has_koji or p.fish_protease is not None:
-            specs.append(ParamSpec("enzyme_decay", ENZYME_DECAY_25C))
+        if p.fish_enzyme0 is not None:
+            specs += [
+                ParamSpec("fish_enzyme0", p.fish_enzyme0),
+                ParamSpec("fish_peptidase_k", FISH_PEPTIDASE_K),
+            ]
         if p.flour_amylase is not None:
             specs.append(ParamSpec("k_flour_amylase", p.flour_amylase))
-        if p.fish_protease is not None:
-            specs.append(ParamSpec("k_fish_protease", p.fish_protease))
         for j, o in enumerate(self.organisms):
             overrides = {"x_max": p.x_max_override.get(o.name, o.x_max)}
             for name in (
@@ -107,6 +120,16 @@ class ModelSpec:
             if o.inverts_sucrose is not None:
                 specs.append(ParamSpec("invertase", o.inverts_sucrose, j))
         self.specs = specs
+
+    @property
+    def has_koji(self) -> bool:
+        """Koji enzymes are present (the mold grows them, or its koji was mixed in)."""
+        return any(o.makes_enzymes for o in self.organisms)
+
+    @property
+    def enzyme_classes(self) -> tuple[EnzymeClass, ...]:
+        koji = (AMYLASE, PROTEASE, PEPTIDASE) if self.has_koji else ()
+        return koji + ((FISH,) if self.profile.fish_enzyme0 is not None else ())
 
     @property
     def dim(self) -> int:
@@ -136,7 +159,30 @@ class ModelSpec:
             pools0[:, PI[k]] = conc
         for k in ("sucrose", "hexoses", "lactose", "maltose"):
             pools0[:, PI[k]] *= glob["sugar_scale"]
-        pools0[:, PI["koji_enzyme"]] = glob.get("koji_enzyme0", np.zeros(n))
+        zeros = np.zeros(n)
+        koji0 = glob.get("koji_enzyme0", zeros)
+        ts_share = glob.get("protease_ts_share", zeros)
+        if self.has_koji:
+            pools0[:, PI["amylase"]] = koji0
+            pools0[:, PI["protease"]] = koji0 * (1.0 - ts_share)
+            pools0[:, PI["protease_ts"]] = koji0 * ts_share
+            pools0[:, PI["peptidase"]] = koji0
+        pools0[:, PI["fish_enzyme"]] = glob.get("fish_enzyme0", zeros)
+        access = self.profile.enzyme_access
+        enzymes = {}
+        for c in self.enzyme_classes:
+            salt = salt_factor(wps, glob[f"{c.key}.salt_s50"], c.salt_floor)
+            enzymes[c.key] = EnzymeParams(
+                k=glob[f"{c.key}.k"] * salt * access,
+                ea=glob[f"{c.key}.ea"] * 1e3,
+                kd_ref=math.log(2.0) / glob[f"{c.key}.t_half"],
+                t_ref_k=c.t_ref_c + 273.15,
+                ed=glob[f"{c.key}.ed"] * 1e3,
+                floor=glob[f"{c.key}.floor"],
+            )
+        fish_pep = glob.get("fish_peptidase_k", zeros)
+        if "fish_enzyme" in enzymes:
+            fish_pep = fish_pep * salt_factor(wps, glob["fish_enzyme.salt_s50"], 0.0) * access
 
         buf = buffer_groups(glob["buffer_mm"])
         ka = acid_ka(ionic_strength(wps))
@@ -191,7 +237,6 @@ class ModelSpec:
                 )
             )
 
-        zeros = np.zeros(n)
         aw = np.full(n, float(water_activity(np.array([wps]))[0]))
         return EnsembleParams(
             n=n,
@@ -203,15 +248,11 @@ class ModelSpec:
             aw=aw,
             oxygen=glob.get("oxygen", zeros),
             temperature=self.temperature(glob["temp_offset"]),
-            k_koji_amylase=glob.get("k_koji_amylase", zeros),
-            k_koji_protease=glob.get("k_koji_protease", zeros),
-            k_flour_amylase=glob.get("k_flour_amylase", zeros),
-            k_fish_protease=glob.get("k_fish_protease", zeros),
-            k_enzyme_decay25=glob.get("enzyme_decay", zeros),
-            # ponytail: one coarse linear salt factor for all enzymes; A. oryzae proteases
-            # keep ~30-60 % of their activity at 12-18 % NaCl (Ito & Matsuyama 2021, est.).
-            enzyme_salt=np.full(n, max(0.2, 1.0 - wps / 30.0)),
-            enzyme_access=self.profile.enzyme_access,
+            enzymes=enzymes,
+            protease_ts_share=ts_share,
+            protease_late=glob.get("protease_late", zeros),
+            fish_peptidase_k=fish_pep,
+            k_flour_amylase=glob.get("k_flour_amylase", zeros) * access,
         )
 
 
