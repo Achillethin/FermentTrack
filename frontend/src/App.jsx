@@ -609,6 +609,7 @@ function Biochemistry({ batchId, type }) {
     setPicked(null);
     setNotes("");
     setActionError(null);
+    setStatus("");
   }
 
   async function attach(e) {
@@ -851,7 +852,10 @@ function Biochemistry({ batchId, type }) {
           {loadError}{" "}
           <button
             type="button"
-            onClick={() => setReload((n) => n + 1)}
+            onClick={() => {
+              setLoadError(null);
+              setReload((n) => n + 1);
+            }}
             className="ml-1 rounded-lg bg-slate-700 px-3 py-2 text-xs font-medium text-slate-100 hover:bg-slate-600"
           >
             Retry

@@ -187,7 +187,6 @@ Both forms resolve as written, so no fallback form was needed. Only these public
 | Edit an attachment's note (PATCH) | Today: remove and re-attach. |
 | KEGG link descriptions as data (or a KEGG name/definition per entry) | Today the descriptions are generic strings in the frontend. |
 | Reactions list `[{enzyme_id, substrate_id, product_id}]` | Label compounds substrate or product. |
-| Doc drift in `2026-09-23-fermentation-biochemistry-design.md` and the `BatchOrganism` docstring, if they still say custom organisms replace the defaults | Fix wording so the additive semantics are the only ones described. |
 
 ## Out of scope
 
