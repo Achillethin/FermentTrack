@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
@@ -500,6 +500,477 @@ function Composition({ data }) {
   );
 }
 
+// Known gaps in the curated default sets (curation record §7, §8.3). Frontend
+// constant until the API carries this; shown for every batch of the type
+// because attaching an organism never removes the defaults.
+const THIN_NOTES = {
+  cheese: "Known gap: proteases such as chymosin are not in this reference set yet.",
+  garum:
+    "Known gap: fish digestive proteases are not modeled. The default organisms describe koji garum (Aspergillus oryzae is included); traditional garum uses no koji.",
+  kefir:
+    "Known gap: some default organisms (Lactobacillus kefiri, L. kefiranofaciens) have no enzymes recorded.",
+};
+
+const COMPOUND_GROUPS = [
+  ["acid", "Acids"],
+  ["alcohol", "Alcohols"],
+  ["gas", "Gases"],
+  ["flavor", "Flavor compounds"],
+  ["other", "Other"],
+];
+
+// detail is a string on 404/409 but a list on 422; network failures are TypeErrors.
+async function apiError(res, fallback) {
+  const body = await res.json().catch(() => ({}));
+  return typeof body.detail === "string" ? body.detail : `${fallback} (${res.status})`;
+}
+const errText = (e) => (e instanceof TypeError ? "Could not reach the server" : e.message);
+
+function KeggLink({ href, label }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={label}
+      aria-label={`${label} (opens kegg.jp in a new tab)`}
+      className="px-1 py-1 text-xs text-sky-400 underline"
+    >
+      KEGG
+    </a>
+  );
+}
+
+function Biochemistry({ batchId, type }) {
+  const base = `${API_URL}/batches/${batchId}`;
+  const [data, setData] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [reload, setReload] = useState(0);
+  const [status, setStatus] = useState("");
+  const [actionError, setActionError] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState(null); // null = no result yet
+  const [searchError, setSearchError] = useState(null);
+  const [picked, setPicked] = useState(null);
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirmId, setConfirmId] = useState(null);
+  const [removingId, setRemovingId] = useState(null);
+  const addRef = useRef(null);
+  const searchRef = useRef(null);
+  const headRef = useRef(null);
+
+  // Own fetch only: keep old data on screen, swap on success, abort stale requests.
+  useEffect(() => {
+    const ac = new AbortController();
+    fetch(`${base}/biochemistry`, { signal: ac.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await apiError(res, "Could not load biochemistry"));
+        setData(await res.json());
+        setLoadError(null);
+      })
+      .catch((e) => e.name !== "AbortError" && setLoadError(errText(e)));
+    return () => ac.abort();
+  }, [base, reload]);
+
+  useEffect(() => {
+    setResults(null);
+    setSearchError(null);
+    const q = query.trim();
+    if (q.length < 2) return;
+    const ac = new AbortController();
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/organisms?q=${encodeURIComponent(q)}&limit=20`, { signal: ac.signal })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(await apiError(res, "Search failed"));
+          setResults(await res.json());
+        })
+        .catch((e) => {
+          if (e.name === "AbortError") return;
+          setSearchError(errText(e));
+          setResults([]);
+        });
+    }, 250);
+    return () => {
+      clearTimeout(t);
+      ac.abort();
+    };
+  }, [query]);
+
+  // Focus the search box when the form opens and after "clear".
+  useEffect(() => {
+    if (open && !picked) searchRef.current?.focus();
+  }, [open, picked]);
+
+  function closeForm() {
+    setOpen(false);
+    setQuery("");
+    setPicked(null);
+    setNotes("");
+    setActionError(null);
+  }
+
+  async function attach(e) {
+    e.preventDefault();
+    if (!picked) return;
+    setBusy(true);
+    setActionError(null);
+    setStatus("");
+    try {
+      const res = await fetch(`${base}/organisms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organism_id: picked.id,
+          ...(notes.trim() ? { notes: notes.trim() } : {}),
+        }),
+      });
+      if (!res.ok) throw new Error(await apiError(res, "Could not attach organism"));
+      setStatus(`${picked.name} attached.`);
+      closeForm();
+      addRef.current?.focus();
+    } catch (err) {
+      setActionError(errText(err));
+    } finally {
+      setBusy(false);
+      setReload((n) => n + 1);
+    }
+  }
+
+  async function remove(o) {
+    setRemovingId(o.id);
+    setActionError(null);
+    setStatus("");
+    try {
+      const res = await fetch(`${base}/organisms/${o.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await apiError(res, "Could not remove organism"));
+      setStatus(`Custom attachment for ${o.name} removed.`);
+      headRef.current?.focus();
+    } catch (err) {
+      setActionError(errText(err));
+    } finally {
+      setRemovingId(null);
+      setConfirmId(null);
+      setReload((n) => n + 1);
+    }
+  }
+
+  const q = query.trim();
+  let searchStatus = "Type at least 2 letters.";
+  if (searchError) searchStatus = searchError;
+  else if (q.length >= 2 && results === null) searchStatus = "Searching…";
+  else if (results?.length === 0)
+    searchStatus = `No organism matching "${q}" in the reference set. Only organisms already in the reference set can be attached.`;
+  else if (results) searchStatus = `${results.length} organism${results.length === 1 ? "" : "s"} found.`;
+
+  let content = null;
+  if (data) {
+    const { organisms, enzymes, compounds } = data;
+    const hasCustom = organisms.some((o) => o.source === "custom");
+    const byId = Object.fromEntries(organisms.map((o) => [o.id, o]));
+    const carried = new Set(enzymes.flatMap((z) => z.organism_ids));
+    const groups = COMPOUND_GROUPS.map(([cat, label]) => [
+      label,
+      compounds.filter((c) => (COMPOUND_GROUPS.some(([k]) => k === c.category) ? c.category : "other") === cat),
+    ]).filter(([, list]) => list.length > 0);
+
+    content = (
+      <>
+        <p className="mb-3 text-xs text-slate-400">
+          {organisms.length === 0
+            ? "Reference data only; nothing is recorded for this type."
+            : `Reference data for a ${type} batch: not measured in this batch and not a forecast. Organisms and their enzymes are hand-curated, typical rather than exhaustive, and have not been expert-reviewed; enzyme and compound identities are from KEGG. Compounds come from representative reactions, not full pathways.${hasCustom ? " Organisms marked custom were attached to this batch by you." : ""}`}
+        </p>
+
+        <h3 ref={headRef} tabIndex={-1} className="text-sm font-medium text-slate-200">
+          Organisms
+        </h3>
+        {organisms.length === 0 ? (
+          <p className="mt-1 text-sm text-slate-400">
+            No reference organisms are recorded for this type. You can attach one.
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-800">
+            {organisms.map((o) => {
+              const custom = o.source === "custom";
+              return (
+                <li key={o.id} className="py-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="italic text-slate-200">{o.name}</span>
+                    <span className="text-xs text-slate-400">{o.kingdom}</span>
+                    <span
+                      className={`rounded border px-1.5 py-0.5 text-xs ${
+                        custom
+                          ? "border-sky-500/40 bg-sky-950/40 text-sky-400"
+                          : "border-slate-600 text-slate-300"
+                      }`}
+                    >
+                      {custom ? "custom" : "type default"}
+                    </span>
+                  </div>
+                  {custom && o.notes && (
+                    <p className="mt-1 break-words text-xs text-slate-300">Note: {o.notes}</p>
+                  )}
+                  {!carried.has(o.id) && (
+                    <p className="mt-1 text-xs text-slate-400">No enzymes recorded for this organism.</p>
+                  )}
+                  {custom &&
+                    (confirmId === o.id ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={removingId === o.id}
+                          onClick={() => remove(o)}
+                          aria-label={`Confirm remove ${o.name}`}
+                          className="rounded-lg bg-red-700 px-3 py-2 text-xs font-medium hover:bg-red-600 disabled:opacity-50"
+                        >
+                          {removingId === o.id ? "Removing…" : "Confirm remove"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={removingId === o.id}
+                          onClick={() => setConfirmId(null)}
+                          className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-medium hover:bg-slate-600"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmId(o.id)}
+                        aria-label={`Remove ${o.name}`}
+                        className="mt-2 rounded-lg bg-slate-700 px-3 py-2 text-xs font-medium hover:bg-slate-600"
+                      >
+                        Remove
+                      </button>
+                    ))}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {organisms.length > 0 && (
+          <>
+            <h3 className="mt-4 text-sm font-medium text-slate-200">Compounds involved</h3>
+            {groups.length === 0 ? (
+              <p className="mt-1 text-sm text-slate-400">
+                No compounds recorded in this reference set for the organisms listed above.
+              </p>
+            ) : (
+              groups.map(([label, list]) => (
+                <div key={label} className="mt-2">
+                  <p className="text-xs text-slate-400">{label}</p>
+                  <ul className="mt-1 flex flex-wrap gap-1.5">
+                    {list.map((c) => (
+                      <li
+                        key={c.id}
+                        className="flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-sm text-slate-200"
+                      >
+                        {c.name}
+                        {c.kegg_compound_id && (
+                          <KeggLink
+                            href={`https://www.kegg.jp/entry/${encodeURIComponent(c.kegg_compound_id)}`}
+                            label={`KEGG COMPOUND entry ${c.kegg_compound_id}: structure, reactions and pathways`}
+                          />
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            )}
+
+            {enzymes.length === 0 ? (
+              <>
+                <h3 className="mt-4 text-sm font-medium text-slate-200">Enzymes (0)</h3>
+                <p className="mt-1 text-sm text-slate-400">
+                  No enzymes recorded in this reference set for the organisms listed above.
+                </p>
+              </>
+            ) : (
+              <details className="mt-4">
+                <summary className="cursor-pointer py-1 text-sm font-medium text-slate-200">
+                  Enzymes ({enzymes.length})
+                </summary>
+                <ul className="divide-y divide-slate-800">
+                  {enzymes.map((z) => {
+                    const names = z.organism_ids.map((id) => byId[id]?.name).filter(Boolean);
+                    return (
+                      <li key={z.id} className="py-2 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-x-3">
+                          <span className="text-slate-200">{z.name}</span>
+                          <span className="flex items-center gap-1">
+                            <span className="font-mono text-xs text-slate-300">EC {z.ec_number}</span>
+                            <KeggLink
+                              href={`https://www.kegg.jp/entry/ec:${encodeURIComponent(z.ec_number)}`}
+                              label={`KEGG ENZYME entry for EC ${z.ec_number}: reaction, systematic name and references`}
+                            />
+                          </span>
+                        </div>
+                        {names.length > 0 && (
+                          <p className="text-xs text-slate-400">
+                            Carried by: <span className="italic">{names.join(", ")}</span>
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
+            )}
+
+            {THIN_NOTES[type] && <p className="mt-3 text-xs text-slate-400">{THIN_NOTES[type]}</p>}
+            <p className="mt-2 text-xs text-slate-400">
+              KEGG is a public biochemistry database; links open kegg.jp in a new tab. Enzyme links
+              show the reaction and references; compound links show structure and pathways.
+            </p>
+            <details className="mt-2">
+              <summary className="cursor-pointer py-1 text-xs text-slate-400">What this shows</summary>
+              <p className="text-xs text-slate-400">
+                Compounds involved lists substrates and products of the curated reactions; the data
+                does not say which is which. Amylases and proteases have no compound rows (starch
+                and protein are not KEGG compounds). Organism names are the widely used
+                pre-reclassification forms. Gluconacetobacter xylinus, Lactobacillus kefiri and L.
+                kefiranofaciens have no enzymes recorded.
+              </p>
+            </details>
+          </>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <Card title="Biochemistry">
+      {!data && !loadError && <p className="text-sm text-slate-400">Loading biochemistry…</p>}
+      {loadError && (
+        <p role="alert" className="mb-3 text-sm text-red-400">
+          {loadError}{" "}
+          <button
+            type="button"
+            onClick={() => setReload((n) => n + 1)}
+            className="ml-1 rounded-lg bg-slate-700 px-3 py-2 text-xs font-medium text-slate-100 hover:bg-slate-600"
+          >
+            Retry
+          </button>
+        </p>
+      )}
+      {content}
+      {data && (
+        <div className="mt-4">
+          <button
+            ref={addRef}
+            type="button"
+            onClick={() => (open ? closeForm() : setOpen(true))}
+            className="rounded-lg bg-slate-700 px-3 py-3 text-sm font-medium hover:bg-slate-600"
+          >
+            {open ? "Cancel" : "Add organism"}
+          </button>
+          {open && (
+            <form className="mt-3 space-y-2" onSubmit={attach}>
+              <p className="text-xs text-slate-300">
+                Adds to the default organisms for {type}; it does not replace them.
+              </p>
+              {picked ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="italic text-slate-200">{picked.name}</span>
+                  <button
+                    type="button"
+                    className="px-2 py-2 text-xs text-slate-400 hover:text-slate-200"
+                    onClick={() => setPicked(null)}
+                  >
+                    clear
+                  </button>
+                  {data.organisms.some((o) => o.id === picked.id && o.source === "default") && (
+                    <p className="w-full text-xs text-slate-400">
+                      Already a {type} default; attaching it records your note and shows it as custom.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <label htmlFor="bio-search" className="sr-only">
+                    Search organisms
+                  </label>
+                  <input
+                    id="bio-search"
+                    ref={searchRef}
+                    type="search"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base"
+                    placeholder="Search organisms…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+                  />
+                  <p aria-live="polite" className="mt-1 text-xs text-slate-400">
+                    {searchStatus}
+                  </p>
+                  {results?.length > 0 && (
+                    <ul className="mt-1 max-h-60 divide-y divide-slate-800 overflow-y-auto rounded-lg border border-slate-800">
+                      {results.map((o) => {
+                        const existing = data.organisms.find((x) => x.id === o.id);
+                        const taken = existing?.source === "custom";
+                        return (
+                          <li key={o.id}>
+                            <button
+                              type="button"
+                              disabled={taken}
+                              onClick={() => setPicked(o)}
+                              className="flex w-full flex-wrap justify-between gap-x-2 px-3 py-3 text-left text-sm hover:bg-slate-800 disabled:opacity-50"
+                            >
+                              <span className="italic">{o.name}</span>
+                              <span className="text-xs text-slate-400">
+                                {taken ? "already attached" : existing ? `type default · ${o.kingdom}` : o.kingdom}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {picked && (
+                <div>
+                  <label htmlFor="bio-notes" className="block text-xs text-slate-300">
+                    Note (optional, max 500 characters)
+                  </label>
+                  <input
+                    id="bio-notes"
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base"
+                    placeholder="e.g. Fermentis SafAle US-05"
+                    maxLength={500}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={busy || !picked}
+                className="rounded-lg bg-emerald-600 px-3 py-3 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {busy ? "Attaching…" : "Attach"}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+      {actionError && (
+        <p role="alert" className="mt-2 text-sm text-red-400">
+          {actionError}
+        </p>
+      )}
+      <p aria-live="polite" className="mt-2 text-sm text-emerald-400">
+        {status}
+      </p>
+    </Card>
+  );
+}
+
 function Timeline({ timeline }) {
   if (timeline.length === 0) {
     return (
@@ -741,6 +1212,7 @@ export default function App() {
             onAdded={() => loadPreview(batchId)}
           />
           <Composition data={composition} />
+          <Biochemistry batchId={preview.batch.id} type={preview.culture.type} />
           <Timeline timeline={preview.timeline} />
           <Safety safety={preview.safety} />
         </>

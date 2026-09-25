@@ -46,3 +46,6 @@ frontend/.env
 
 # Git worktrees for isolated feature work
 .worktrees/
+
+# Playwright MCP browser artifacts
+.playwright-mcp/
