@@ -3,6 +3,7 @@ import PredictionPanel from "./prediction/PredictionPanel.jsx";
 import TemperatureEstimate from "./prediction/TemperatureEstimate.jsx";
 import TemperatureField from "./prediction/TemperatureField.jsx";
 import { parseTemperature } from "./prediction/temperature.js";
+import { Button, Input, Select } from "./components/ui.jsx";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
@@ -71,13 +72,9 @@ function StageControl({ batchId, onAdvanced }) {
 
   return (
     <div className="mt-2">
-      <button
-        onClick={advance}
-        disabled={busy}
-        className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium hover:bg-slate-600 disabled:opacity-50"
-      >
+      <Button variant="secondary" size="sm" onClick={advance} disabled={busy}>
         {busy ? "Advancing…" : "Advance to next stage →"}
-      </button>
+      </Button>
       {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
     </div>
   );
@@ -181,20 +178,17 @@ function LogObservation({ batchId, onLogged }) {
     <Card title="Log an observation">
       <form className="space-y-2" onSubmit={submit}>
         <div className="flex gap-2">
-          <select
-            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-          >
+          <Select label="Observation type" value={type} onChange={(e) => setType(e.target.value)}>
             {OBSERVATION_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
             ))}
-          </select>
+          </Select>
           {type === "other" && (
-            <input
-              className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            <Input
+              label="Custom observation type name"
+              className="flex-1"
               placeholder="type name"
               value={customType}
               onChange={(e) => setCustomType(e.target.value)}
@@ -204,7 +198,8 @@ function LogObservation({ batchId, onLogged }) {
 
         {isNote ? (
           <textarea
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            aria-label="Observation note text"
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm placeholder:text-slate-500"
             placeholder="What did you observe?"
             rows={2}
             value={valueText}
@@ -214,22 +209,27 @@ function LogObservation({ batchId, onLogged }) {
           <>
             <div className="flex gap-2">
               {isNumeric && (
-                <input
-                  className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+                <Input
+                  label="Observation numeric value"
+                  size="sm"
+                  className="w-24"
                   placeholder="value"
                   value={valueNumeric}
                   onChange={(e) => setValueNumeric(e.target.value)}
                 />
               )}
-              <input
-                className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+              <Input
+                label="Observation description"
+                size="sm"
+                className="flex-1"
                 placeholder="description (e.g. tangy, cloudy)"
                 value={valueText}
                 onChange={(e) => setValueText(e.target.value)}
               />
             </div>
-            <input
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            <Input
+              label="Additional notes"
+              className="w-full"
               placeholder="Notes (optional)"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -238,13 +238,9 @@ function LogObservation({ batchId, onLogged }) {
         )}
 
         {error && <p className="text-sm text-red-400">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
-        >
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
           {busy ? "Logging…" : "Log observation"}
-        </button>
+        </Button>
       </form>
     </Card>
   );
@@ -311,14 +307,18 @@ function RecipeRow({ batchId, item, ingredientName, onChanged }) {
       <li className="py-2 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-slate-200">{ingredientName}</span>
-          <input
-            className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+          <Input
+            label="Edit ingredient quantity"
+            size="xs"
+            className="w-20"
             placeholder="qty"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
           />
-          <select
-            className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+          <Select
+            label="Edit ingredient unit"
+            size="xs"
+            className="w-20"
             value={unit}
             onChange={(e) => setUnit(e.target.value)}
           >
@@ -328,9 +328,10 @@ function RecipeRow({ batchId, item, ingredientName, onChanged }) {
                 {u}
               </option>
             ))}
-          </select>
-          <select
-            className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+          </Select>
+          <Select
+            label="Edit ingredient role"
+            size="xs"
             value={role}
             onChange={(e) => setRole(e.target.value)}
           >
@@ -339,23 +340,13 @@ function RecipeRow({ batchId, item, ingredientName, onChanged }) {
                 {r}
               </option>
             ))}
-          </select>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={save}
-            className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium hover:bg-emerald-500 disabled:opacity-50"
-          >
+          </Select>
+          <Button size="xs" disabled={busy} onClick={save}>
             {busy ? "Saving…" : "Save"}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setEditing(false)}
-            className="rounded-lg bg-slate-700 px-2 py-1 text-xs font-medium hover:bg-slate-600"
-          >
+          </Button>
+          <Button variant="secondary" size="xs" disabled={busy} onClick={() => setEditing(false)}>
             Cancel
-          </button>
+          </Button>
         </div>
         {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
       </li>
@@ -484,8 +475,9 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
           {food ? (
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="text-slate-200">USDA: {food.description}</span>
-              <select
-                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+              <Select
+                label="Ingredient role"
+                size="xs"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
               >
@@ -495,7 +487,7 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
                     {r}
                   </option>
                 ))}
-              </select>
+              </Select>
               <button
                 type="button"
                 className="text-xs text-slate-400 hover:text-slate-200"
@@ -506,8 +498,9 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
             </div>
           ) : (
             <>
-              <input
-                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+              <Input
+                label="Search USDA foods"
+                className="w-full"
                 placeholder="Search all USDA foods…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -536,8 +529,9 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
             </>
           )}
         </div>
-        <select
-          className="min-w-[9rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+        <Select
+          label="Add ingredient"
+          className="min-w-[9rem] flex-1"
           value={ingredientId}
           onChange={(e) => {
             const id = e.target.value;
@@ -556,15 +550,19 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
               {o.name}
             </option>
           ))}
-        </select>
-        <input
-          className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+        </Select>
+        <Input
+          label="Ingredient quantity"
+          size="sm"
+          className="w-20"
           placeholder="qty"
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
         />
-        <select
-          className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+        <Select
+          label="Ingredient unit"
+          size="sm"
+          className="w-20"
           value={unit}
           onChange={(e) => setUnit(e.target.value)}
         >
@@ -574,14 +572,10 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
               {u}
             </option>
           ))}
-        </select>
-        <button
-          type="submit"
-          disabled={busy || (!ingredientId && !food)}
-          className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
-        >
+        </Select>
+        <Button type="submit" disabled={busy || (!ingredientId && !food)}>
           Add
-        </button>
+        </Button>
       </form>
       {saltSuggestion && (
         <p className="mt-2 text-xs text-slate-500">
@@ -686,7 +680,9 @@ function Safety({ safety }) {
         <ul className="space-y-2">
           {verdicts.map((v) => (
             <li key={v.rule_id} className={`rounded-lg border p-2 text-sm ${urgencyColor(v.action)}`}>
-              <p>{v.reason_text_en}</p>
+              <p>
+                <strong className="uppercase">{v.action}:</strong> {v.reason_text_en}
+              </p>
               <p className="mt-1 text-xs opacity-70">{v.source_citation}</p>
             </li>
           ))}
@@ -755,9 +751,12 @@ function NewBatch({ onCreated }) {
     <Card title="Start a new batch">
       <form className="space-y-3" onSubmit={submit}>
         <div>
-          <label className="mb-1 block text-xs text-slate-400">Existing culture</label>
-          <select
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+          <label htmlFor="culture-select" className="mb-1 block text-xs text-slate-400">
+            Existing culture
+          </label>
+          <Select
+            id="culture-select"
+            className="w-full"
             value={cultureId}
             onChange={(e) => setCultureId(e.target.value)}
           >
@@ -767,18 +766,19 @@ function NewBatch({ onCreated }) {
                 {c.name} ({c.type})
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         {!cultureId && (
           <div className="flex gap-2">
-            <input
-              className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            <Input
+              label="New culture name"
+              className="flex-1"
               placeholder="New culture name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
             />
-            <select
-              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            <Select
+              label="New culture substrate type"
               value={newType}
               onChange={(e) => setNewType(e.target.value)}
             >
@@ -787,24 +787,21 @@ function NewBatch({ onCreated }) {
                   {s}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         )}
-        <input
-          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+        <Input
+          label="Batch target (optional)"
+          className="w-full"
           placeholder="Target (optional)"
           value={target}
           onChange={(e) => setTarget(e.target.value)}
         />
         <TemperatureField type={selectedType} value={expectedTemp} onChange={setExpectedTemp} />
         {error && <p className="text-sm text-red-400">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
-        >
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
           {busy ? "Starting…" : "Start batch"}
-        </button>
+        </Button>
       </form>
     </Card>
   );
@@ -852,26 +849,23 @@ function BatchPicker({ onPick }) {
   return (
     <Card title="Find a batch">
       <div className="flex flex-wrap gap-2">
-        <input
-          className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+        <Input
+          label="Search batches by culture name"
+          className="min-w-[10rem] flex-1"
           placeholder="Search by culture name…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select
-          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-        >
+        <Select label="Filter by substrate" value={type} onChange={(e) => setType(e.target.value)}>
           <option value="">all substrates</option>
           {SUBSTRATES.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
           ))}
-        </select>
-        <select
-          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+        </Select>
+        <Select
+          label="Filter by outcome"
           value={outcome}
           onChange={(e) => setOutcome(e.target.value)}
         >
@@ -879,7 +873,7 @@ function BatchPicker({ onPick }) {
           <option value="in_progress">in progress</option>
           <option value="completed">completed</option>
           <option value="failed">failed</option>
-        </select>
+        </Select>
       </div>
 
       {loading && <p className="mt-2 text-xs text-slate-500">Searching…</p>}
@@ -923,18 +917,16 @@ function BatchPicker({ onPick }) {
             if (manualId.trim()) onPick(manualId.trim());
           }}
         >
-          <input
-            className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+          <Input
+            label="Batch ID"
+            className="flex-1"
             placeholder="Batch ID"
             value={manualId}
             onChange={(e) => setManualId(e.target.value)}
           />
-          <button
-            type="submit"
-            className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600"
-          >
+          <Button type="submit" variant="secondary" size="lg">
             Load
-          </button>
+          </Button>
         </form>
       )}
     </Card>
