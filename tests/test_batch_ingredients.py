@@ -145,3 +145,90 @@ async def test_add_retired_ingredient_rejected(
     )
     assert resp.status_code == 400
     assert "retired" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_update_batch_ingredient_partial_fields(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    ingredient = Ingredient(name="Cane sugar", default_role="base", fermentation_systems=["kombucha"])
+    db_session.add(ingredient)
+    await db_session.commit()
+    await db_session.refresh(ingredient)
+
+    _culture_id, batch_id = await _create_culture_and_batch(client)
+    resp = await client.post(
+        f"/batches/{batch_id}/ingredients",
+        json={"ingredient_id": str(ingredient.id), "quantity": 200.0, "unit": "g"},
+    )
+    row_id = resp.json()["id"]
+
+    resp = await client.patch(
+        f"/batches/{batch_id}/ingredients/{row_id}", json={"quantity": 150.0}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["quantity"] == 150.0
+    assert body["unit"] == "g"  # untouched field is preserved
+
+
+@pytest.mark.asyncio
+async def test_update_batch_ingredient_unknown_row_404s(client: AsyncClient) -> None:
+    _culture_id, batch_id = await _create_culture_and_batch(client)
+    resp = await client.patch(
+        f"/batches/{batch_id}/ingredients/00000000-0000-0000-0000-000000000000",
+        json={"quantity": 1.0},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_batch_ingredient_removes_it(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    ingredient = Ingredient(name="Cane sugar", default_role="base", fermentation_systems=["kombucha"])
+    db_session.add(ingredient)
+    await db_session.commit()
+    await db_session.refresh(ingredient)
+
+    _culture_id, batch_id = await _create_culture_and_batch(client)
+    resp = await client.post(
+        f"/batches/{batch_id}/ingredients", json={"ingredient_id": str(ingredient.id)}
+    )
+    row_id = resp.json()["id"]
+
+    resp = await client.delete(f"/batches/{batch_id}/ingredients/{row_id}")
+    assert resp.status_code == 204
+
+    resp = await client.get(f"/batches/{batch_id}/ingredients")
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_delete_batch_ingredient_unknown_row_404s(client: AsyncClient) -> None:
+    _culture_id, batch_id = await _create_culture_and_batch(client)
+    resp = await client.delete(
+        f"/batches/{batch_id}/ingredients/00000000-0000-0000-0000-000000000000"
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_batch_ingredient_row_scoped_to_its_batch(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """A row belonging to batch A must 404 under batch B's URL, not leak across batches."""
+    ingredient = Ingredient(name="Cane sugar", default_role="base", fermentation_systems=["kombucha"])
+    db_session.add(ingredient)
+    await db_session.commit()
+    await db_session.refresh(ingredient)
+
+    _culture_id, batch_a = await _create_culture_and_batch(client)
+    _culture_id2, batch_b = await _create_culture_and_batch(client)
+    resp = await client.post(
+        f"/batches/{batch_a}/ingredients", json={"ingredient_id": str(ingredient.id)}
+    )
+    row_id = resp.json()["id"]
+
+    resp = await client.patch(f"/batches/{batch_b}/ingredients/{row_id}", json={"quantity": 1.0})
+    assert resp.status_code == 404
