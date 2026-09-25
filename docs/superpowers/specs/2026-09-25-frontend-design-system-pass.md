@@ -1,8 +1,16 @@
 # Frontend Design-System Pass — Shared Components, Visual Consistency, Mobile
 
 **Date:** 2026-09-25
-**Status:** DRAFT — spec only, not implemented
+**Status:** IMPLEMENTED — items 1-5 done; item 6 (splitting `App.jsx` into files) deferred per OQ2
 **Builds on:** the recipe-editing/batch-search work merged in PR #4 (`GET /batches`, `PATCH`/`DELETE /batches/{id}/ingredients/{row_id}`, `BatchPicker`, `RecipeRow`)
+
+## Implementation notes (2026-09-25)
+
+- `frontend/src/components/ui.jsx` added with `Input`/`Select`/`Button`, swapped into every form in `App.jsx`. Labels are `aria-label` on the native element rather than a wrapping `sr-only` `<span>` — same visually-hidden effect, zero layout risk (no wrapper element to affect flex sizing).
+- Ghost/link-style inline actions (`edit`, `remove`, `clear`, "Have a batch ID instead?") were deliberately left as raw `<button>`s per OQ1 — they don't share the bordered/solid styling `Input`/`Select`/`Button` standardize.
+- Found and fixed a regression during implementation: an initial attempt at the `BatchPicker` mobile fix added `flex-1 basis-32` to its two `<select>`s, which made them compete with the search input for space and clip their own option text *even at desktop width* (500px) — worse than the original. Reverted to natural (unstretched) select width, matching the sizing already used successfully elsewhere in the app (`Recipe`'s add-ingredient row); flex-wrap alone was sufficient to fix the 375px case cleanly. Lesson for anyone touching this again: verify a "mobile fix" at the desktop width too before treating it as done.
+- `Safety` urgency fix: prefixed each verdict with `<strong>{v.action}:</strong>` (uppercase via CSS) ahead of `reason_text_en`, e.g. "HARD_STOP: pH > 4.6 in anaerobic conditions...".
+- Verified: `npx vite build` clean; Playwright smoke test at 500px and 375px (edit ingredient quantity → persists, remove ingredient → list empties, batch search by culture name → finds results via the new `aria-label`s); full pytest suite (258 passed, unaffected — this was frontend-only).
 
 ## Problem and goals
 
