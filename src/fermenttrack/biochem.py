@@ -16,13 +16,14 @@ from typing import Any
 
 from fermenttrack.stages import STAGE_MACHINES
 
-# V1 and V2 are frozen (migrations 0008/0009/0010 load them by explicit path); the curated
-# dicts below describe V3, the default snapshot.
+# V1-V3 are frozen (migrations 0008-0010 and 0013 load them by explicit path); the curated
+# dicts below describe V4, the default snapshot.
 KEGG_BIOCHEM_V1 = Path(__file__).resolve().parent / "kegg_biochem_v1.json.gz"
 KEGG_BIOCHEM_V2 = Path(__file__).resolve().parent / "kegg_biochem_v2.json.gz"
 KEGG_BIOCHEM_V3 = Path(__file__).resolve().parent / "kegg_biochem_v3.json.gz"
+KEGG_BIOCHEM_V4 = Path(__file__).resolve().parent / "kegg_biochem_v4.json.gz"
 
-SCHEMA_VERSION = "kegg_biochem_v3"
+SCHEMA_VERSION = "kegg_biochem_v4"
 
 KNOWN_FERMENTATION_TYPES = set(STAGE_MACHINES) | {"kefir", "vinegar"}
 
@@ -89,6 +90,7 @@ ENZYME_ORGANISMS: dict[str, list[str]] = {
         "Lactococcus lactis",
         "Lactobacillus sanfranciscensis",
         "Tetragenococcus halophilus",
+        "Lactobacillus kefiranofaciens",  # v4 (KEGG lke: WANG_0270, _0755, _1884)
     ],
     "1.1.1.28": [  # D-lactate dehydrogenase (Leuconostoc: D only; the two lactobacilli: DL)
         "Lactobacillus plantarum",
@@ -105,10 +107,53 @@ ENZYME_ORGANISMS: dict[str, list[str]] = {
     "3.5.1.2": ["Aspergillus oryzae"],  # glutaminase
     # beta-galactosidase. Deliberately NOT on Lactococcus lactis: it uses
     # phospho-beta-galactosidase (EC 3.2.1.85), a different enzyme.
-    "3.2.1.23": ["Kluyveromyces marxianus"],
-    "1.1.5.5": ["Acetobacter aceti", "Acetobacter pasteurianus"],  # ADH (quinone)
-    "1.2.1.3": ["Acetobacter aceti"],  # aldehyde dehydrogenase (NAD+)
+    "3.2.1.23": [
+        "Kluyveromyces marxianus",
+        # v4: the kefir lactobacilli (KEGG lke: WANG_0292-0296; lkf: DNL43_02260/02265)
+        "Lactobacillus kefiranofaciens",
+        "Lactobacillus kefiri",
+    ],
+    # ADH (quinone); v4 adds the SCOBY's cellulose former (KEGG gxl: H845_603/604/1126)
+    "1.1.5.5": ["Acetobacter aceti", "Acetobacter pasteurianus", "Gluconacetobacter xylinus"],
+    # aldehyde dehydrogenase (NAD+); v4 adds K. xylinus (KEGG gxl: H845_1157)
+    "1.2.1.3": ["Acetobacter aceti", "Gluconacetobacter xylinus"],
     "1.2.5.2": ["Acetobacter aceti", "Acetobacter pasteurianus"],  # ALDH (quinone)
+    # v4 (2026-09-25): the pathway steps the fermentation forecast relies on. Every link
+    # is backed by a KEGG gene annotation in that organism's reference genome
+    # (/link/<org>/ec:<num>, checked 2026-09-25; genes listed in
+    # docs/superpowers/specs/2026-09-25-biochemistry-v4-curation.md). KEGG has more
+    # annotations than listed here; only the fermentation-relevant ones are curated.
+    "3.2.1.26": [  # beta-fructofuranosidase (invertase): sucrose -> glucose + fructose
+        "Saccharomyces cerevisiae",  # SUC2, YIL162W: kombucha/sourdough sucrose split
+        "Lactobacillus plantarum",
+        "Leuconostoc mesenteroides",
+        "Tetragenococcus halophilus",
+    ],
+    # phosphoketolase: the defining step of heterolactic fermentation. Only on obligately
+    # heterofermentative LAB; KEGG also annotates it in homofermenters (pentose use).
+    "4.1.2.9": [
+        "Leuconostoc mesenteroides",
+        "Lactobacillus sanfranciscensis",
+        "Lactobacillus kefiri",
+    ],
+    # glucose 1-dehydrogenase (PQQ): glucose -> gluconolactone -> gluconic acid (kombucha)
+    "1.1.5.2": ["Gluconacetobacter xylinus", "Acetobacter aceti", "Acetobacter pasteurianus"],
+    # maltose phosphorylase: sourdough LAB split maltose without ATP
+    "2.4.1.8": [
+        "Lactobacillus sanfranciscensis",
+        "Lactobacillus plantarum",
+        "Tetragenococcus halophilus",
+    ],
+    # 6-phospho-beta-galactosidase (lacG): lactose use via the PTS. Plasmid-borne in dairy
+    # strains (KEGG: absent from plasmid-free Il1403/MG1363, present in dairy SK11 and
+    # KLDS 4.0325), which are the ones in cheese and kefir.
+    "3.2.1.85": ["Lactococcus lactis"],
+    # cellulose synthase (UDP-forming): the SCOBY pellicle
+    "2.4.1.12": ["Gluconacetobacter xylinus"],
+    # oligo-1,6-glucosidase: KEGG files the yeast maltase MAL32 (YBR299W) here (orthology
+    # K01182), the maltose step of sourdough yeast. No reaction row: this EC's reference
+    # reaction is isomaltose hydrolysis, not the maltose split MAL32 performs.
+    "3.2.1.10": ["Saccharomyces cerevisiae"],
 }
 
 # Hand-curated: our search name -> category. KEGG compound id + canonical
@@ -128,6 +173,18 @@ COMPOUNDS: dict[str, str] = {
     "Lactose": "other",
     "D-Galactose": "other",
     "D-Lactic acid": "acid",
+    # v4
+    "Sucrose": "other",
+    "D-Fructose": "other",
+    "D-Xylulose 5-phosphate": "other",
+    "Acetyl phosphate": "other",
+    # searched by synonym: the comma in "D-Glucono-1,5-lactone" breaks KEGG /find
+    "Gluconolactone": "other",  # hydrolyses to gluconic acid; a lactone, not an acid
+    "beta-D-Glucose 1-phosphate": "other",
+    "Lactose 6'-phosphate": "other",
+    "D-Galactose 6-phosphate": "other",
+    "UDP-glucose": "other",
+    "Cellulose": "other",
 }
 
 # Hand-curated: EC number -> [(substrate compound name, product compound name)],
@@ -145,6 +202,13 @@ ENZYME_REACTIONS: dict[str, list[tuple[str, str]]] = {
     "3.5.1.2": [("L-Glutamine", "L-Glutamate")],
     "3.2.1.20": [("Maltose", "D-Glucose")],
     "3.2.1.23": [("Lactose", "D-Glucose"), ("Lactose", "D-Galactose")],
+    # v4
+    "3.2.1.26": [("Sucrose", "D-Glucose"), ("Sucrose", "D-Fructose")],
+    "4.1.2.9": [("D-Xylulose 5-phosphate", "Acetyl phosphate")],
+    "1.1.5.2": [("D-Glucose", "Gluconolactone")],
+    "2.4.1.8": [("Maltose", "D-Glucose"), ("Maltose", "beta-D-Glucose 1-phosphate")],
+    "3.2.1.85": [("Lactose 6'-phosphate", "D-Galactose 6-phosphate")],
+    "2.4.1.12": [("UDP-glucose", "Cellulose")],
 }
 
 
@@ -263,13 +327,13 @@ def build_snapshot(
     }
 
 
-def write_snapshot(data: dict[str, Any], path: Path = KEGG_BIOCHEM_V3) -> None:
+def write_snapshot(data: dict[str, Any], path: Path = KEGG_BIOCHEM_V4) -> None:
     payload = json.dumps(data, indent=2, sort_keys=True).encode("utf-8")
     with path.open("wb") as f, gzip.GzipFile(filename="", mode="wb", fileobj=f, mtime=0) as gz:
         gz.write(payload)
 
 
-def load_snapshot(path: Path = KEGG_BIOCHEM_V3) -> dict[str, Any]:
+def load_snapshot(path: Path = KEGG_BIOCHEM_V4) -> dict[str, Any]:
     with gzip.open(path, "rt", encoding="utf-8") as f:
         return json.load(f)
 

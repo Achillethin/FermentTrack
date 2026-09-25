@@ -201,12 +201,16 @@ def test_unknown_and_airless_organisms_are_reported() -> None:
 
 def test_pathways_report_kegg_backing() -> None:
     base = _inputs(organisms=["Lactobacillus plantarum"])
-    lp = OrganismIn("Lactobacillus plantarum", "bacteria", ("1.1.1.27",))
+    lp = OrganismIn("Lactobacillus plantarum", "bacteria", ("1.1.1.27", "2.4.1.8"))
     inputs = PredictionInputs(**{**base.__dict__, "organisms": (lp,)})
     body = predict(inputs)
-    (path,) = body["organisms"][0]["pathways"]
-    assert path["in_reference_graph"] is True
-    assert "1.1.1.27" in path["ec_numbers"]
+    paths = {p["label"]: p for p in body["organisms"][0]["pathways"]}
+    lactic = next(p for label, p in paths.items() if label.endswith("→ lactic acid"))
+    assert lactic["in_reference_graph"] is True and "1.1.1.27" in lactic["ec_numbers"]
+    # entry steps for the sugars it ferments: maltose backed, sucrose (invertase) not given
+    maltose = next(p for label, p in paths.items() if label.startswith("maltose"))
+    sucrose = next(p for label, p in paths.items() if label.startswith("sucrose"))
+    assert maltose["in_reference_graph"] is True and sucrose["in_reference_graph"] is False
 
 
 def test_exploratory_types_say_so() -> None:

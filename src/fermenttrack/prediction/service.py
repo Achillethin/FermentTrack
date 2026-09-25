@@ -93,12 +93,23 @@ MEASUREMENT_KEYS = {"ph": "ph", "gravity": "gravity", "brix": "brix", "sg": "gra
 class PredictionUnavailable(RuntimeError):
     """No forecast could be computed within budget for this batch."""
 
-# Marker enzymes per pathway, to check against the batch's KEGG reference graph.
+# Marker enzymes per pathway, to check against the batch's KEGG reference graph
+# (biochemistry v4 added invertase, phosphoketolase, PQQ glucose dehydrogenase, maltose
+# phosphorylase and 6-phospho-beta-galactosidase for exactly this).
 _LDH = ("1.1.1.27", "1.1.1.28")
+_PHOSPHOKETOLASE = ("4.1.2.9",)  # the defining step of heterolactic fermentation
 _ALCOHOLIC = ("4.1.1.1", "1.1.1.1")
 _AAB = ("1.1.5.5", "1.2.5.2", "1.2.1.3")
 _GLUCONATE = ("1.1.5.2",)
 _AMYLASES = ("3.2.1.1", "3.2.1.3", "3.2.1.20")
+# How a disaccharide enters metabolism: (label, enzymes, any of which backs it)
+_ENTRY_STEPS = {
+    "sucrose": ("sucrose → glucose + fructose (invertase)", ("3.2.1.26",)),
+    "maltose": ("maltose → glucose (maltose phosphorylase / maltase)",
+                ("2.4.1.8", "3.2.1.20", "3.2.1.10")),
+    "lactose": ("lactose → glucose + galactose (beta-galactosidase, or 6-phospho- via PTS)",
+                ("3.2.1.23", "3.2.1.85")),
+}  # fmt: skip
 
 
 # ── inputs ──────────────────────────────────────────────────────────────
@@ -649,6 +660,8 @@ def _channel_label(ch: Channel) -> str:
 
 
 def _channel_ecs(ch: Channel) -> tuple[str, ...]:
+    if "lactic_acid" in ch.products and "ethanol" in ch.products:
+        return _PHOSPHOKETOLASE
     if "lactic_acid" in ch.products:
         return _LDH
     if "acetic_acid" in ch.products and "ethanol" in ch.substrates:
@@ -676,11 +689,13 @@ def _organism_out(plan: _OrganismPlan, series_keys: set[str]) -> dict[str, Any]:
                     "in_reference_graph": bool(known & set(ecs)),
                 }
             )
+        entry = {s for ch in kin.channels for s in ch.substrates} & set(_ENTRY_STEPS)
         if kin.inverts_sucrose is not None:
-            pathways.append(
-                {"label": "sucrose → glucose + fructose (invertase)", "ec_numbers": ["3.2.1.26"],
-                 "in_reference_graph": "3.2.1.26" in known}  # fmt: skip
-            )
+            entry.add("sucrose")
+        for sugar in sorted(entry):
+            label, ecs = _ENTRY_STEPS[sugar]
+            backed = bool(known & set(ecs))
+            pathways.append({"label": label, "ec_numbers": list(ecs), "in_reference_graph": backed})
     key = None
     if kin is not None and plan.can_grow:
         key = "mycelium" if kin.is_mold else f"pop:{kin.name}"
