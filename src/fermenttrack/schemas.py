@@ -177,6 +177,14 @@ class BatchIngredientOut(BaseModel):
     role: str
 
 
+class BatchIngredientUpdate(BaseModel):
+    """Partial update: only fields present in the body change; an explicit null clears."""
+
+    quantity: float | None = None
+    unit: Unit | None = None
+    role: Role | None = None
+
+
 # ── Composition ─────────────────────────────────────────────────────────
 
 class NutrientTotalOut(BaseModel):
@@ -228,6 +236,22 @@ class BatchTimeline(BaseModel):
 class BatchCompare(BaseModel):
     batches: list[BatchOut]
     measurements: dict[str, list[MeasurementOut]]
+
+
+class BatchSummaryOut(BaseModel):
+    """One row of a batch list/search result: batch + its culture, flattened."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    culture_id: uuid.UUID
+    culture_name: str
+    culture_type: str
+    started_at: datetime
+    current_stage: str
+    target: str | None
+    outcome: str
+    ended_at: datetime | None
 
 
 # ── Safety ───────────────────────────────────────────────────────────────

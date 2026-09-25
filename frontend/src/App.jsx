@@ -3,6 +3,7 @@ import PredictionPanel from "./prediction/PredictionPanel.jsx";
 import TemperatureEstimate from "./prediction/TemperatureEstimate.jsx";
 import TemperatureField from "./prediction/TemperatureField.jsx";
 import { parseTemperature } from "./prediction/temperature.js";
+import { Button, Input, Select } from "./components/ui.jsx";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
@@ -71,13 +72,9 @@ function StageControl({ batchId, onAdvanced }) {
 
   return (
     <div className="mt-2">
-      <button
-        onClick={advance}
-        disabled={busy}
-        className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium hover:bg-slate-600 disabled:opacity-50"
-      >
+      <Button variant="secondary" size="sm" onClick={advance} disabled={busy}>
         {busy ? "Advancing…" : "Advance to next stage →"}
-      </button>
+      </Button>
       {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
     </div>
   );
@@ -181,20 +178,17 @@ function LogObservation({ batchId, onLogged }) {
     <Card title="Log an observation">
       <form className="space-y-2" onSubmit={submit}>
         <div className="flex gap-2">
-          <select
-            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-          >
+          <Select label="Observation type" value={type} onChange={(e) => setType(e.target.value)}>
             {OBSERVATION_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
             ))}
-          </select>
+          </Select>
           {type === "other" && (
-            <input
-              className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            <Input
+              label="Custom observation type name"
+              className="flex-1"
               placeholder="type name"
               value={customType}
               onChange={(e) => setCustomType(e.target.value)}
@@ -204,7 +198,8 @@ function LogObservation({ batchId, onLogged }) {
 
         {isNote ? (
           <textarea
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            aria-label="Observation note text"
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm placeholder:text-slate-500"
             placeholder="What did you observe?"
             rows={2}
             value={valueText}
@@ -214,22 +209,27 @@ function LogObservation({ batchId, onLogged }) {
           <>
             <div className="flex gap-2">
               {isNumeric && (
-                <input
-                  className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+                <Input
+                  label="Observation numeric value"
+                  size="sm"
+                  className="w-24"
                   placeholder="value"
                   value={valueNumeric}
                   onChange={(e) => setValueNumeric(e.target.value)}
                 />
               )}
-              <input
-                className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+              <Input
+                label="Observation description"
+                size="sm"
+                className="flex-1"
                 placeholder="description (e.g. tangy, cloudy)"
                 value={valueText}
                 onChange={(e) => setValueText(e.target.value)}
               />
             </div>
-            <input
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            <Input
+              label="Additional notes"
+              className="w-full"
               placeholder="Notes (optional)"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -238,15 +238,146 @@ function LogObservation({ batchId, onLogged }) {
         )}
 
         {error && <p className="text-sm text-red-400">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
-        >
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
           {busy ? "Logging…" : "Log observation"}
-        </button>
+        </Button>
       </form>
     </Card>
+  );
+}
+
+const ROLES = ["base", "flavoring", "additive", "starter"];
+
+function RecipeRow({ batchId, item, ingredientName, onChanged }) {
+  const [editing, setEditing] = useState(false);
+  const [quantity, setQuantity] = useState(item.quantity ?? "");
+  const [unit, setUnit] = useState(item.unit ?? "");
+  const [role, setRole] = useState(item.role);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/ingredients/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quantity: quantity === "" ? null : parseFloat(quantity),
+          unit: unit || null,
+          role,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Could not update ingredient (${res.status})`);
+      }
+      setEditing(false);
+      onChanged();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Remove ${ingredientName} from this recipe?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/ingredients/${item.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 204) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Could not remove ingredient (${res.status})`);
+      }
+      onChanged();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <li className="py-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-200">{ingredientName}</span>
+          <Input
+            label="Edit ingredient quantity"
+            size="xs"
+            className="w-20"
+            placeholder="qty"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+          />
+          <Select
+            label="Edit ingredient unit"
+            size="xs"
+            className="w-20"
+            value={unit}
+            onChange={(e) => setUnit(e.target.value)}
+          >
+            <option value="">unit</option>
+            {["g", "kg", "mg", "ml", "L"].map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Edit ingredient role"
+            size="xs"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </Select>
+          <Button size="xs" disabled={busy} onClick={save}>
+            {busy ? "Saving…" : "Save"}
+          </Button>
+          <Button variant="secondary" size="xs" disabled={busy} onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
+        </div>
+        {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-2 py-2 text-sm">
+      <span className="text-slate-200">
+        {ingredientName} {item.quantity ?? ""} {item.unit ?? ""}
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="text-slate-500">{item.role}</span>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="text-xs text-slate-400 hover:text-slate-200"
+        >
+          edit
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={remove}
+          className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+        >
+          remove
+        </button>
+      </span>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </li>
   );
 }
 
@@ -327,13 +458,15 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
       ) : (
         <ul className="mb-3 divide-y divide-slate-800">
           {recipe.map((item) => (
-            <li key={item.id} className="flex justify-between py-2 text-sm">
-              <span className="text-slate-200">
-                {options.find((o) => o.id === item.ingredient_id)?.name ?? item.ingredient_id}{" "}
-                {item.quantity ?? ""} {item.unit ?? ""}
-              </span>
-              <span className="text-slate-500">{item.role}</span>
-            </li>
+            <RecipeRow
+              key={item.id}
+              batchId={batchId}
+              item={item}
+              ingredientName={
+                options.find((o) => o.id === item.ingredient_id)?.name ?? item.ingredient_id
+              }
+              onChanged={onAdded}
+            />
           ))}
         </ul>
       )}
@@ -342,18 +475,19 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
           {food ? (
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="text-slate-200">USDA: {food.description}</span>
-              <select
-                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+              <Select
+                label="Ingredient role"
+                size="xs"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
               >
                 <option value="">default</option>
-                {["base", "flavoring", "additive", "starter"].map((r) => (
+                {ROLES.map((r) => (
                   <option key={r} value={r}>
                     {r}
                   </option>
                 ))}
-              </select>
+              </Select>
               <button
                 type="button"
                 className="text-xs text-slate-400 hover:text-slate-200"
@@ -364,8 +498,9 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
             </div>
           ) : (
             <>
-              <input
-                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+              <Input
+                label="Search USDA foods"
+                className="w-full"
                 placeholder="Search all USDA foods…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -394,8 +529,9 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
             </>
           )}
         </div>
-        <select
-          className="min-w-[9rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+        <Select
+          label="Add ingredient"
+          className="min-w-[9rem] flex-1"
           value={ingredientId}
           onChange={(e) => {
             const id = e.target.value;
@@ -414,15 +550,19 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
               {o.name}
             </option>
           ))}
-        </select>
-        <input
-          className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+        </Select>
+        <Input
+          label="Ingredient quantity"
+          size="sm"
+          className="w-20"
           placeholder="qty"
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
         />
-        <select
-          className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm"
+        <Select
+          label="Ingredient unit"
+          size="sm"
+          className="w-20"
           value={unit}
           onChange={(e) => setUnit(e.target.value)}
         >
@@ -432,14 +572,10 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
               {u}
             </option>
           ))}
-        </select>
-        <button
-          type="submit"
-          disabled={busy || (!ingredientId && !food)}
-          className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
-        >
+        </Select>
+        <Button type="submit" disabled={busy || (!ingredientId && !food)}>
           Add
-        </button>
+        </Button>
       </form>
       {saltSuggestion && (
         <p className="mt-2 text-xs text-slate-500">
@@ -1019,7 +1155,9 @@ function Safety({ safety }) {
         <ul className="space-y-2">
           {verdicts.map((v) => (
             <li key={v.rule_id} className={`rounded-lg border p-2 text-sm ${urgencyColor(v.action)}`}>
-              <p>{v.reason_text_en}</p>
+              <p>
+                <strong className="uppercase">{v.action}:</strong> {v.reason_text_en}
+              </p>
               <p className="mt-1 text-xs opacity-70">{v.source_citation}</p>
             </li>
           ))}
@@ -1088,9 +1226,12 @@ function NewBatch({ onCreated }) {
     <Card title="Start a new batch">
       <form className="space-y-3" onSubmit={submit}>
         <div>
-          <label className="mb-1 block text-xs text-slate-400">Existing culture</label>
-          <select
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+          <label htmlFor="culture-select" className="mb-1 block text-xs text-slate-400">
+            Existing culture
+          </label>
+          <Select
+            id="culture-select"
+            className="w-full"
             value={cultureId}
             onChange={(e) => setCultureId(e.target.value)}
           >
@@ -1100,18 +1241,19 @@ function NewBatch({ onCreated }) {
                 {c.name} ({c.type})
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         {!cultureId && (
           <div className="flex gap-2">
-            <input
-              className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            <Input
+              label="New culture name"
+              className="flex-1"
               placeholder="New culture name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
             />
-            <select
-              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            <Select
+              label="New culture substrate type"
               value={newType}
               onChange={(e) => setNewType(e.target.value)}
             >
@@ -1120,25 +1262,148 @@ function NewBatch({ onCreated }) {
                   {s}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         )}
-        <input
-          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+        <Input
+          label="Batch target (optional)"
+          className="w-full"
           placeholder="Target (optional)"
           value={target}
           onChange={(e) => setTarget(e.target.value)}
         />
         <TemperatureField type={selectedType} value={expectedTemp} onChange={setExpectedTemp} />
         {error && <p className="text-sm text-red-400">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
-        >
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
           {busy ? "Starting…" : "Start batch"}
-        </button>
+        </Button>
       </form>
+    </Card>
+  );
+}
+
+function timeAgo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = ms / 86_400_000;
+  if (days < 1) return "today";
+  if (days < 2) return "yesterday";
+  if (days < 30) return `${Math.floor(days)} days ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function BatchPicker({ onPick }) {
+  const [query, setQuery] = useState("");
+  const [type, setType] = useState("");
+  const [outcome, setOutcome] = useState("in_progress");
+  const [batches, setBatches] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showIdField, setShowIdField] = useState(false);
+  const [manualId, setManualId] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      if (type) params.set("type", type);
+      if (outcome) params.set("outcome", outcome);
+      fetch(`${API_URL}/batches?${params}`)
+        .then((r) => {
+          if (!r.ok) throw new Error(`Could not load batches (${r.status})`);
+          return r.json();
+        })
+        .then(setBatches)
+        .catch((e) => setError(e.message))
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query, type, outcome]);
+
+  return (
+    <Card title="Find a batch">
+      <div className="flex flex-wrap gap-2">
+        <Input
+          label="Search batches by culture name"
+          className="min-w-[10rem] flex-1"
+          placeholder="Search by culture name…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <Select label="Filter by substrate" value={type} onChange={(e) => setType(e.target.value)}>
+          <option value="">all substrates</option>
+          {SUBSTRATES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+        <Select
+          label="Filter by outcome"
+          value={outcome}
+          onChange={(e) => setOutcome(e.target.value)}
+        >
+          <option value="">any outcome</option>
+          <option value="in_progress">in progress</option>
+          <option value="completed">completed</option>
+          <option value="failed">failed</option>
+        </Select>
+      </div>
+
+      {loading && <p className="mt-2 text-xs text-slate-500">Searching…</p>}
+      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+
+      {!loading && batches.length === 0 && !error && (
+        <p className="mt-2 text-sm text-slate-500">No batches match.</p>
+      )}
+
+      {batches.length > 0 && (
+        <ul className="mt-2 max-h-72 divide-y divide-slate-800 overflow-y-auto rounded-lg border border-slate-800">
+          {batches.map((b) => (
+            <li key={b.id}>
+              <button
+                type="button"
+                onClick={() => onPick(b.id)}
+                className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-3 py-2 text-left text-sm hover:bg-slate-800"
+              >
+                <span className="text-slate-200">{b.culture_name}</span>
+                <span className="text-slate-500">{b.culture_type}</span>
+                <span className="text-slate-500">{b.current_stage}</span>
+                <span className="text-xs text-slate-600">{timeAgo(b.started_at)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setShowIdField((v) => !v)}
+        className="mt-3 text-xs text-slate-500 hover:text-slate-300"
+      >
+        {showIdField ? "Hide" : "Have a batch ID instead?"}
+      </button>
+      {showIdField && (
+        <form
+          className="mt-2 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (manualId.trim()) onPick(manualId.trim());
+          }}
+        >
+          <Input
+            label="Batch ID"
+            className="flex-1"
+            placeholder="Batch ID"
+            value={manualId}
+            onChange={(e) => setManualId(e.target.value)}
+          />
+          <Button type="submit" variant="secondary" size="lg">
+            Load
+          </Button>
+        </form>
+      )}
     </Card>
   );
 }
@@ -1189,27 +1454,14 @@ export default function App() {
         }}
       />
 
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          loadPreview(batchId);
+      <BatchPicker
+        onPick={(id) => {
+          setBatchId(id);
+          loadPreview(id);
         }}
-      >
-        <input
-          className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
-          placeholder="Batch ID"
-          value={batchId}
-          onChange={(e) => setBatchId(e.target.value)}
-        />
-        <button
-          type="submit"
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500"
-        >
-          {loading ? "Loading…" : "Load"}
-        </button>
-      </form>
+      />
 
+      {loading && <p className="text-sm text-slate-500">Loading batch…</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {preview && (
