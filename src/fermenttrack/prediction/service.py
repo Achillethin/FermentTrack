@@ -73,6 +73,7 @@ LABELS: dict[str, str] = {
     "maltose": "Maltose",
     "starch": "Starch",
     "protein": "Protein",
+    "soluble_protein": "Soluble protein (peptides + free amino acids)",
     "amino_acids": "Amino acids (free)",
     "ethanol": "Ethanol",
     "lactic_acid": "Lactic acid",
@@ -82,10 +83,18 @@ LABELS: dict[str, str] = {
     "gravity": "Specific gravity",
     "brix": "Brix (refractometer)",
     "mycelium": "Mycelium growth",
-    "koji_enzyme": "Koji enzyme activity",
+    "amylase": "Amylase activity",
+    "protease": "Protease activity",
+    "peptidase": "Peptidase activity",
+    "fish_enzyme": "Fish enzyme activity",
 }
 SUBSTRATES = ("sugars_total", "sucrose", "hexoses", "lactose", "maltose", "starch", "protein")
-PRODUCTS = ("lactic_acid", "acetic_acid", "gluconic_acid", "ethanol", "co2", "amino_acids")
+PRODUCTS = (
+    "lactic_acid", "acetic_acid", "gluconic_acid", "ethanol", "co2", "soluble_protein",
+    "amino_acids",
+)  # fmt: skip
+# Enzyme activity series, % of a fully grown koji (fish: of fresh whole fish).
+ENZYMES = ("amylase", "protease", "peptidase", "fish_enzyme")
 SUGAR_KEYS = ("sucrose", "hexoses", "lactose", "maltose")
 MEASUREMENT_KEYS = {"ph": "ph", "gravity": "gravity", "brix": "brix", "sg": "gravity"}
 
@@ -243,7 +252,7 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
             "Log cooked weights for a closer forecast."
         )
     fermentable = sum(pools.get(k, 0.0) for k in (*SUGAR_KEYS, "starch", "ethanol"))
-    if profile.fish_protease is not None or profile.koji_enzyme0 is not None:
+    if profile.fish_enzyme0 is not None or profile.koji_enzyme0 is not None:
         fermentable += pools.get("protein", 0.0)  # proteolysis ferments (garum: fish + salt)
     if total <= 0 or fermentable <= 0:
         rec = dict(profile.typical_recipe)
@@ -566,7 +575,11 @@ def _series_values(
     if spec.profile.show_ph:
         out["ph"] = tr.ph
     for k in ("sucrose", "hexoses", "lactose", "maltose", "starch", "protein", *PRODUCTS):
-        out[k] = tr.pools[:, :, PI[k]]
+        if k in PI:
+            out[k] = tr.pools[:, :, PI[k]]
+    out["soluble_protein"] = np.asarray(
+        tr.pools[:, :, PI["peptides"]] + tr.pools[:, :, PI["amino_acids"]]
+    )
     out["sugars_total"] = np.asarray(sum(tr.pools[:, :, PI[k]] for k in SUGAR_KEYS))
     if want_density:
         out["gravity"], out["brix"] = density_series(tr.pools, solids_offset(z))
@@ -582,14 +595,19 @@ def _series_values(
             out[f"pop:{o.name}"] = np.asarray(
                 np.maximum(np.log10(np.maximum(x, 1e-30) / o.cell_mass_g / 1000.0), 0.0)
             )
-    if any(o.makes_enzymes for o in spec.organisms):
-        out["koji_enzyme"] = np.asarray(100.0 * tr.pools[:, :, PI["koji_enzyme"]])
+    for c in spec.enzyme_classes:
+        act = tr.pools[:, :, PI[c.key]]
+        if c.key == "protease":
+            act = act + tr.pools[:, :, PI["protease_ts"]]
+        out[c.key] = np.asarray(100.0 * act)
     return out
 
 
 def _relevant(key: str, q: FloatArray) -> bool:
-    if key in ("ph", "gravity", "brix", "mycelium", "koji_enzyme") or key.startswith("pop:"):
+    if key in ("ph", "gravity", "brix", "mycelium") or key.startswith("pop:"):
         return True
+    if key in ENZYMES:  # koji added to a ferment with no koji enzymes stays at zero
+        return float(np.max(q[2])) >= 0.5
     if key in SUBSTRATES:
         return float(np.max(q[2])) >= 0.3
     # products: present, and changing (rising acids, or ethanol consumed in vinegar)
@@ -723,7 +741,7 @@ def _group(key: str) -> tuple[str, str]:
         return "density", "SG"
     if key == "brix":
         return "density", "°Bx"
-    if key in ("mycelium", "koji_enzyme"):
+    if key == "mycelium" or key in ENZYMES:
         return "growth", "%"
     return "population", "log CFU/g"
 
@@ -894,7 +912,7 @@ def _forecast(
                 "p95": _round(q[2], key),
             }
         )
-    order = [*SUBSTRATES, *PRODUCTS]
+    order = [*SUBSTRATES, *PRODUCTS, "mycelium", *ENZYMES]
     series.sort(
         key=lambda s: (
             ["ph", "density", "substrates", "products", "growth", "population"].index(s["group"]),
@@ -904,7 +922,7 @@ def _forecast(
     # one sugar pool is just "sugars (total)" twice; protein is flat without proteolysis
     keys = {s["key"] for s in series}
     drop = set(SUGAR_KEYS) if len(keys & set(SUGAR_KEYS)) <= 1 else set()
-    if "amino_acids" not in keys:
+    if not keys & {"amino_acids", "soluble_protein"}:
         drop.add("protein")
     series = [s for s in series if s["key"] not in drop]
     series_keys = {s["key"] for s in series}

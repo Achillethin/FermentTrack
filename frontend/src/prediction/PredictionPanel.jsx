@@ -15,8 +15,8 @@ const CANON = {
   ph: ["ph"],
   density: ["gravity", "brix"],
   substrates: ["sugars_total", "sucrose", "hexoses", "glucose", "fructose", "lactose", "maltose", "starch", "protein"],
-  products: ["lactic_acid", "acetic_acid", "ethanol", "gluconic_acid", "co2", "amino_acids"],
-  growth: ["mycelium", "koji_enzyme"],
+  products: ["lactic_acid", "acetic_acid", "ethanol", "gluconic_acid", "co2", "soluble_protein", "amino_acids"],
+  growth: ["mycelium", "amylase", "protease", "peptidase", "fish_enzyme"],
 };
 
 const GROUP_ORDER = ["ph", "density", "growth", "substrates", "products", "population"];
@@ -46,7 +46,11 @@ function chartMeta(group, unit) {
     case "population":
       return { title: "Microbes", subtitle: "CFU/g, log scale", tab: "Microbes", logScale: true };
     case "growth":
-      return { title: "Growth", subtitle: "% of a fully grown koji", tab: "Growth" };
+      return {
+        title: "Koji & enzymes",
+        subtitle: "% of a fully grown koji (fish enzymes: of fresh whole fish)",
+        tab: "Enzymes",
+      };
     default:
       return { title: group, subtitle: unit, tab: group };
   }

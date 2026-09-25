@@ -14,8 +14,11 @@ the Baranyi-Roberts lag variable ln(q). Rates:
     dlnq/dt = mu_max_j * g_T * stress                  (Baranyi & Roberts 1994)
 
 v_j (substrate flux, Luedeking-Piret-style growth + non-growth terms) is split across the
-organism's channels and converted to products at fixed mass yields. Koji mold also grows
-an enzyme pool that hydrolyses starch and protein; flour and fish bring their own enzymes.
+organism's channels and converted to products at fixed mass yields. Koji mold also makes
+amylase, protease and peptidase activity (more protease when grown cool, more amylase
+warm); fish and flour bring their own enzymes. Each enzyme class has its own Arrhenius
+catalysis, heat/slow inactivation and salt response (prediction/enzymes.py), and protein
+breaks down in two steps: protein -> soluble peptides -> free amino acids.
 
 pH is not a state: it is solved from the charge balance of the organic acids against the
 matrix buffer (a ladder of weak-acid groups sized to the matrix buffer capacity).
@@ -30,6 +33,14 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.integrate import solve_ivp  # type: ignore[import-untyped]
 
+from fermenttrack.prediction.enzymes import (
+    AMYLASE_PRODUCTION_T,
+    GLUCOSE_SHARE,
+    PROTEASE_PRODUCTION_T,
+    R_GAS,
+    SOLUBLE_CEILING,
+    T_REF_K,
+)
 from fermenttrack.prediction.organisms import OrganismKinetics
 from fermenttrack.prediction.priors import FloatArray
 
@@ -46,7 +57,13 @@ POOLS: tuple[str, ...] = (
     "acetic_acid",
     "gluconic_acid",
     "co2",
-    "koji_enzyme",  # relative activity: 1 = a fully grown koji
+    "peptides",  # soluble, not yet free amino acids
+    # enzyme activities: 1 = a fully grown koji (fish_enzyme: 1 = fresh whole fish)
+    "amylase",
+    "protease",
+    "protease_ts",  # thermostable share of the koji protease (does not heat-denature)
+    "peptidase",
+    "fish_enzyme",
 )
 PI = {k: i for i, k in enumerate(POOLS)}
 N_POOLS = len(POOLS)
@@ -82,17 +99,8 @@ _BUFFER_KA = 10.0**-BUFFER_PKA
 _A5 = _BUFFER_KA / (_BUFFER_KA + 1e-5)
 BUFFER_BETA_PER_MOL = float(2.303 * np.sum(_A5 * (1 - _A5)))
 
-# Enzyme (amylase/protease) temperature response relative to 50 °C: rice-koji
-# saccharification over 8 h was 66 % / 100 % / 92 % / 77 % of best at 40/50/60/70 °C
-# (Oguro et al. 2019); below 40 °C extrapolated with Q10 ~1.9 (est.).
-ENZ_T = np.array([-5.0, 0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0])
-ENZ_REL = np.array([0.0, 0.05, 0.09, 0.18, 0.35, 0.66, 1.0, 0.92, 0.77, 0.3])
-ENZ_Q10_INACTIVATION = 1.5
 INVERTASE_KM = 10.0  # g/kg sucrose (25-30 mM)
-KOJI_GLUCOSE_SHARE = 0.8  # koji amylolysis ends mostly as glucose (glucoamylase-rich)
-# Share of protein enzymes can hydrolyse; nitrogen solubilisation approaches 70-90 % over
-# months in miso/soy sauce (est.).
-HYDROLYSABLE_PROTEIN = 0.8
+FLOUR_AMYLASE_EA = 45.0e3  # J/mol, cereal amylases (as koji amylase; est.)
 # Acid production outlasts growth: cells keep fermenting a little below the pH / acid
 # levels that stop division (L. sanfranciscensis: growth stops at pH 4.0, acid production
 # at ~3.8, Brandt et al. 2004; Luedeking-Piret beta term, Passos et al. 1994).
@@ -214,6 +222,29 @@ def solve_h(
     return np.asarray(np.exp(x))
 
 
+def arrhenius(temp_c: FloatArray, ea_j: FloatArray | float) -> FloatArray:
+    """Catalysis rate relative to 50 °C."""
+    return np.asarray(np.exp(-ea_j / R_GAS * (1.0 / (temp_c + 273.15) - 1.0 / T_REF_K)))
+
+
+@dataclass
+class EnzymeParams:
+    """Per-member (N,) parameters of one enzyme class (see prediction/enzymes.py)."""
+
+    k: FloatArray  # 1/h per unit activity at 50 °C, salt and access already applied
+    ea: FloatArray  # J/mol, catalysis
+    kd_ref: FloatArray  # 1/h heat denaturation at t_ref_k
+    t_ref_k: float
+    ed: FloatArray  # J/mol, denaturation
+    floor: FloatArray  # 1/h slow loss at 25 °C (Q10 2)
+
+    def inactivation(self, temp_c: FloatArray) -> FloatArray:
+        tk = temp_c + 273.15
+        arg = np.minimum(self.ed / R_GAS * (1.0 / self.t_ref_k - 1.0 / tk), 30.0)
+        heat = self.kd_ref * np.exp(arg)
+        return np.asarray(heat + self.floor * 2.0 ** ((temp_c - 25.0) / 10.0))
+
+
 @dataclass
 class OrganismParams:
     """Per-member (N,) parameter arrays for one organism."""
@@ -254,14 +285,13 @@ class EnsembleParams:
     aw: FloatArray  # (N,)
     oxygen: FloatArray  # (N,) aerobic capacity for obligate aerobes (0 = closed ferment)
     temperature: Callable[[float], FloatArray]  # t_h -> (N,) °C
-    # Hydrolysis is first order in substrate: rate = k * enzyme * f(T) * salt * access * S.
-    k_koji_amylase: FloatArray  # 1/h per unit koji enzyme at 50 °C
-    k_koji_protease: FloatArray
-    k_flour_amylase: FloatArray  # 1/h, cereal enzymes (no koji needed)
-    k_fish_protease: FloatArray  # 1/h, fish digestive enzymes
-    k_enzyme_decay25: FloatArray  # 1/h koji enzyme inactivation at 25 °C
-    enzyme_salt: FloatArray  # activity multiplier from salt
-    enzyme_access: float  # <1 in solid-state koji: enzymes barely reach the starch
+    # Hydrolysis is first order in substrate: rate = k * E * A(T) * salt * access * S, per
+    # enzyme class present (keys: "amylase", "protease", "peptidase", "fish_enzyme").
+    enzymes: dict[str, EnzymeParams]
+    protease_ts_share: FloatArray  # of koji protease made/present, the thermostable part
+    protease_late: FloatArray  # 1/h protease made per unit grown mycelium after growth
+    fish_peptidase_k: FloatArray  # 1/h per unit fish enzyme at 50 °C (salt, access applied)
+    k_flour_amylase: FloatArray  # 1/h at 50 °C, cereal enzymes (no koji needed)
 
 
 @dataclass
@@ -293,7 +323,10 @@ def make_rhs(
     size = _state_size(m)
     h_cache = [10.0 ** -np.full(n, 6.0)]
     ln_x_cap = [np.log(o.x_max_g) + 0.5 for o in p.organisms]
-    protein_floor = (1.0 - HYDROLYSABLE_PROTEIN) * p.pools0[:, PI["protein"]]
+    protein_floor = (1.0 - SOLUBLE_CEILING) * p.pools0[:, PI["protein"]]
+    enz = p.enzymes
+    amy_t = [np.full(n, v) for v in AMYLASE_PRODUCTION_T]
+    pro_t = [np.full(n, v) for v in PROTEASE_PRODUCTION_T]
 
     def rhs(t: float, y_flat: FloatArray) -> FloatArray:
         evals[0] += 1
@@ -377,26 +410,52 @@ def make_rhs(
                 dp[:, PI["sucrose"]] -= inv
                 dp[:, PI["hexoses"]] += inv * DISACCHARIDE_TO_HEXOSE
 
-            if o.kin.makes_enzymes and o.can_grow:
-                dp[:, PI["koji_enzyme"]] += growth / o.x_max_g
+            if o.kin.makes_enzymes and o.can_grow and "amylase" in enz:
+                # Luedeking-Piret enzyme production, shifted by bed temperature: amylase
+                # favoured warm, protease/peptidase cool (enzymes.py)
+                grown = growth / o.x_max_g
+                g_pro = ctmi(temp, *pro_t)
+                pro = (grown + p.protease_late * x / o.x_max_g) * g_pro
+                dp[:, PI["amylase"]] += grown * ctmi(temp, *amy_t)
+                dp[:, PI["protease"]] += pro * (1.0 - p.protease_ts_share)
+                dp[:, PI["protease_ts"]] += pro * p.protease_ts_share
+                dp[:, PI["peptidase"]] += grown * g_pro
 
-        # enzymatic hydrolysis (koji enzymes, flour amylases, fish proteases)
-        g_enz = np.interp(temp, ENZ_T, ENZ_REL) * p.enzyme_salt * p.enzyme_access
-        enz = pools[:, PI["koji_enzyme"]]
+        # enzymatic hydrolysis: starch -> sugars; protein -> peptides -> free amino acids
         starch = pools[:, PI["starch"]]
+        peptides = pools[:, PI["peptides"]]
         hydrolysable = np.maximum(pools[:, PI["protein"]] - protein_floor, 0.0)
-        r_koji_st = p.k_koji_amylase * enz * g_enz * starch
-        r_flour_st = p.k_flour_amylase * g_enz * starch
-        r_pro = (p.k_koji_protease * enz + p.k_fish_protease) * g_enz * hydrolysable
+        r_flour_st = p.k_flour_amylase * arrhenius(temp, FLOUR_AMYLASE_EA) * starch
+        r_koji_st = np.zeros(n)
+        r_pro = np.zeros(n)
+        r_pep = np.zeros(n)
+        if "amylase" in enz:
+            e, a = enz["amylase"], pools[:, PI["amylase"]]
+            r_koji_st = e.k * a * arrhenius(temp, e.ea) * starch
+            dp[:, PI["amylase"]] -= e.inactivation(temp) * a
+        if "protease" in enz:
+            e, a, a_ts = enz["protease"], pools[:, PI["protease"]], pools[:, PI["protease_ts"]]
+            r_pro += e.k * (a + a_ts) * arrhenius(temp, e.ea) * hydrolysable
+            dp[:, PI["protease"]] -= e.inactivation(temp) * a
+            dp[:, PI["protease_ts"]] -= e.floor * 2.0 ** ((temp - 25.0) / 10.0) * a_ts
+        if "peptidase" in enz:
+            e, a = enz["peptidase"], pools[:, PI["peptidase"]]
+            r_pep += e.k * a * arrhenius(temp, e.ea) * peptides
+            dp[:, PI["peptidase"]] -= e.inactivation(temp) * a
+        if "fish_enzyme" in enz:
+            e, a = enz["fish_enzyme"], pools[:, PI["fish_enzyme"]]
+            act = a * arrhenius(temp, e.ea)
+            r_pro += e.k * act * hydrolysable
+            r_pep += p.fish_peptidase_k * act * peptides
+            dp[:, PI["fish_enzyme"]] -= e.inactivation(temp) * a
         dp[:, PI["starch"]] -= r_koji_st + r_flour_st
-        dp[:, PI["hexoses"]] += r_koji_st * KOJI_GLUCOSE_SHARE * STARCH_TO_GLUCOSE
+        dp[:, PI["hexoses"]] += r_koji_st * GLUCOSE_SHARE * STARCH_TO_GLUCOSE
         dp[:, PI["maltose"]] += (
-            r_koji_st * (1 - KOJI_GLUCOSE_SHARE) + r_flour_st
+            r_koji_st * (1 - GLUCOSE_SHARE) + r_flour_st
         ) * STARCH_TO_MALTOSE
         dp[:, PI["protein"]] -= r_pro
-        dp[:, PI["amino_acids"]] += r_pro
-        decay = p.k_enzyme_decay25 * ENZ_Q10_INACTIVATION ** ((temp - 25.0) / 10.0)
-        dp[:, PI["koji_enzyme"]] -= decay * enz
+        dp[:, PI["peptides"]] += r_pro - r_pep
+        dp[:, PI["amino_acids"]] += r_pep
 
         # never drain a pool below zero (fluxes use clipped pools, but solver stages can
         # overshoot slightly on the way to exhaustion)
