@@ -53,6 +53,10 @@ class Batch(Base):
         TIMESTAMP(timezone=True), default=_now
     )
     target: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The user's estimate of the temperature the batch ferments at (°C), set up front.
+    # An input to the prediction model, not a measurement: logged temperature readings
+    # stay Measurement rows and are never overwritten by this.
+    expected_temperature_c: Mapped[float | None] = mapped_column(Float, nullable=True)
     outcome: Mapped[str] = mapped_column(Text, nullable=False, default="in_progress")
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 

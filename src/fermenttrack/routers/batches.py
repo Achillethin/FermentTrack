@@ -41,6 +41,7 @@ from fermenttrack.schemas import (
     BatchOut,
     BatchPreview,
     BatchTimeline,
+    BatchUpdate,
     BiochemEnzymeOut,
     BiochemOrganismOut,
     CompoundOut,
@@ -96,6 +97,7 @@ async def create_batch(payload: BatchCreate, db: AsyncSession = Depends(get_db))
         current_stage=initial_stage,
         stage_entered_at=started_at,
         target=payload.target,
+        expected_temperature_c=payload.expected_temperature_c,
     )
     db.add(batch)
     await db.flush()
@@ -104,6 +106,20 @@ async def create_batch(payload: BatchCreate, db: AsyncSession = Depends(get_db))
     if reminder is not None:
         db.add(reminder)
 
+    await db.commit()
+    await db.refresh(batch)
+    return batch
+
+
+@router.patch("/{batch_id}", response_model=BatchOut)
+async def update_batch(
+    batch_id: uuid.UUID,
+    payload: BatchUpdate,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> Batch:
+    batch = await _get_batch(batch_id, db)
+    for field in payload.model_fields_set:
+        setattr(batch, field, getattr(payload, field))
     await db.commit()
     await db.refresh(batch)
     return batch
