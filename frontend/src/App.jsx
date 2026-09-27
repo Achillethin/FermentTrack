@@ -23,14 +23,14 @@ const SUBSTRATES = [
   "vinegar",
 ];
 
-function urgencyColor(urgency) {
+// v.action from the safety API is "hard_stop" or "warning" (risk_rules.yaml), not a
+// critical/high/medium/low scale — key on the values that actually appear.
+function urgencyColor(action) {
   return (
     {
-      critical: "text-red-400 border-red-500/40 bg-red-950/40",
-      high: "text-orange-400 border-orange-500/40 bg-orange-950/40",
-      medium: "text-amber-400 border-amber-500/40 bg-amber-950/40",
-      low: "text-slate-400 border-slate-600/40 bg-slate-800/40",
-    }[urgency] || "text-slate-400 border-slate-600/40 bg-slate-800/40"
+      hard_stop: "text-red-400 border-red-500/40 bg-red-950/40",
+      warning: "text-amber-400 border-amber-500/40 bg-amber-950/40",
+    }[action] || "text-slate-400 border-slate-600/40 bg-slate-800/40"
   );
 }
 
