@@ -8,6 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from fermenttrack.auth import get_current_user_id
 from fermenttrack.composition import RecipeItem, compose, suggest_salt
 from fermenttrack.database import get_db
 from fermenttrack.models import (
@@ -67,11 +68,19 @@ async def _get_batch(
     batch_id: uuid.UUID,
     db: AsyncSession,
     *,
+    user_id: str,
     with_measurements: bool = False,
     with_culture: bool = False,
     with_batch_ingredients: bool = False,
 ) -> Batch:
-    stmt = select(Batch).where(Batch.id == batch_id)
+    # Owner check by joining Culture rather than trusting a loaded relationship,
+    # so it holds regardless of with_culture (the join is filter-only; loader
+    # options below are unaffected).
+    stmt = (
+        select(Batch)
+        .join(Culture, Batch.culture_id == Culture.id)
+        .where(Batch.id == batch_id, Culture.owner_id == user_id)
+    )
     if with_measurements:
         stmt = stmt.options(selectinload(Batch.measurements))
     if with_culture:
@@ -86,9 +95,13 @@ async def _get_batch(
 
 
 @router.post("", response_model=BatchOut, status_code=201)
-async def create_batch(payload: BatchCreate, db: AsyncSession = Depends(get_db)) -> Batch:
+async def create_batch(
+    payload: BatchCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> Batch:
     culture = await db.get(Culture, payload.culture_id)
-    if culture is None:
+    if culture is None or culture.owner_id != user_id:
         raise HTTPException(status_code=404, detail="Culture not found")
 
     started_at = now_utc()
@@ -121,10 +134,12 @@ async def list_batches(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> list[BatchSummaryOut]:
     stmt = (
         select(Batch, Culture)
         .join(Culture, Batch.culture_id == Culture.id)
+        .where(Culture.owner_id == user_id)
         .order_by(Batch.started_at.desc())
         .limit(limit)
         .offset(offset)
@@ -158,8 +173,9 @@ async def update_batch(
     batch_id: uuid.UUID,
     payload: BatchUpdate,
     db: AsyncSession = Depends(get_db),  # noqa: B008
+    user_id: str = Depends(get_current_user_id),
 ) -> Batch:
-    batch = await _get_batch(batch_id, db)
+    batch = await _get_batch(batch_id, db, user_id=user_id)
     for field in payload.model_fields_set:
         setattr(batch, field, getattr(payload, field))
     await db.commit()
@@ -169,9 +185,12 @@ async def update_batch(
 
 @router.patch("/{batch_id}/stage", response_model=BatchOut)
 async def advance_stage(
-    batch_id: uuid.UUID, payload: StageAdvance, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    payload: StageAdvance,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> Batch:
-    batch = await _get_batch(batch_id, db, with_culture=True)
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True)
     substrate = batch.culture.type
 
     try:
@@ -208,9 +227,12 @@ async def advance_stage(
 
 @router.post("/{batch_id}/measure", response_model=MeasurementOut, status_code=201)
 async def add_measurement(
-    batch_id: uuid.UUID, payload: MeasurementCreate, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    payload: MeasurementCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> Measurement:
-    batch = await _get_batch(batch_id, db)
+    batch = await _get_batch(batch_id, db, user_id=user_id)
     measurement = Measurement(batch_id=batch.id, **payload.model_dump())
     db.add(measurement)
     await db.commit()
@@ -220,11 +242,14 @@ async def add_measurement(
 
 @router.post("/{batch_id}/note", response_model=MeasurementOut, status_code=201)
 async def add_note(
-    batch_id: uuid.UUID, payload: NoteCreate, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    payload: NoteCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> Measurement:
     """Notes are stored as measurements with type="note" (no separate table
     in docs/ARCHITECTURE.md's schema — value_text carries the note body)."""
-    batch = await _get_batch(batch_id, db)
+    batch = await _get_batch(batch_id, db, user_id=user_id)
     note = Measurement(batch_id=batch.id, type="note", value_text=payload.text)
     db.add(note)
     await db.commit()
@@ -249,20 +274,29 @@ def _build_timeline_events(batch: Batch) -> list[TimelineEvent]:
 
 
 @router.get("/{batch_id}/timeline", response_model=BatchTimeline)
-async def get_timeline(batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> BatchTimeline:
-    batch = await _get_batch(batch_id, db, with_measurements=True)
+async def get_timeline(
+    batch_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> BatchTimeline:
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_measurements=True)
     return BatchTimeline(batch=BatchOut.model_validate(batch), events=_build_timeline_events(batch))
 
 
 @router.get("/compare", response_model=BatchCompare)
 async def compare_batches(
-    batch_id: list[uuid.UUID] = Query(...), db: AsyncSession = Depends(get_db)
+    batch_id: list[uuid.UUID] = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> BatchCompare:
     if len(batch_id) < 2:
         raise HTTPException(status_code=400, detail="Provide at least two batch_id query params")
 
     result = await db.execute(
-        select(Batch).where(Batch.id.in_(batch_id)).options(selectinload(Batch.measurements))
+        select(Batch)
+        .join(Culture, Batch.culture_id == Culture.id)
+        .where(Batch.id.in_(batch_id), Culture.owner_id == user_id)
+        .options(selectinload(Batch.measurements))
     )
     batches = list(result.scalars().all())
     found_ids = {b.id for b in batches}
@@ -321,9 +355,12 @@ async def _ingredient_for_fdc_food(
 
 @router.post("/{batch_id}/ingredients", response_model=BatchIngredientOut, status_code=201)
 async def add_batch_ingredient(
-    batch_id: uuid.UUID, payload: BatchIngredientCreate, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    payload: BatchIngredientCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> BatchIngredient:
-    batch = await _get_batch(batch_id, db, with_culture=True)
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True)
     if payload.fdc_id is not None:
         ingredient = await _ingredient_for_fdc_food(
             db, payload.fdc_id, batch.culture.type, payload.role
@@ -362,9 +399,11 @@ async def add_batch_ingredient(
 
 @router.get("/{batch_id}/ingredients", response_model=list[BatchIngredientOut])
 async def list_batch_ingredients(
-    batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> list[BatchIngredient]:
-    await _get_batch(batch_id, db)  # raises 404 if the batch doesn't exist
+    await _get_batch(batch_id, db, user_id=user_id)  # raises 404 if missing/not owned
     result = await db.execute(select(BatchIngredient).where(BatchIngredient.batch_id == batch_id))
     return list(result.scalars().all())
 
@@ -389,7 +428,9 @@ async def update_batch_ingredient(
     ingredient_row_id: uuid.UUID,
     payload: BatchIngredientUpdate,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> BatchIngredient:
+    await _get_batch(batch_id, db, user_id=user_id)  # raises 404 if missing/not owned
     batch_ingredient = await _get_batch_ingredient(batch_id, ingredient_row_id, db)
     for field in payload.model_fields_set:
         setattr(batch_ingredient, field, getattr(payload, field))
@@ -400,8 +441,12 @@ async def update_batch_ingredient(
 
 @router.delete("/{batch_id}/ingredients/{ingredient_row_id}", status_code=204)
 async def delete_batch_ingredient(
-    batch_id: uuid.UUID, ingredient_row_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    ingredient_row_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> None:
+    await _get_batch(batch_id, db, user_id=user_id)  # raises 404 if missing/not owned
     batch_ingredient = await _get_batch_ingredient(batch_id, ingredient_row_id, db)
     await db.delete(batch_ingredient)
     await db.commit()
@@ -409,9 +454,11 @@ async def delete_batch_ingredient(
 
 @router.get("/{batch_id}/composition", response_model=BatchCompositionOut)
 async def get_batch_composition(
-    batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> BatchCompositionOut:
-    batch = await _get_batch(batch_id, db, with_culture=True)  # 404 if missing
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True)  # 404 if missing
     result = await db.execute(
         select(BatchIngredient)
         .where(BatchIngredient.batch_id == batch_id)
@@ -447,7 +494,11 @@ async def get_batch_composition(
 
 
 @router.get("/{batch_id}/preview", response_model=BatchPreview)
-async def get_batch_preview(batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> BatchPreview:
+async def get_batch_preview(
+    batch_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> BatchPreview:
     """Presentation-shaped aggregate for the batch-preview UI page — batch
     header, recipe, timeline, and safety advisory in one call. No compound/
     microbial data (see docs/superpowers/specs/2026-09-18-experiment-
@@ -456,7 +507,12 @@ async def get_batch_preview(batch_id: uuid.UUID, db: AsyncSession = Depends(get_
     /safety directly rather than this growing to serve them too.
     """
     batch = await _get_batch(
-        batch_id, db, with_measurements=True, with_culture=True, with_batch_ingredients=True
+        batch_id,
+        db,
+        user_id=user_id,
+        with_measurements=True,
+        with_culture=True,
+        with_batch_ingredients=True,
     )
 
     now = now_utc()
@@ -522,9 +578,11 @@ def _ec_key(ec_number: str) -> tuple[tuple[int, int], ...]:
 
 @router.get("/{batch_id}/biochemistry", response_model=BatchBiochemistryOut)
 async def get_batch_biochemistry(
-    batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> BatchBiochemistryOut:
-    batch = await _get_batch(batch_id, db, with_culture=True)
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True)
     organisms = await _resolve_batch_organisms(batch, db)
 
     result = await db.execute(
@@ -578,9 +636,12 @@ async def get_batch_biochemistry(
 
 @router.post("/{batch_id}/organisms", response_model=BatchOrganismOut, status_code=201)
 async def add_batch_organism(
-    batch_id: uuid.UUID, payload: BatchOrganismCreate, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    payload: BatchOrganismCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> BatchOrganism:
-    batch = await _get_batch(batch_id, db)
+    batch = await _get_batch(batch_id, db, user_id=user_id)
     organism = await db.get(Organism, payload.organism_id)
     if organism is None:
         raise HTTPException(status_code=404, detail="Organism not found")
@@ -607,9 +668,12 @@ async def add_batch_organism(
 
 @router.delete("/{batch_id}/organisms/{organism_id}", status_code=204)
 async def remove_batch_organism(
-    batch_id: uuid.UUID, organism_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    batch_id: uuid.UUID,
+    organism_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ) -> None:
-    batch = await _get_batch(batch_id, db)
+    batch = await _get_batch(batch_id, db, user_id=user_id)
     result = await db.execute(
         select(BatchOrganism).where(
             BatchOrganism.batch_id == batch.id, BatchOrganism.organism_id == organism_id

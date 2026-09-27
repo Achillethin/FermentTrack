@@ -1,0 +1,14 @@
+name: Ping backend health
+
+# Keeps the Render free-tier instance warm (its ~50s cold start otherwise
+# lands on whoever logs a measurement first) and fails loudly if prod is down.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl --fail --silent --show-error "${{ vars.FERMENTTRACK_API_URL }}/health"

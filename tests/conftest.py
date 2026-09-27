@@ -16,9 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from fermenttrack import database
+from fermenttrack.auth import get_current_user_id
 from fermenttrack.database import Base
 from fermenttrack.main import app
 from fermenttrack.prediction.service import clear_caches
+
+TEST_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 
 @pytest.fixture(autouse=True)
@@ -45,6 +48,9 @@ async def db_session() -> AsyncIterator[AsyncSession]:
             yield session
 
     app.dependency_overrides[database.get_db] = _override_get_db
+    # Tests exercise the ownership-scoped routes as a single logged-in user
+    # rather than each wiring up a real Supabase JWT (see fermenttrack.auth).
+    app.dependency_overrides[get_current_user_id] = lambda: TEST_USER_ID
 
     async with session_maker() as session:
         yield session

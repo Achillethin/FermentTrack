@@ -19,6 +19,7 @@ from fermenttrack.models import (
     Organism,
     OrganismEnzyme,
 )
+from tests.conftest import TEST_USER_ID
 
 
 async def _seed(db_session: AsyncSession) -> Batch:
@@ -38,7 +39,7 @@ async def _seed(db_session: AsyncSession) -> Batch:
                 source_food_id="1", source_version="test",
             )
         )  # fmt: skip
-    culture = Culture(name="Kraut", type="lacto_ferment")
+    culture = Culture(name="Kraut", type="lacto_ferment", owner_id=TEST_USER_ID)
     db_session.add(culture)
     await db_session.flush()
     started = datetime.now(UTC) - timedelta(hours=30)

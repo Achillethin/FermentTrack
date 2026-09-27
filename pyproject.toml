@@ -21,6 +21,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "scipy>=1.11",
     "pyyaml>=6.0",
+    "pyjwt>=2.8",
 ]
 # boto3/stripe intentionally removed: photo upload (S3) and payments are out of
 # scope for this Phase 1 MVP loop (no credentials available). Re-add when built.

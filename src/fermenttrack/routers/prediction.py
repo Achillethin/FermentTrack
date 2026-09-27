@@ -17,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
+from fermenttrack.auth import get_current_user_id
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch, BatchIngredient, Ingredient, OrganismEnzyme
+from fermenttrack.models import BatchIngredient, Ingredient, OrganismEnzyme
 from fermenttrack.prediction.service import (
     MAX_HORIZON_H,
     MeasurementIn,
@@ -29,7 +30,7 @@ from fermenttrack.prediction.service import (
     predict,
 )
 from fermenttrack.reminders import now_utc
-from fermenttrack.routers.batches import _resolve_batch_organisms
+from fermenttrack.routers.batches import _get_batch, _resolve_batch_organisms
 from fermenttrack.schemas import PredictionOut
 
 router = APIRouter(prefix="/batches", tags=["prediction"])
@@ -51,15 +52,11 @@ async def get_batch_prediction(
         default=None, gt=0.0, le=MAX_HORIZON_H, description="Forecast window from batch start"
     ),
     db: AsyncSession = Depends(get_db),  # noqa: B008
+    user_id: str = Depends(get_current_user_id),
 ) -> PredictionOut:
-    result = await db.execute(
-        select(Batch)
-        .where(Batch.id == batch_id)
-        .options(selectinload(Batch.measurements), selectinload(Batch.culture))
+    batch = await _get_batch(
+        batch_id, db, user_id=user_id, with_measurements=True, with_culture=True
     )
-    batch = result.scalar_one_or_none()
-    if batch is None:
-        raise HTTPException(status_code=404, detail="Batch not found")
 
     rows = await db.execute(
         select(BatchIngredient)

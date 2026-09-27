@@ -33,6 +33,26 @@ class CultureWithBatches(CultureOut):
     batches: list["BatchOut"] = []
 
 
+class BatchExportOut(BaseModel):
+    """Full-fidelity batch data for GET /me/export — unlike BatchOut, includes
+    the child rows so an account's data can be exported/reimported wholesale."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    started_at: datetime
+    current_stage: str
+    target: str | None
+    expected_temperature_c: float | None
+    outcome: str
+    ended_at: datetime | None
+    measurements: list["MeasurementOut"] = []
+
+
+class CultureExportOut(CultureOut):
+    batches: list[BatchExportOut] = []
+
+
 # ── Batch ────────────────────────────────────────────────────────────────
 
 # °C. The upper bound also catches the most likely slip, a Fahrenheit room temperature

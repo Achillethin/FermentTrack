@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     # origin, e.g. https://<user>.github.io). Defaults cover local Vite dev.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Supabase project's JWT secret (Project Settings -> API -> JWT Secret).
+    # Verifies the HS256 access token supabase-js issues; None disables auth
+    # (dev/tests use the sqlite default and skip it via TestClient overrides).
+    supabase_jwt_secret: str | None = None
+
     @field_validator("database_url")
     @classmethod
     def _use_psycopg3_dialect(cls, v: str) -> str:

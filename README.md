@@ -195,7 +195,11 @@ alembic upgrade head
 uvicorn fermenttrack.main:app --reload
 ```
 
-Then open `http://127.0.0.1:8000/docs` for the interactive API explorer (FastAPI's auto-generated Swagger UI) — create a culture, start a batch, log a measurement, and hit `/batches/{id}/safety` to see the Safety Advisory in action. There's no frontend yet (see the [experiment-logging design spec](docs/superpowers/specs/2026-09-18-experiment-logging-design.md) for the planned minimal UI) — this is API-only for now.
+Every non-health endpoint requires a Supabase Auth bearer token (see "Auth" below) — the Swagger UI's "Authorize" button accepts one. There's no frontend yet against a local backend (the deployed frontend at `docs/superpowers/specs/2026-09-24-biochemistry-ui-design.md` talks to the hosted API) — this is API-only for local dev.
+
+## Auth
+
+Cultures (and everything under them — batches, measurements, reminders) are scoped to a Supabase Auth user id (`Culture.owner_id`, the JWT `sub`). Set `FERMENTTRACK_SUPABASE_JWT_SECRET` (Supabase Project Settings → API → JWT Secret) or every request gets `503 Auth not configured`. The hosted frontend signs visitors in anonymously (`frontend/src/auth.js`) — no signup wall — so get a token for local API testing the same way: a Supabase anonymous sign-in returns `session.access_token`.
 
 ## Related
 

@@ -36,8 +36,13 @@ class Culture(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
+    # Supabase Auth user id (JWT `sub`). Nullable: rows created before Stage 0
+    # auth are unowned until backfilled (scripts/assign_existing_data_to_user.py).
+    owner_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
 
-    batches: Mapped[list["Batch"]] = relationship(back_populates="culture")
+    batches: Mapped[list["Batch"]] = relationship(
+        back_populates="culture", cascade="all, delete-orphan"
+    )
 
 
 class Batch(Base):
