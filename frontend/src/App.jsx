@@ -3,7 +3,7 @@ import PredictionPanel from "./prediction/PredictionPanel.jsx";
 import TemperatureEstimate from "./prediction/TemperatureEstimate.jsx";
 import TemperatureField from "./prediction/TemperatureField.jsx";
 import { parseTemperature } from "./prediction/temperature.js";
-import { Button, Input, Select } from "./components/ui.jsx";
+import { Button, Input, Select, TabBar } from "./components/ui.jsx";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
@@ -34,14 +34,31 @@ function urgencyColor(urgency) {
   );
 }
 
+const humanize = (s) => String(s ?? "").replace(/_/g, " ");
+
 function Card({ title, children }) {
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        {title}
-      </h2>
+    <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:p-5">
+      <h2 className="mb-3 font-display text-lg font-bold text-slate-100">{title}</h2>
       {children}
     </section>
+  );
+}
+
+function JarMark({ className = "h-7 w-7" }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} fill="none" aria-hidden="true">
+      <rect x="10" y="3" width="12" height="4" rx="1.5" className="fill-emerald-400" />
+      <path
+        d="M11 8h10a3 3 0 0 1 3 3v14a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V11a3 3 0 0 1 3-3Z"
+        className="stroke-slate-100"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <rect x="12" y="17" width="8" height="6" rx="1" className="fill-paper" />
+      <circle cx="13.5" cy="12" r="1.3" className="fill-emerald-400" />
+      <circle cx="18" cy="11" r="0.9" className="fill-emerald-400" />
+    </svg>
   );
 }
 
@@ -73,37 +90,67 @@ function StageControl({ batchId, onAdvanced }) {
   return (
     <div className="mt-2">
       <Button variant="secondary" size="sm" onClick={advance} disabled={busy}>
-        {busy ? "Advancing…" : "Advance to next stage →"}
+        {busy ? "Advancing…" : "Advance to next stage"}
       </Button>
       {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
     </div>
   );
 }
 
-function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced, onTemperatureSaved }) {
+function Figure({ value, unit, caption }) {
   return (
-    <Card title="Batch">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <p className="text-lg font-medium">{culture.name}</p>
-          <p className="text-sm text-slate-400">{culture.type}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-medium">{batch.current_stage}</p>
-          <p className="text-sm text-slate-400">
-            {daysInStage.toFixed(1)} day{daysInStage === 1 ? "" : "s"} in stage
-          </p>
-        </div>
-      </div>
-      {batch.target && <p className="mt-2 text-sm text-slate-300">Target: {batch.target}</p>}
-      <TemperatureEstimate apiUrl={API_URL} batch={batch} type={culture.type} onSaved={onTemperatureSaved} />
-      <p className="mt-2 text-xs text-slate-500">
-        Started {new Date(batch.started_at).toLocaleString()} · outcome: {batch.outcome}
+    <div>
+      <p className="font-display text-2xl font-bold leading-none">
+        {value}
+        <span className="ml-1 text-base font-semibold text-ink/70">{unit}</span>
       </p>
-      {batch.outcome === "in_progress" && (
-        <StageControl batchId={batchId} onAdvanced={onAdvanced} />
-      )}
-    </Card>
+      <p className="mt-1 text-xs text-ink/75">{caption}</p>
+    </div>
+  );
+}
+
+const fmtDays = (d) => (d < 10 ? d.toFixed(1) : String(Math.round(d)));
+
+// The batch reads like a paper label stuck on the jar; its controls sit on the
+// dark strip below it.
+function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced, onTemperatureSaved }) {
+  const ageDays = Math.max(0, (Date.now() - new Date(batch.started_at).getTime()) / 86_400_000);
+  const finished = batch.outcome !== "in_progress";
+  return (
+    <section>
+      <div className="ft-label rounded-t-lg p-5 text-ink">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="break-words font-display text-[1.75rem] font-extrabold leading-tight">
+              {culture.name}
+            </h2>
+            <p className="mt-0.5 text-sm capitalize text-ink/75">{humanize(culture.type)}</p>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <span className="-rotate-2 rounded-md border-2 border-ink/80 px-2.5 py-0.5 font-display text-sm font-bold capitalize">
+              {humanize(batch.current_stage)}
+            </span>
+            {finished && (
+              <span className="rounded-md bg-ink px-2 py-0.5 text-xs font-bold capitalize text-paper">
+                {humanize(batch.outcome)}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-4 border-t border-ink/30 pt-3">
+          <Figure value={fmtDays(ageDays)} unit="d" caption="since it started" />
+          <Figure value={fmtDays(daysInStage)} unit="d" caption="in this stage" />
+        </div>
+        {batch.target && <p className="mt-3 text-sm">Target: {batch.target}</p>}
+      </div>
+      <div className="rounded-b-lg border border-t-0 border-slate-800 bg-slate-900/60 px-4 pb-4 pt-2 sm:px-5">
+        <TemperatureEstimate apiUrl={API_URL} batch={batch} type={culture.type} onSaved={onTemperatureSaved} />
+        <p className="mt-2 text-xs text-slate-400">
+          Started {new Date(batch.started_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+        </p>
+        {!finished && <StageControl batchId={batchId} onAdvanced={onAdvanced} />}
+      </div>
+    </section>
   );
 }
 
@@ -454,7 +501,9 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
   return (
     <Card title="Recipe">
       {recipe.length === 0 ? (
-        <p className="mb-3 text-sm text-slate-500">No ingredients logged yet.</p>
+        <p className="mb-3 text-sm text-slate-400">
+          No ingredients yet. Add them with quantities and the forecast will start from your recipe.
+        </p>
       ) : (
         <ul className="mb-3 divide-y divide-slate-800">
           {recipe.map((item) => (
@@ -1116,53 +1165,110 @@ function Biochemistry({ batchId, type }) {
   );
 }
 
+// Timeline events carry {type, value_numeric, value_text, notes}; notes are stored as type "note".
+function eventLine(event) {
+  const d = event.detail || {};
+  const isNote = event.kind === "note";
+  const value = [d.value_numeric, d.value_text].filter((v) => v != null && v !== "").join(" · ");
+  const type = String(d.type ?? "");
+  const title = isNote ? "Note" : type === "pH" ? type : type.charAt(0).toUpperCase() + type.slice(1);
+  return { title, value, extra: isNote ? null : d.notes };
+}
+
 function Timeline({ timeline }) {
   if (timeline.length === 0) {
     return (
-      <Card title="Timeline">
-        <p className="text-sm text-slate-500">No events yet.</p>
+      <Card title="History">
+        <p className="text-sm text-slate-400">Nothing logged yet. Observations and notes you add appear here.</p>
       </Card>
     );
   }
   return (
-    <Card title="Timeline">
-      <ul className="space-y-2">
+    <Card title="History">
+      <ol className="ml-1.5 border-l border-slate-700">
         {timeline
           .slice()
           .reverse()
-          .map((event, i) => (
-            <li key={i} className="text-sm">
-              <span className="text-slate-500">
-                {new Date(event.timestamp).toLocaleString()}
-              </span>{" "}
-              <span className="text-slate-300">· {event.kind}</span>
-              <div className="text-slate-400">{JSON.stringify(event.detail)}</div>
-            </li>
-          ))}
-      </ul>
+          .map((event, i) => {
+            const { title, value, extra } = eventLine(event);
+            return (
+              <li key={i} className="relative pb-4 pl-5 last:pb-0">
+                <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-slate-900 bg-emerald-400" />
+                <p className="text-sm text-slate-100">
+                  <span className="font-medium">{title}</span>
+                  {value && <span className="text-slate-300">: {value}</span>}
+                </p>
+                {extra && <p className="text-sm text-slate-300">{extra}</p>}
+                <p className="text-xs text-slate-400">
+                  {new Date(event.timestamp).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                </p>
+              </li>
+            );
+          })}
+      </ol>
     </Card>
   );
 }
 
+function SafetyIcon({ ok, hard }) {
+  return (
+    <svg viewBox="0 0 16 16" className="mt-0.5 h-4 w-4 shrink-0" fill="none" aria-hidden="true">
+      {ok ? (
+        <>
+          <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M5.2 8.2l1.9 1.9 3.7-3.9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      ) : hard ? (
+        <>
+          <path d="M5.2 1.8h5.6l3.4 3.4v5.6l-3.4 3.4H5.2L1.8 10.8V5.2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+          <path d="M8 4.8v3.6M8 10.6v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <path d="M8 2.2l6.2 11H1.8L8 2.2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+          <path d="M8 6.5v3M8 11.4v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+// Shown above the tabs so a hard stop is never hidden on another tab. With no
+// verdicts it collapses to a single quiet line.
 function Safety({ safety }) {
   const verdicts = [...safety.hard_stops, ...safety.warnings];
+  if (verdicts.length === 0) {
+    return (
+      <p
+        className={`flex gap-2 rounded-xl border px-4 py-2.5 text-sm ${
+          safety.safe
+            ? "border-emerald-500/25 bg-emerald-950/30 text-emerald-200"
+            : "border-red-500/40 bg-red-950/40 text-red-300"
+        }`}
+      >
+        <SafetyIcon ok={safety.safe} hard />
+        <span>{safety.summary_en}</span>
+      </p>
+    );
+  }
   return (
-    <Card title="Safety Advisory">
-      <p className={`mb-2 text-sm font-medium ${safety.safe ? "text-emerald-400" : "text-red-400"}`}>
+    <Card title="Safety">
+      <p className={`mb-3 text-sm font-medium ${safety.safe ? "text-emerald-300" : "text-red-300"}`}>
         {safety.summary_en}
       </p>
-      {verdicts.length > 0 && (
-        <ul className="space-y-2">
-          {verdicts.map((v) => (
-            <li key={v.rule_id} className={`rounded-lg border p-2 text-sm ${urgencyColor(v.action)}`}>
+      <ul className="space-y-2">
+        {verdicts.map((v) => (
+          <li key={v.rule_id} className={`flex gap-2 rounded-lg border p-3 text-sm ${urgencyColor(v.action)}`}>
+            <SafetyIcon hard={safety.hard_stops.includes(v)} />
+            <div>
               <p>
-                <strong className="uppercase">{v.action}:</strong> {v.reason_text_en}
+                <strong className="capitalize">{humanize(v.action)}:</strong> {v.reason_text_en}
               </p>
-              <p className="mt-1 text-xs opacity-70">{v.source_citation}</p>
-            </li>
-          ))}
-        </ul>
-      )}
+              <p className="mt-1 text-xs opacity-75">{v.source_citation}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }
@@ -1223,7 +1329,7 @@ function NewBatch({ onCreated }) {
   }
 
   return (
-    <Card title="Start a new batch">
+    <Card title="Start a batch">
       <form className="space-y-3" onSubmit={submit}>
         <div>
           <label htmlFor="culture-select" className="mb-1 block text-xs text-slate-400">
@@ -1322,7 +1428,7 @@ function BatchPicker({ onPick }) {
   }, [query, type, outcome]);
 
   return (
-    <Card title="Find a batch">
+    <Card title="Your batches">
       <div className="flex flex-wrap gap-2">
         <Input
           label="Search batches by culture name"
@@ -1369,8 +1475,8 @@ function BatchPicker({ onPick }) {
               >
                 <span className="text-slate-200">{b.culture_name}</span>
                 <span className="text-slate-500">{b.culture_type}</span>
-                <span className="text-slate-500">{b.current_stage}</span>
-                <span className="text-xs text-slate-600">{timeAgo(b.started_at)}</span>
+                <span className="text-slate-500">{humanize(b.current_stage)}</span>
+                <span className="text-xs text-slate-400">{timeAgo(b.started_at)}</span>
               </button>
             </li>
           ))}
@@ -1415,6 +1521,8 @@ export default function App() {
   const [composition, setComposition] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState("forecast");
+  const [switching, setSwitching] = useState(false);
 
   async function loadPreview(id) {
     if (!id) return;
@@ -1443,26 +1551,70 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const open = (id) => {
+    setBatchId(id);
+    setSwitching(false);
+    loadPreview(id);
+  };
+  // With no batch open the two entry points are the whole screen; once one is
+  // open they fold behind "Switch batch" so the batch gets the screen.
+  const chooser = (
+    <>
+      <BatchPicker onPick={open} />
+      <NewBatch onCreated={open} />
+    </>
+  );
+
+  const TABS = [
+    { id: "forecast", label: "Forecast" },
+    { id: "log", label: "Log" },
+    { id: "recipe", label: "Recipe" },
+    { id: "biochemistry", label: "Biochemistry" },
+  ];
+  const panel = (id, children) => (
+    <div
+      role="tabpanel"
+      id={`bt-panel-${id}`}
+      aria-labelledby={`bt-tab-${id}`}
+      hidden={tab !== id}
+      className="space-y-4 pt-4"
+    >
+      {children}
+    </div>
+  );
+
   return (
-    <main className="mx-auto max-w-2xl space-y-4 p-4">
-      <h1 className="text-2xl font-bold">🧫 FermentTrack</h1>
+    <main className="mx-auto max-w-2xl space-y-4 px-4 pb-16 pt-3">
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="flex items-center gap-2 font-display text-xl font-extrabold tracking-tight">
+          <JarMark />
+          FermentTrack
+        </h1>
+        {preview && (
+          <Button
+            variant="secondary"
+            aria-expanded={switching}
+            onClick={() => setSwitching((v) => !v)}
+          >
+            {switching ? "Close" : "Switch batch"}
+          </Button>
+        )}
+      </header>
 
-      <NewBatch
-        onCreated={(id) => {
-          setBatchId(id);
-          loadPreview(id);
-        }}
-      />
+      {!preview && (
+        <p className="max-w-[60ch] text-slate-300">
+          A journal and forecast for every batch you ferment: log what you see, check the model, stay in the safe range.
+        </p>
+      )}
 
-      <BatchPicker
-        onPick={(id) => {
-          setBatchId(id);
-          loadPreview(id);
-        }}
-      />
+      {(!preview || switching) && chooser}
 
-      {loading && <p className="text-sm text-slate-500">Loading batch…</p>}
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {loading && <p className="text-sm text-slate-400">Loading batch…</p>}
+      {error && (
+        <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+          {error === "Batch not found" ? "Batch not found. Check the ID, or pick a batch from the list." : error}
+        </p>
+      )}
 
       {preview && (
         <>
@@ -1474,24 +1626,42 @@ export default function App() {
             onAdvanced={() => loadPreview(batchId)}
             onTemperatureSaved={() => loadPreview(preview.batch.id)}
           />
-          <PredictionPanel
-            key={preview.batch.id}
-            apiUrl={API_URL}
-            batchId={preview.batch.id}
-            startedAt={preview.batch.started_at}
-          />
-          <LogObservation batchId={batchId} onLogged={() => loadPreview(batchId)} />
-          <Recipe
-            batchId={batchId}
-            substrate={preview.culture.type}
-            recipe={preview.recipe}
-            saltSuggestion={composition?.salt_suggestion}
-            onAdded={() => loadPreview(batchId)}
-          />
-          <Composition data={composition} />
-          <Biochemistry batchId={preview.batch.id} type={preview.culture.type} />
-          <Timeline timeline={preview.timeline} />
           <Safety safety={preview.safety} />
+
+          <div className="sticky top-0 z-20 -mx-4 bg-slate-950/95 px-4 backdrop-blur">
+            <TabBar tabs={TABS} selected={tab} onSelect={setTab} idBase="bt" label="Batch sections" />
+          </div>
+
+          {panel(
+            "forecast",
+            <PredictionPanel
+              key={preview.batch.id}
+              apiUrl={API_URL}
+              batchId={preview.batch.id}
+              startedAt={preview.batch.started_at}
+            />
+          )}
+          {panel(
+            "log",
+            <>
+              <LogObservation batchId={batchId} onLogged={() => loadPreview(batchId)} />
+              <Timeline timeline={preview.timeline} />
+            </>
+          )}
+          {panel(
+            "recipe",
+            <>
+              <Recipe
+                batchId={batchId}
+                substrate={preview.culture.type}
+                recipe={preview.recipe}
+                saltSuggestion={composition?.salt_suggestion}
+                onAdded={() => loadPreview(batchId)}
+              />
+              <Composition data={composition} />
+            </>
+          )}
+          {panel("biochemistry", <Biochemistry batchId={preview.batch.id} type={preview.culture.type} />)}
         </>
       )}
     </main>
