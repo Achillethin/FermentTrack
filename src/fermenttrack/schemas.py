@@ -269,6 +269,7 @@ class BatchSummaryOut(BaseModel):
     culture_type: str
     started_at: datetime
     current_stage: str
+    stage_entered_at: datetime
     target: str | None
     outcome: str
     ended_at: datetime | None
@@ -501,3 +502,28 @@ class PredictionOut(BaseModel):
 
 
 CultureWithBatches.model_rebuild()
+
+
+# ── Logbook (GET /me/log) ────────────────────────────────────────────────
+
+class LogCultureOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    type: str
+
+
+class LogBatchOut(BaseModel):
+    id: uuid.UUID
+    current_stage: str
+    started_at: datetime
+
+
+class LogEntryOut(BaseModel):
+    # Source row id (Measurement.id, or Batch.id for stage-change). A stage-change id equals its
+    # batch id, so clients must key on kind + id, not id alone.
+    id: uuid.UUID
+    culture: LogCultureOut
+    batch: LogBatchOut
+    kind: Literal["measurement", "note", "stage-change"]
+    timestamp: datetime
+    detail: dict

@@ -27,6 +27,23 @@ async def test_list_batches_returns_culture_name_and_type(client: AsyncClient) -
 
 
 @pytest.mark.asyncio
+async def test_list_batches_exposes_stage_entered_at(client: AsyncClient) -> None:
+    culture_id = (await client.post("/cultures", json={"name": "Jun SCOBY", "type": "kombucha"})).json()["id"]
+    created = (await client.post("/batches", json={"culture_id": culture_id})).json()
+    batch_id = created["id"]
+
+    async def listed() -> str:
+        rows = (await client.get("/batches")).json()
+        return next(r for r in rows if r["id"] == batch_id)["stage_entered_at"]
+
+    assert await listed() == created["stage_entered_at"]
+
+    advanced = (await client.patch(f"/batches/{batch_id}/stage", json={})).json()
+    assert advanced["stage_entered_at"] != created["stage_entered_at"]
+    assert await listed() == advanced["stage_entered_at"]
+
+
+@pytest.mark.asyncio
 async def test_list_batches_filters_by_q(client: AsyncClient) -> None:
     await _create_culture_and_batch(client, "Jun SCOBY")
     await _create_culture_and_batch(client, "Sourdough Starter", "sourdough")
