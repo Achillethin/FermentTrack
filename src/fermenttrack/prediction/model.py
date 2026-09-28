@@ -73,6 +73,10 @@ class ModelSpec:
     pools0: dict[str, float]  # g/kg at t=0, before the sugar-scale draw
     salt_water_phase_pct: float
     schedule: TemperatureSchedule
+    # organism name -> {param name -> Prior}: pooled population priors (see
+    # prediction/population.py) that override the literature default for that organism's
+    # param, pre-resolved by the router (DB reads don't belong in this pure module).
+    population_priors: dict[str, dict[str, Prior]] = field(default_factory=dict)
     specs: list[ParamSpec] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -109,7 +113,10 @@ class ModelSpec:
         if p.flour_amylase is not None:
             specs.append(ParamSpec("k_flour_amylase", p.flour_amylase))
         for j, o in enumerate(self.organisms):
-            overrides = {"x_max": p.x_max_override.get(o.name, o.x_max)}
+            overrides = {
+                "x_max": p.x_max_override.get(o.name, o.x_max),
+                **self.population_priors.get(o.name, {}),
+            }
             for name in (
                 "mu_max", "ks", "yield_xs", "maint", "t_min", "t_opt", "t_max", "ph_min",
                 "ph_opt", "ph_max", "mic_lactic_mm", "mic_acetic_mm", "aw_min", "ethanol_max",

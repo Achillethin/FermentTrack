@@ -36,8 +36,13 @@ class Culture(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
+    # Supabase Auth user id (JWT `sub`). Nullable: rows created before Stage 0
+    # auth are unowned until backfilled (scripts/assign_existing_data_to_user.py).
+    owner_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
 
-    batches: Mapped[list["Batch"]] = relationship(back_populates="culture")
+    batches: Mapped[list["Batch"]] = relationship(
+        back_populates="culture", cascade="all, delete-orphan"
+    )
 
 
 class Batch(Base):
@@ -59,6 +64,11 @@ class Batch(Base):
     expected_temperature_c: Mapped[float | None] = mapped_column(Float, nullable=True)
     outcome: Mapped[str] = mapped_column(Text, nullable=False, default="in_progress")
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    # Set once this batch's AMIS posterior has been folded into the population prior
+    # (prediction/population.py) — guards the pool against repeat /prediction calls.
+    population_pooled_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
     culture: Mapped["Culture"] = relationship(back_populates="batches")
     measurements: Mapped[list["Measurement"]] = relationship(
@@ -188,6 +198,28 @@ class Organism(Base):
     ncbi_taxon_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     kegg_organism_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_version: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PopulationPrior(Base):
+    """Empirical-Bayes plug-in population prior per (organism, kinetic parameter), pooled
+    from finished batches' AMIS posteriors. See prediction/population.py."""
+
+    __tablename__ = "population_priors"
+    __table_args__ = (UniqueConstraint("organism_id", "param_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    organism_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organisms.id"), nullable=False
+    )
+    param_name: Mapped[str] = mapped_column(Text, nullable=False)
+    n_obs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    median: Mapped[float] = mapped_column(Float, nullable=False)
+    lo: Mapped[float] = mapped_column(Float, nullable=False)
+    hi: Mapped[float] = mapped_column(Float, nullable=False)
+    scale: Mapped[str] = mapped_column(Text, nullable=False)  # "log" | "lin"
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), default=_now, onupdate=_now
+    )
 
 
 class Enzyme(Base):

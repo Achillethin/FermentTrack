@@ -15,6 +15,7 @@ from fermenttrack.models import (
     Organism,
     OrganismEnzyme,
 )
+from tests.conftest import TEST_USER_ID
 
 UNKNOWN = "00000000-0000-0000-0000-000000000000"
 
@@ -80,7 +81,7 @@ async def _seed(db_session: AsyncSession) -> SimpleNamespace:
 
 
 async def _batch(client: AsyncClient, db_session: AsyncSession, ctype: str = "kombucha") -> str:
-    culture = Culture(name=f"{ctype} culture", type=ctype)
+    culture = Culture(name=f"{ctype} culture", type=ctype, owner_id=TEST_USER_ID)
     db_session.add(culture)
     await db_session.commit()
     resp = await client.post("/batches", json={"culture_id": str(culture.id)})

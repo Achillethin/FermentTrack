@@ -9,6 +9,7 @@ from fermenttrack.routers import (
     cultures,
     foods,
     ingredients,
+    me,
     organisms,
     prediction,
     reminders,
@@ -30,6 +31,7 @@ app.add_middleware(
 )
 
 app.include_router(cultures.router)
+app.include_router(me.router)
 app.include_router(batches.router)
 app.include_router(ingredients.router)
 app.include_router(foods.router)

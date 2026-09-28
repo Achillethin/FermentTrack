@@ -12,13 +12,17 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
+from fermenttrack.auth import get_current_user_id
 from fermenttrack.database import get_db
 from fermenttrack.models import Batch, BatchIngredient, Ingredient, OrganismEnzyme
+from fermenttrack.prediction import population
+from fermenttrack.prediction.organisms import ORGANISM_KINETICS
+from fermenttrack.prediction.priors import Prior
 from fermenttrack.prediction.service import (
     MAX_HORIZON_H,
     MeasurementIn,
@@ -26,10 +30,11 @@ from fermenttrack.prediction.service import (
     PredictionInputs,
     PredictionUnavailable,
     RecipeIn,
+    population_samples,
     predict,
 )
 from fermenttrack.reminders import now_utc
-from fermenttrack.routers.batches import _resolve_batch_organisms
+from fermenttrack.routers.batches import _get_batch, _resolve_batch_organisms
 from fermenttrack.schemas import PredictionOut
 
 router = APIRouter(prefix="/batches", tags=["prediction"])
@@ -51,15 +56,11 @@ async def get_batch_prediction(
         default=None, gt=0.0, le=MAX_HORIZON_H, description="Forecast window from batch start"
     ),
     db: AsyncSession = Depends(get_db),  # noqa: B008
+    user_id: str = Depends(get_current_user_id),
 ) -> PredictionOut:
-    result = await db.execute(
-        select(Batch)
-        .where(Batch.id == batch_id)
-        .options(selectinload(Batch.measurements), selectinload(Batch.culture))
+    batch = await _get_batch(
+        batch_id, db, user_id=user_id, with_measurements=True, with_culture=True
     )
-    batch = result.scalar_one_or_none()
-    if batch is None:
-        raise HTTPException(status_code=404, detail="Batch not found")
 
     rows = await db.execute(
         select(BatchIngredient)
@@ -93,6 +94,20 @@ async def get_batch_prediction(
     # a finished batch's "now" is when it ended, not today
     now = _utc(batch.ended_at) if finished and batch.ended_at is not None else now_utc()
     now_h = max((now - started).total_seconds() / 3600.0, 0.0)
+
+    # Pooled population priors (empirical-Bayes plug-in, prediction/population.py) for
+    # each organism this batch models — resolved here, not in service.py, which is pure/
+    # no-DB by design; below MIN_POOLED_OBS batches this just returns the literature Prior.
+    population_priors: dict[str, dict[str, Prior]] = {}
+    for o, *_rest in organisms:
+        kin = ORGANISM_KINETICS.get(o.name)
+        if kin is None:
+            continue
+        population_priors[o.name] = {
+            name: await population.population_prior_for(db, o.id, name, getattr(kin, name))
+            for name in population.POOLED_PARAMS
+        }
+
     inputs = PredictionInputs(
         fermentation_type=batch.culture.type,
         now_h=now_h,
@@ -113,11 +128,45 @@ async def get_batch_prediction(
             if m.type != "note"
         ),
         finished=finished,
+        population_priors=population_priors,
     )
     try:
         body = await run_in_threadpool(predict, inputs, temperature_c, horizon_h)
     except PredictionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
+
+    # Pool only a batch that actually calibrated: "prior_only" (no usable pH/gravity/
+    # Brix readings) has no reweighted posterior — its "mean" would just be prior-
+    # sampling noise, not information, and must not count as a pooled observation.
+    if finished and batch.population_pooled_at is None and body.get("status") == "calibrated":
+        # Atomic claim (compare-and-swap on population_pooled_at IS NULL): two
+        # concurrent requests for the same finished batch (double-click, two tabs) must
+        # not both pool it — only the request whose UPDATE actually matches a row wins.
+        claim = await db.execute(
+            update(Batch)
+            .where(Batch.id == batch.id, Batch.population_pooled_at.is_(None))
+            .values(population_pooled_at=now_utc())
+        )
+        if claim.rowcount == 1:
+            samples = population_samples(inputs)
+            if samples is None:
+                # predict() didn't run inference this call (served from an in-process
+                # cache), so there's nothing to pool yet — undo the claim and let a
+                # later call retry rather than marking this batch pooled for nothing.
+                await db.rollback()
+            else:
+                for o, *_rest in organisms:
+                    kin = ORGANISM_KINETICS.get(o.name)
+                    per_param = samples.get(o.name)
+                    if kin is None or per_param is None:
+                        continue
+                    for name in population.POOLED_PARAMS:
+                        values, weights = per_param[name]
+                        await population.update_population_prior(
+                            db, o.id, name, values, weights, getattr(kin, name).scale
+                        )
+                await db.commit()
+
     # cached outputs are keyed per hour: report the exact start and "now"
     body["started_at"] = started
     body["now_h"] = round(now_h, 3)

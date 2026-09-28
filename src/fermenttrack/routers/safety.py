@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
+from fermenttrack.auth import get_current_user_id
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch
+from fermenttrack.routers.batches import _get_batch
 from fermenttrack.safety.service import get_safety_report
 from fermenttrack.schemas import RuleVerdictOut, SafetyReportOut
 
@@ -16,15 +15,14 @@ router = APIRouter(prefix="/batches", tags=["safety"])
 
 
 @router.get("/{batch_id}/safety", response_model=SafetyReportOut)
-async def get_batch_safety(batch_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> SafetyReportOut:
-    result = await db.execute(
-        select(Batch)
-        .where(Batch.id == batch_id)
-        .options(selectinload(Batch.measurements), selectinload(Batch.culture))
+async def get_batch_safety(
+    batch_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> SafetyReportOut:
+    batch = await _get_batch(
+        batch_id, db, user_id=user_id, with_measurements=True, with_culture=True
     )
-    batch = result.scalar_one_or_none()
-    if batch is None:
-        raise HTTPException(status_code=404, detail="Batch not found")
 
     report = get_safety_report(batch)
     return SafetyReportOut(
