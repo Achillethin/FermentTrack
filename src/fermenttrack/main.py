@@ -14,6 +14,7 @@ from fermenttrack.routers import (
     prediction,
     reminders,
     safety,
+    sourdough,
     webhooks,
 )
 
@@ -39,6 +40,7 @@ app.include_router(organisms.router)
 app.include_router(reminders.router)
 app.include_router(safety.router)
 app.include_router(prediction.router)
+app.include_router(sourdough.router)
 app.include_router(webhooks.router)
 
 

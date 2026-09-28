@@ -21,8 +21,9 @@ from fermenttrack.auth import get_current_user_id
 from fermenttrack.database import get_db
 from fermenttrack.models import Batch, BatchIngredient, Ingredient, OrganismEnzyme
 from fermenttrack.prediction import population
-from fermenttrack.prediction.organisms import ORGANISM_KINETICS
-from fermenttrack.prediction.priors import Prior
+from fermenttrack.prediction.bake import BakeInputs, posterior_for
+from fermenttrack.prediction.bake import forecast as bake_forecast
+from fermenttrack.prediction.sourdough import STYLES, compile_plan, plan_from_dict, plan_to_dict
 from fermenttrack.prediction.service import (
     MAX_HORIZON_H,
     MeasurementIn,
@@ -44,6 +45,99 @@ def _utc(dt: datetime) -> datetime:
     # SQLite drops tz-awareness (see routers/batches.py get_batch_preview); all app
     # timestamps are UTC by convention.
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+async def _learn(db: AsyncSession, batch: Batch, style: str | None, evidence: list | None) -> None:
+    claim = await db.execute(
+        update(Batch)
+        .where(Batch.id == batch.id, Batch.population_pooled_at.is_(None))
+        .values(population_pooled_at=now_utc())
+    )
+    if claim.rowcount != 1:
+        return
+    if evidence is None:
+        # served from a cache without running inference: undo the claim, retry next call
+        await db.rollback()
+        return
+    await population.record_evidence(
+        db, batch_id=batch.id, culture_id=batch.culture_id, owner_id=batch.culture.owner_id,
+        style=style, evidence=evidence,
+    )  # fmt: skip
+    await db.commit()
+
+
+# stage changes that start a plan phase: the mix starts the bulk; shaping starts the proof
+_PHASE_STAGES = (("bulk_ferment",), ("shape", "cold_retard"))
+
+
+def _known_bounds(batch: Batch, started: datetime) -> tuple[float, ...]:
+    """Logged starts of the bulk and proof phases (h from the levain feed)."""
+    changes = sorted(
+        (m for m in batch.measurements if m.type == "stage_change"), key=lambda m: m.measured_at
+    )
+    when: dict[str, datetime] = {}
+    for m in changes:
+        when.setdefault(m.value_text or "", _utc(m.measured_at))
+    # batches started before stage history was logged: the current stage's entry time
+    when.setdefault(batch.current_stage, _utc(batch.stage_entered_at))
+    out: list[float] = []
+    for stages in _PHASE_STAGES:
+        t = next((when[s] for s in stages if s in when), None)
+        if t is None:
+            break
+        out.append(max((t - started).total_seconds() / 3600.0, 0.0))
+    return tuple(out)
+
+
+async def _sourdough_prediction(
+    db: AsyncSession,
+    batch: Batch,
+    organisms: list,
+    enzymes: dict[uuid.UUID, list[str]],
+    started: datetime,
+    now_h: float,
+    finished: bool,
+) -> PredictionOut:
+    plan = plan_from_dict(batch.sourdough_plan or {})
+    culture = batch.culture
+    style = culture.style or plan.style
+    style_names = set(STYLES[plan.style].organisms)
+    extra = tuple(o.name for o, src, _ in organisms if src != "default" and o.name not in style_names)
+    compiled_names = compile_plan(plan, extra).organisms
+    priors = await population.learned_priors(
+        db, compiled_names, style=style, baker=culture.owner_id, starter=culture.id
+    )
+    inputs = BakeInputs(
+        plan=plan_to_dict(plan),
+        now_h=now_h,
+        measurements=tuple(
+            (m.type, (_utc(m.measured_at) - started).total_seconds() / 3600.0, m.value_numeric)
+            for m in sorted(batch.measurements, key=lambda m: m.measured_at)
+            if m.value_numeric is not None
+        ),
+        known_bounds=_known_bounds(batch, started),
+        organisms=tuple(
+            OrganismIn(o.name, o.kingdom, tuple(sorted(enzymes.get(o.id, []))))
+            for o, *_ in organisms
+        ),
+        extra_organisms=extra,
+        population_priors=priors,
+        finished=finished,
+    )
+    try:
+        body = await run_in_threadpool(bake_forecast, plan, inputs)
+    except PredictionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    if finished and batch.population_pooled_at is None and body.get("status") == "calibrated":
+        post = posterior_for(inputs.fingerprint())
+        evidence = (
+            None if post is None
+            else population.likelihood_summaries(post[0].specs, post[0].organisms, post[1], post[2])
+        )  # fmt: skip
+        await _learn(db, batch, style, evidence)
+    body["started_at"] = started
+    body["now_h"] = round(now_h, 3)
+    return PredictionOut.model_validate(body)
 
 
 @router.get("/{batch_id}/prediction", response_model=PredictionOut)
@@ -95,18 +189,19 @@ async def get_batch_prediction(
     now = _utc(batch.ended_at) if finished and batch.ended_at is not None else now_utc()
     now_h = max((now - started).total_seconds() / 3600.0, 0.0)
 
-    # Pooled population priors (empirical-Bayes plug-in, prediction/population.py) for
-    # each organism this batch models — resolved here, not in service.py, which is pure/
-    # no-DB by design; below MIN_POOLED_OBS batches this just returns the literature Prior.
-    population_priors: dict[str, dict[str, Prior]] = {}
-    for o, *_rest in organisms:
-        kin = ORGANISM_KINETICS.get(o.name)
-        if kin is None:
-            continue
-        population_priors[o.name] = {
-            name: await population.population_prior_for(db, o.id, name, getattr(kin, name))
-            for name in population.POOLED_PARAMS
-        }
+    culture = batch.culture
+    if culture.type == "sourdough" and batch.sourdough_plan:
+        return await _sourdough_prediction(
+            db, batch, organisms, enzymes, started, now_h, finished
+        )
+
+    # Learned priors (prediction/population.py): this starter's, its style's and its
+    # baker's evidence from finished batches, resolved here (service.py stays DB-free).
+    style = culture.style or culture.type
+    population_priors = await population.learned_priors(
+        db, [o.name for o, *_ in organisms], style=style, baker=culture.owner_id,
+        starter=culture.id,
+    )
 
     inputs = PredictionInputs(
         fermentation_type=batch.culture.type,
@@ -135,37 +230,11 @@ async def get_batch_prediction(
     except PredictionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
 
-    # Pool only a batch that actually calibrated: "prior_only" (no usable pH/gravity/
-    # Brix readings) has no reweighted posterior — its "mean" would just be prior-
-    # sampling noise, not information, and must not count as a pooled observation.
+    # Learn only from a batch that actually calibrated: "prior_only" (no usable readings)
+    # has no posterior to learn from. The claim (compare-and-swap on population_pooled_at)
+    # makes two concurrent requests for the same finished batch record it once.
     if finished and batch.population_pooled_at is None and body.get("status") == "calibrated":
-        # Atomic claim (compare-and-swap on population_pooled_at IS NULL): two
-        # concurrent requests for the same finished batch (double-click, two tabs) must
-        # not both pool it — only the request whose UPDATE actually matches a row wins.
-        claim = await db.execute(
-            update(Batch)
-            .where(Batch.id == batch.id, Batch.population_pooled_at.is_(None))
-            .values(population_pooled_at=now_utc())
-        )
-        if claim.rowcount == 1:
-            samples = population_samples(inputs)
-            if samples is None:
-                # predict() didn't run inference this call (served from an in-process
-                # cache), so there's nothing to pool yet — undo the claim and let a
-                # later call retry rather than marking this batch pooled for nothing.
-                await db.rollback()
-            else:
-                for o, *_rest in organisms:
-                    kin = ORGANISM_KINETICS.get(o.name)
-                    per_param = samples.get(o.name)
-                    if kin is None or per_param is None:
-                        continue
-                    for name in population.POOLED_PARAMS:
-                        values, weights = per_param[name]
-                        await population.update_population_prior(
-                            db, o.id, name, values, weights, getattr(kin, name).scale
-                        )
-                await db.commit()
+        await _learn(db, batch, style, population_samples(inputs))
 
     # cached outputs are keyed per hour: report the exact start and "now"
     body["started_at"] = started

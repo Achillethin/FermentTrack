@@ -36,6 +36,9 @@ class Culture(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
+    # Levain type of a sourdough starter (prediction.sourdough.STYLES key): the class its
+    # learned kinetics inherit from (prediction/population.py). Null: the culture type.
+    style: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Supabase Auth user id (JWT `sub`). Nullable: rows created before Stage 0
     # auth are unowned until backfilled (scripts/assign_existing_data_to_user.py).
     owner_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
@@ -69,6 +72,8 @@ class Batch(Base):
     population_pooled_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    # A sourdough bake plan (prediction.sourdough plan JSON: style, levain, dough, proof).
+    sourdough_plan: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     culture: Mapped["Culture"] = relationship(back_populates="batches")
     measurements: Mapped[list["Measurement"]] = relationship(
@@ -201,8 +206,8 @@ class Organism(Base):
 
 
 class PopulationPrior(Base):
-    """Empirical-Bayes plug-in population prior per (organism, kinetic parameter), pooled
-    from finished batches' AMIS posteriors. See prediction/population.py."""
+    """Superseded (2026-09-28) by BatchEvidence and the crossed hierarchy in
+    prediction/population.py; the table is kept, unused, until confirmed empty."""
 
     __tablename__ = "population_priors"
     __table_args__ = (UniqueConstraint("organism_id", "param_name"),)
@@ -220,6 +225,31 @@ class PopulationPrior(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), default=_now, onupdate=_now
     )
+
+
+class BatchEvidence(Base):
+    """One finished batch's likelihood summary for one organism x kinetic parameter, in the
+    literature prior's z-units (prediction/population.py). Raw evidence, never aggregated
+    in place, so the hierarchy's variance components can be re-estimated later."""
+
+    __tablename__ = "batch_evidence"
+    __table_args__ = (UniqueConstraint("batch_id", "organism", "param"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("batches.id", ondelete="CASCADE"), nullable=False,
+        index=True,
+    )
+    culture_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cultures.id", ondelete="CASCADE"), nullable=False
+    )
+    owner_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    style: Mapped[str | None] = mapped_column(Text, nullable=True)
+    organism: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    param: Mapped[str] = mapped_column(Text, nullable=False)
+    ell: Mapped[float] = mapped_column(Float, nullable=False)
+    lam: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
 
 
 class Enzyme(Base):

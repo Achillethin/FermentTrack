@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -16,6 +16,16 @@ class CultureCreate(BaseModel):
     type: str = "kombucha"
     born_from: uuid.UUID | None = None
     status: str = "active"
+    style: str | None = None  # sourdough: the starter's levain type (catalogue key)
+
+    @field_validator("style")
+    @classmethod
+    def _known_style(cls, v: str | None) -> str | None:
+        from fermenttrack.prediction.sourdough import STYLES
+
+        if v is not None and v not in STYLES:
+            raise ValueError(f"unknown levain style {v!r}")
+        return v
 
 
 class CultureOut(BaseModel):
@@ -27,6 +37,7 @@ class CultureOut(BaseModel):
     born_from: uuid.UUID | None
     status: str
     created_at: datetime
+    style: str | None = None
 
 
 class CultureWithBatches(CultureOut):
@@ -64,6 +75,7 @@ class BatchCreate(BaseModel):
     culture_id: uuid.UUID
     target: str | None = None
     expected_temperature_c: ExpectedTemperatureC | None = None
+    sourdough_plan: "SourdoughPlanIn | None" = None
 
 
 class BatchUpdate(BaseModel):
@@ -71,6 +83,7 @@ class BatchUpdate(BaseModel):
 
     target: str | None = None
     expected_temperature_c: ExpectedTemperatureC | None = None
+    sourdough_plan: "SourdoughPlanIn | None" = None
 
 
 class BatchOut(BaseModel):
@@ -85,6 +98,7 @@ class BatchOut(BaseModel):
     expected_temperature_c: float | None
     outcome: str
     ended_at: datetime | None
+    sourdough_plan: dict[str, Any] | None = None
 
 
 class StageAdvance(BaseModel):
@@ -414,7 +428,9 @@ class PredictionSeriesOut(BaseModel):
     key: str  # "ph", "lactic_acid", "pop:<organism>", "mycelium", ...
     label: str
     unit: str  # "" | "g/kg" | "log CFU/g" | "SG" | "°Bx" | "%"
-    group: Literal["ph", "density", "substrates", "products", "growth", "population"]
+    group: Literal[
+        "ph", "density", "substrates", "products", "growth", "population", "rise", "acidity"
+    ]
     t_h: list[float]
     p05: list[float]
     p50: list[float]
@@ -476,7 +492,7 @@ class PredictionOrganismOut(BaseModel):
 
 
 class PredictionInitialOut(BaseModel):
-    source: Literal["recipe", "typical_recipe"]
+    source: Literal["recipe", "typical_recipe", "plan"]
     values: dict[str, float]
 
 
@@ -498,6 +514,100 @@ class PredictionOut(BaseModel):
     assumptions: list[str]
     warnings: list[str]
     disclaimer: str
+    # sourdough plans: the phases (levain, bulk, proof) and the plan's derived figures
+    phases: list["PhaseOut"] = []
+    summary: dict[str, Any] | None = None
+
+
+# ── Sourdough ────────────────────────────────────────────────────────────
+# Planner and tracked sourdough batches share one plan schema (prediction.sourdough).
+
+Grams = Annotated[float, Field(ge=0.0, le=200_000.0)]
+DoughTempC = Annotated[float, Field(ge=-5.0, le=45.0)]
+
+
+class SourdoughBuildIn(BaseModel):
+    seed_g: Annotated[float, Field(gt=0.0, le=100_000.0)]
+    flour_g: Annotated[float, Field(gt=0.0, le=200_000.0)]
+    water_g: Grams
+    flour: dict[str, float] | None = None  # {flour key: share}; null = the style's flour
+    temperature_c: DoughTempC
+    hours: Annotated[float, Field(gt=0.0, le=72.0)] | None = None
+
+
+class SourdoughDoughIn(BaseModel):
+    flour_g: Annotated[float, Field(gt=0.0, le=200_000.0)]
+    water_g: Grams
+    salt_g: Grams = 0.0
+    flour: dict[str, float] | None = None
+    temperature_c: DoughTempC
+    levain_g: Annotated[float, Field(gt=0.0, le=200_000.0)] | None = None
+    yeast_g: Grams = 0.0
+    yeast: Literal["instant", "fresh"] = "instant"
+    dried_sour_g: Grams = 0.0
+    bulk_hours: Annotated[float, Field(gt=0.0, le=48.0)] | None = None
+    target_rise_pct: Annotated[float, Field(gt=0.0, le=300.0)] = 75.0
+
+
+class SourdoughProofIn(BaseModel):
+    temperature_c: DoughTempC
+    hours: Annotated[float, Field(gt=0.0, le=96.0)]
+
+
+class SourdoughPlanIn(BaseModel):
+    style: str
+    starter: Literal["ripe", "refrigerated"] = "ripe"
+    culture_id: uuid.UUID | None = None  # planner only: use this starter's learned kinetics
+    levain: SourdoughBuildIn | None = None
+    dough: SourdoughDoughIn | None = None
+    proof: SourdoughProofIn | None = None
+
+    @model_validator(mode="after")
+    def _valid_plan(self) -> "SourdoughPlanIn":
+        from fermenttrack.prediction.sourdough import plan_from_dict
+
+        plan_from_dict(self.model_dump(mode="json", exclude={"culture_id"}))  # ValueError -> 422
+        if self.dough is not None and self.dough.salt_g > 0.1 * self.dough.flour_g:
+            raise ValueError("salt above 10 % of the dough flour: check the grams")
+        return self
+
+
+class PhaseOut(BaseModel):
+    key: str
+    label: str
+    start_h: float
+    end_h: float
+    temperature_c: float
+
+
+class FeedingChartIn(BaseModel):
+    style: str
+    flour: dict[str, float] | None = None
+    hydration_pct: Annotated[float, Field(ge=20.0, le=300.0)] = 100.0
+    temperature_c: Annotated[float, Field(ge=5.0, le=40.0)]
+    starter: Literal["ripe", "refrigerated"] = "ripe"
+    culture_id: uuid.UUID | None = None
+    ratios: Annotated[
+        list[Annotated[float, Field(ge=0.2, le=50.0)]], Field(min_length=1, max_length=10)
+    ] = [1.0, 2.0, 3.0, 5.0, 8.0, 10.0]
+
+
+class FeedingChartRowOut(BaseModel):
+    ratio: float
+    label: str
+    peak_h: MilestoneTimesOut
+    doubled_h: MilestoneTimesOut
+    ph_at_peak: float
+    rise_at_peak_pct: float
+
+
+class FeedingChartOut(BaseModel):
+    temperature_c: float
+    style: str
+    rows: list[FeedingChartRowOut]
 
 
 CultureWithBatches.model_rebuild()
+BatchCreate.model_rebuild()
+BatchUpdate.model_rebuild()
+PredictionOut.model_rebuild()

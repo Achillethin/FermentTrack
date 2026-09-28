@@ -31,7 +31,7 @@ from fermenttrack.prediction.inference import (
 from fermenttrack.prediction.inference import run as run_inference
 from fermenttrack.prediction.model import ModelSpec, TemperatureSchedule
 from fermenttrack.prediction.organisms import ORGANISM_KINETICS, Channel, OrganismKinetics
-from fermenttrack.prediction.population import POOLED_PARAMS
+from fermenttrack.prediction.population import Evidence, likelihood_summaries
 from fermenttrack.prediction.priors import FloatArray, Prior
 from fermenttrack.prediction.profiles import (
     ADDED_MOLD_INOCULUM,
@@ -795,8 +795,8 @@ class _LRU:
 # Outputs are ~0.3-0.6 MB, posteriors (z-vectors + weights) up to ~1.3 MB.
 _OUTPUTS = _LRU(32)
 _POSTERIORS = _LRU(16)
-# Per-organism (values, weights) for population.POOLED_PARAMS, from a finished batch's
-# posterior — small, kept separately so it survives independently of the output cache.
+# A finished batch's evidence for prediction.population (likelihood summaries) — small,
+# kept separately so it survives independently of the output cache.
 _POOL_SAMPLES = _LRU(16)
 # One solve at a time: a small instance has one core, and concurrent solves would only
 # multiply memory. A request waiting here for an identical one then hits the cache.
@@ -809,26 +809,10 @@ def clear_caches() -> None:
     _POOL_SAMPLES.clear()
 
 
-def _pooled_param_samples(
-    spec: ModelSpec, z: FloatArray, weights: FloatArray
-) -> dict[str, dict[str, tuple[FloatArray, FloatArray]]]:
-    """Physical-space (values, weights) of population.POOLED_PARAMS, per modelled organism,
-    from this batch's converged AMIS posterior — for prediction.population's pooling."""
-    params = spec.params(z[:, : spec.dim])
-    out: dict[str, dict[str, tuple[FloatArray, FloatArray]]] = {}
-    for j, o in enumerate(spec.organisms):
-        out[o.name] = {
-            name: (getattr(params.organisms[j], name), weights) for name in POOLED_PARAMS
-        }
-    return out
-
-
-def population_samples(
-    inputs: PredictionInputs,
-) -> dict[str, dict[str, tuple[FloatArray, FloatArray]]] | None:
-    """This finished batch's pooled-param posterior samples, if `predict(inputs)` has
-    already run in this process (populates the cache); `None` otherwise — the caller
-    (routers/prediction.py) then just skips pooling for this call and retries next time."""
+def population_samples(inputs: PredictionInputs) -> list[Evidence] | None:
+    """This finished batch's evidence (likelihood summaries per organism x pooled param),
+    if `predict(inputs)` has already run inference in this process; `None` otherwise (the
+    router then skips learning for this call and retries on the next)."""
     return _POOL_SAMPLES.get(inputs.fingerprint())
 
 
@@ -911,7 +895,7 @@ def _forecast(
         lite = _PosteriorLite(post.z, post.weights, post.tempered, post.ess)
         _POSTERIORS.put(fp, lite)
         if inputs.finished:
-            _POOL_SAMPLES.put(fp, _pooled_param_samples(spec, post.z, post.weights))
+            _POOL_SAMPLES.put(fp, likelihood_summaries(spec.specs, spec.organisms, post.z, post.weights))
         if temperature_c is None:
             z, weights, tr = post.z, post.weights, post.traj
 

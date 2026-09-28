@@ -30,6 +30,7 @@ from fermenttrack.models import (
 )
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.safety.service import get_safety_report
+from fermenttrack.prediction.sourdough import STYLES
 from fermenttrack.schemas import (
     BatchBiochemistryOut,
     BatchCompare,
@@ -45,6 +46,7 @@ from fermenttrack.schemas import (
     BatchSummaryOut,
     BatchTimeline,
     BatchUpdate,
+    SourdoughPlanIn,
     BiochemEnzymeOut,
     BiochemOrganismOut,
     CompoundOut,
@@ -94,6 +96,15 @@ async def _get_batch(
     return batch
 
 
+def _plan_json(plan: SourdoughPlanIn | None, culture_type: str) -> dict | None:
+    """The stored plan (no culture_id: the batch's own culture is the starter)."""
+    if plan is None:
+        return None
+    if culture_type != "sourdough":
+        raise HTTPException(status_code=422, detail="a sourdough plan needs a sourdough culture")
+    return plan.model_dump(mode="json", exclude={"culture_id"})
+
+
 @router.post("", response_model=BatchOut, status_code=201)
 async def create_batch(
     payload: BatchCreate,
@@ -113,6 +124,7 @@ async def create_batch(
         stage_entered_at=started_at,
         target=payload.target,
         expected_temperature_c=payload.expected_temperature_c,
+        sourdough_plan=_plan_json(payload.sourdough_plan, culture.type),
     )
     db.add(batch)
     await db.flush()
@@ -175,9 +187,12 @@ async def update_batch(
     db: AsyncSession = Depends(get_db),  # noqa: B008
     user_id: str = Depends(get_current_user_id),
 ) -> Batch:
-    batch = await _get_batch(batch_id, db, user_id=user_id)
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True)
     for field in payload.model_fields_set:
-        setattr(batch, field, getattr(payload, field))
+        if field == "sourdough_plan":
+            batch.sourdough_plan = _plan_json(payload.sourdough_plan, batch.culture.type)
+        else:
+            setattr(batch, field, getattr(payload, field))
     await db.commit()
     await db.refresh(batch)
     return batch
@@ -219,6 +234,13 @@ async def advance_stage(
 
     if reminder is not None:
         db.add(reminder)
+    # stage history: the sourdough forecast places the mix and shaping at these times
+    db.add(
+        Measurement(
+            batch_id=batch.id, measured_at=entered_at, type="stage_change",
+            value_text=target_stage,
+        )
+    )  # fmt: skip
 
     await db.commit()
     await db.refresh(batch)
@@ -260,7 +282,7 @@ async def add_note(
 def _build_timeline_events(batch: Batch) -> list[TimelineEvent]:
     return [
         TimelineEvent(
-            kind="note" if m.type == "note" else "measurement",
+            kind=m.type if m.type in ("note", "stage_change") else "measurement",
             timestamp=m.measured_at,
             detail={
                 "type": m.type,
@@ -549,17 +571,25 @@ async def _resolve_batch_organisms(
     batch: Batch, db: AsyncSession
 ) -> list[tuple[Organism, str, str | None]]:
     """Type defaults plus the batch's custom attachments, deduped by organism id
-    (a custom attachment supersedes the default entry), sorted by name."""
-    result = await db.execute(
-        select(FermentationTypeOrganism)
-        .where(
-            FermentationTypeOrganism.fermentation_type == batch.culture.type,
-            FermentationTypeOrganism.is_default.is_(True),
+    (a custom attachment supersedes the default entry), sorted by name. A sourdough batch
+    with a plan takes its levain style's organisms as the defaults instead."""
+    plan = batch.sourdough_plan if batch.culture.type == "sourdough" else None
+    if plan and plan.get("style") in STYLES:
+        names = list(STYLES[plan["style"]].organisms)
+        result = await db.execute(select(Organism).where(Organism.name.in_(names)))
+        defaults = list(result.scalars().all())
+    else:
+        result = await db.execute(
+            select(FermentationTypeOrganism)
+            .where(
+                FermentationTypeOrganism.fermentation_type == batch.culture.type,
+                FermentationTypeOrganism.is_default.is_(True),
+            )
+            .options(selectinload(FermentationTypeOrganism.organism))
         )
-        .options(selectinload(FermentationTypeOrganism.organism))
-    )
+        defaults = [fo.organism for fo in result.scalars().all()]
     merged: dict[uuid.UUID, tuple[Organism, str, str | None]] = {
-        fo.organism.id: (fo.organism, "default", None) for fo in result.scalars().all()
+        o.id: (o, "default", None) for o in defaults
     }
     result = await db.execute(
         select(BatchOrganism)

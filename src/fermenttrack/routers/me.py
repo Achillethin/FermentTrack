@@ -8,13 +8,14 @@ via cascading relationships (models.py).
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from fermenttrack.auth import get_current_user_id
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch, Culture
+from fermenttrack.models import Batch, BatchEvidence, Culture
 from fermenttrack.schemas import CultureExportOut
 
 router = APIRouter(prefix="/me", tags=["me"])
@@ -39,6 +40,15 @@ async def delete_my_data(
     user_id: str = Depends(get_current_user_id),
 ) -> None:
     result = await db.execute(select(Culture).where(Culture.owner_id == user_id))
-    for culture in result.scalars().all():
+    cultures = result.scalars().all()
+    # learned-kinetics evidence carries the owner id: erase it explicitly (the FK cascade
+    # covers it on Postgres; SQLite does not enforce foreign keys)
+    await db.execute(
+        sa_delete(BatchEvidence).where(
+            (BatchEvidence.owner_id == user_id)
+            | BatchEvidence.culture_id.in_([c.id for c in cultures])
+        )
+    )
+    for culture in cultures:
         await db.delete(culture)  # cascades to batches and everything under them
     await db.commit()

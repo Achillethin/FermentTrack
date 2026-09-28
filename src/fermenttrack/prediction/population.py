@@ -1,151 +1,232 @@
-"""Empirical-Bayes plug-in pooling: a finished batch's converged AMIS posterior (per
-organism, per kinetic parameter) updates a GLOBAL population-level prior, so the next
-batch of the same organism starts closer to what has actually been observed instead of
-always restarting from the fixed literature `Prior` in `organisms.py`.
+"""What the app learns across batches: a crossed Gaussian hierarchy over the kinetic
+parameters, per organism and pooled parameter, in the literature prior's z-units u (the
+literature prior is exactly N(0, 1) there):
 
-Each finished batch contributes exactly one "observation" of the population parameter:
-its own posterior's weighted mean (in the parameter's log/lin scale). The population
-prior's median/lo/hi track a running mean and the *unbiased standard error of that mean*
-(`s^2/n`, `s^2 = M2/(n-1)`; Welford's online algorithm) across batches — so the pooled
-prior narrows as more batches agree, not just as individual batches get more readings.
-This is posterior-mean plug-in, not a full joint hierarchical posterior: escalate to
-SMC² (Chopin/Jacob/Papaspiliopoulos) if under-shrinking becomes visible once several
-organisms have 10+ batches each. ponytail: that trigger isn't actually observable yet —
-only the SEM is persisted, not the raw between-batch variance it's derived from, so
-nothing here can currently distinguish "genuinely converged" from "SEM shrank because n
-grew" (SEM shrinks like 1/n by construction regardless of real heterogeneity). Track raw
-between-batch variance too before relying on the trigger.
+    theta_batch = g + d_style + a_baker + e_starter + eps
+    variances     0.30  0.20    0.10     0.30      0.10   (sum 1)
 
-Each finished batch is folded in only once ESS/ratio evidence exists that it actually
-calibrated (routers/prediction.py gates on `status == "calibrated"`) — a `"prior_only"`
-batch (no usable pH/gravity/Brix readings) contributes pure prior-sampling noise, not
-information, and must not count as an observation.
-
-Design note: docs/superpowers/specs/2026-09-28-population-pooling-design.md.
+"Achille's classic levain" inherits the classic-levain class and Achille; "Aymard's rye
+levain" the rye class and Aymard. With no data anywhere a batch's prior is exactly the
+literature prior (the general default inherits the global class), and each finished,
+calibrated batch adds one piece of evidence per organism and parameter: its **likelihood
+summary** (its AMIS posterior with the prior it ran under divided out, so pooled
+information is never counted twice). The prior for a new batch is exact Gaussian
+conditioning on all evidence rows. Design: docs/superpowers/specs/
+2026-09-28-sourdough-engine-design.md § 6 (supersedes the plug-in pooling of
+2026-09-28-population-pooling-design.md; its table is left unused).
 """
 
 from __future__ import annotations
 
 import math
 import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fermenttrack.models import PopulationPrior
+from fermenttrack.models import BatchEvidence
+from fermenttrack.prediction.organisms import ORGANISM_KINETICS
 from fermenttrack.prediction.priors import Z90, FloatArray, Prior
 
-# Below this many pooled batches the population estimate is too noisy (dominated by one
-# or two batches) to trust over the literature prior.
-MIN_POOLED_OBS = 3
-
-# v1 pools exactly the two params most identifiable from pH/gravity/Brix curves alone.
-# ponytail: the other ~13 per-organism params (ks, yield_xs, maint, cardinals, mic_*,
-# aw_min, ethanol_max, x_max, h0, k_death, ...) stay on the literature prior — pooling
-# all of them is over-fit at n~1-20 batches per organism. Expand this tuple once there's
-# enough data (and, likely, a real hierarchical model rather than this plug-in) to
-# support it.
+# The parameters most identifiable from pH / rise / gravity curves. ponytail: the other
+# kinetic parameters stay on literature priors; add more once evidence shows them moving.
 POOLED_PARAMS = ("mu_max", "t_opt")
 
+# Variance components in literature z-units, summing to 1 (est.; the literature spread
+# across strains is split into class, style, baker, starter and batch parts). ponytail:
+# fixed; scripts/estimate_variance_components.py re-estimates them by REML once enough
+# starters have several batches each.
+VARIANCES = {"global": 0.30, "style": 0.20, "baker": 0.10, "starter": 0.30, "batch": 0.10}
+MIN_NARROWING = 0.10  # a batch must shrink the prior variance by 10 % to count as evidence
+MAX_ROWS = 2000  # ponytail: O(n^3) conditioning; switch to group sufficient statistics beyond
 
-def _transformed_mean(values: FloatArray, weights: FloatArray, scale: str) -> float:
-    x = np.log(values) if scale == "log" else values
+
+# ── u-space: the literature prior's own z-units ─────────────────────────
+
+
+def to_u(lit: Prior, x: FloatArray | float) -> FloatArray:
+    """Inverse of Prior.value: the literature z-score of a parameter value (split normal)."""
+    x = np.asarray(x, dtype=float)
+    if lit.scale == "log":
+        y = np.log(np.maximum(x, 1e-300) / lit.median)
+        s_lo, s_hi = math.log(lit.median / lit.lo) / Z90, math.log(lit.hi / lit.median) / Z90
+    else:
+        y = x - lit.median
+        s_lo, s_hi = (lit.median - lit.lo) / Z90, (lit.hi - lit.median) / Z90
+    s_lo, s_hi = max(s_lo, 1e-12), max(s_hi, 1e-12)
+    return np.asarray(np.where(y < 0, y / s_lo, y / s_hi))
+
+
+def from_u(lit: Prior, mean: float, var: float) -> Prior:
+    """N(mean, var) in u-space -> a Prior in the parameter's own units."""
+    sd = math.sqrt(max(var, 1e-9))
+    lo, med, hi = lit.value(np.array([mean - Z90 * sd, mean, mean + Z90 * sd]))
+    return Prior(float(med), float(min(lo, med)), float(max(hi, med)), lit.scale)
+
+
+def prior_moments_u(lit: Prior, prior: Prior) -> tuple[float, float]:
+    """(mean, variance) in u-space of the prior a batch actually ran with."""
+    lo, med, hi = to_u(lit, np.array([prior.lo, prior.median, prior.hi]))
+    sd = max((hi - lo) / (2 * Z90), 1e-6)
+    return float(med), float(sd**2)
+
+
+# ── evidence from one batch ─────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Evidence:
+    organism: str
+    param: str
+    ell: float  # likelihood mean, u-space
+    lam: float  # likelihood precision, u-space
+
+
+def likelihood_summaries(
+    specs: Sequence[Any], organisms: Sequence[Any], z: FloatArray, weights: FloatArray
+) -> list[Evidence]:
+    """Per organism x pooled param: what this batch's readings said, with the prior it ran
+    under divided out (Gaussian division of the weighted posterior by that prior).
+    `specs`: ModelSpec.specs (or SourdoughModel.specs); `organisms`: their kinetics."""
     w = weights / weights.sum()
-    return float(np.sum(w * x))
+    out = []
+    for col, s in enumerate(specs):
+        if s.organism is None or s.name not in POOLED_PARAMS:
+            continue
+        name = organisms[s.organism].name
+        lit_kin = ORGANISM_KINETICS.get(name)
+        if lit_kin is None:
+            continue
+        lit: Prior = getattr(lit_kin, s.name)
+        u = to_u(lit, s.prior.value(z[:, col]))
+        m_post = float(np.sum(w * u))
+        v_post = float(np.sum(w * (u - m_post) ** 2))
+        m_pr, v_pr = prior_moments_u(lit, s.prior)
+        if not (0.0 < v_post < (1.0 - MIN_NARROWING) * v_pr):
+            continue  # the readings said nothing about this parameter
+        lam = 1.0 / v_post - 1.0 / v_pr
+        ell = (m_post / v_post - m_pr / v_pr) / lam
+        out.append(Evidence(name, s.name, ell, lam))
+    return out
 
 
-def _row_mean_and_m2(row: PopulationPrior) -> tuple[float, float]:
-    """Recover (mean, M2) of the running Welford update from a stored row.
-
-    The row stores the unbiased SEM (`M2 / (n*(n-1))`) as its lo/hi spread (see module
-    docstring), so `M2 = stored_var * n_obs * (n_obs - 1)`; at n_obs<2 that's always 0
-    (no row is ever written with a non-degenerate n<2 spread, but the formula must not
-    divide by zero when a caller recovers state from one).
-    """
-    mean = math.log(row.median) if row.scale == "log" else row.median
-    sd = (
-        math.log(row.median / row.lo) / Z90
-        if row.scale == "log"
-        else (row.median - row.lo) / Z90
-    )
-    m2 = (sd**2) * row.n_obs * (row.n_obs - 1) if row.n_obs >= 2 else 0.0
-    return mean, m2
+# ── conditioning ────────────────────────────────────────────────────────
 
 
-def _encode(mean: float, sem_var: float, scale: str) -> tuple[float, float, float]:
-    sd = math.sqrt(max(sem_var, 0.0))
-    if scale == "log":
-        return math.exp(mean), math.exp(mean - Z90 * sd), math.exp(mean + Z90 * sd)
-    return mean, mean - Z90 * sd, mean + Z90 * sd
+@dataclass(frozen=True)
+class Row:
+    style: str | None
+    baker: str | None
+    starter: str | None
+    ell: float
+    lam: float
 
 
-async def population_prior_for(
-    db: AsyncSession, organism_id: uuid.UUID, param_name: str, fallback: Prior
-) -> Prior:
-    """The pooled prior for (organism, param), or `fallback` below MIN_POOLED_OBS batches."""
-    row = (
-        await db.execute(
-            select(PopulationPrior).where(
-                PopulationPrior.organism_id == organism_id,
-                PopulationPrior.param_name == param_name,
-            )
+def _same(a: str | None, b: str | None) -> float:
+    return 1.0 if a is not None and a == b else 0.0
+
+
+def predictive(rows: Sequence[Row], style: str | None, baker: str | None,
+               starter: str | None, v: dict[str, float] = VARIANCES) -> tuple[float, float]:  # fmt: skip
+    """Mean and variance (u-space) of a new batch's parameter for this starter, style and
+    baker, given every evidence row: exact Gaussian conditioning."""
+    total = sum(v.values())
+    if not rows:
+        return 0.0, total
+    rows = list(rows)[-MAX_ROWS:]
+    n = len(rows)
+    sig = np.full((n, n), v["global"])
+    c = np.full(n, v["global"])
+    for i, a in enumerate(rows):
+        c[i] += (
+            v["style"] * _same(style, a.style)
+            + v["baker"] * _same(baker, a.baker)
+            + v["starter"] * _same(starter, a.starter)
         )
-    ).scalar_one_or_none()
-    if row is None or row.n_obs < MIN_POOLED_OBS:
-        return fallback
-    return Prior(row.median, row.lo, row.hi, row.scale)  # type: ignore[arg-type]
+        for j in range(i, n):
+            b = rows[j]
+            k = (
+                v["style"] * _same(a.style, b.style)
+                + v["baker"] * _same(a.baker, b.baker)
+                + v["starter"] * _same(a.starter, b.starter)
+            )
+            sig[i, j] += k
+            sig[j, i] = sig[i, j]
+        sig[i, i] += v["batch"] + 1.0 / max(a.lam, 1e-9)
+    y = np.array([r.ell for r in rows])
+    sol = np.linalg.solve(sig, np.column_stack([y, c]))
+    return float(c @ sol[:, 0]), float(max(total - c @ sol[:, 1], 1e-6))
 
 
-async def update_population_prior(
+def learned_prior(lit: Prior, rows: Sequence[Row], style: str | None, baker: str | None,
+                  starter: str | None) -> Prior:  # fmt: skip
+    if not rows:
+        return lit
+    m, var = predictive(rows, style, baker, starter)
+    return from_u(lit, m, var)
+
+
+# ── database ────────────────────────────────────────────────────────────
+
+
+async def learned_priors(
     db: AsyncSession,
-    organism_id: uuid.UUID,
-    param_name: str,
-    samples: FloatArray,
-    weights: FloatArray,
-    scale: str,
-) -> None:
-    """Fold one finished batch's weighted posterior samples into the population prior."""
-    mean_b = _transformed_mean(samples, weights, scale)
-    # FOR UPDATE: two batches of the same organism can finish concurrently: without
-    # locking this row, both read-modify-write cycles race and the second's update
-    # silently overwrites the first's (a lost update, not a raised error). No-op on
-    # SQLite (tests) — real locking only matters against concurrent requests, which
-    # SQLite's own single-writer model already serializes.
-    # ponytail: a never-before-seen (organism, param) row has nothing to lock, so two
-    # batches finishing for the very first time for that pair can still race on the
-    # INSERT and hit the UniqueConstraint — loud (IntegrityError), not silent, and rare
-    # enough (first pool ever, for one specific organism+param) to leave as a follow-up.
-    row = (
-        await db.execute(
-            select(PopulationPrior)
-            .where(
-                PopulationPrior.organism_id == organism_id,
-                PopulationPrior.param_name == param_name,
-            )
-            .with_for_update()
+    organisms: Sequence[str],
+    *,
+    style: str | None,
+    baker: str | None,
+    starter: uuid.UUID | None,
+) -> dict[str, dict[str, Prior]]:
+    """organism -> {param -> Prior} for a new batch; only entries that differ from the
+    literature (organisms with no evidence anywhere are left out: literature prior)."""
+    names = [o for o in organisms if o in ORGANISM_KINETICS]
+    if not names:
+        return {}
+    res = await db.execute(select(BatchEvidence).where(BatchEvidence.organism.in_(names)))
+    by: dict[tuple[str, str], list[Row]] = {}
+    for e in res.scalars():
+        by.setdefault((e.organism, e.param), []).append(
+            Row(e.style, e.owner_id, str(e.culture_id), e.ell, e.lam)
         )
-    ).scalar_one_or_none()
+    out: dict[str, dict[str, Prior]] = {}
+    for (org, param), rows in by.items():
+        lit = getattr(ORGANISM_KINETICS[org], param)
+        out.setdefault(org, {})[param] = learned_prior(
+            lit, rows, style, baker, str(starter) if starter else None
+        )
+    return out
 
-    n_old = row.n_obs if row is not None else 0
-    old_mean, m2_old = _row_mean_and_m2(row) if row is not None else (0.0, 0.0)
-    n_new = n_old + 1
-    delta = mean_b - old_mean
-    new_mean = old_mean + delta / n_new
-    m2_new = m2_old + delta * (mean_b - new_mean)
-    # unbiased sample variance / n: the standard error of the pooled mean. Degenerate
-    # (0) below n=2 — there's no spread in a single point — never read back below
-    # MIN_POOLED_OBS anyway.
-    sem_var = m2_new / (n_new * (n_new - 1)) if n_new >= 2 else 0.0
-    median, lo, hi = _encode(new_mean, sem_var, scale)
 
-    if row is None:
+async def record_evidence(
+    db: AsyncSession,
+    *,
+    batch_id: uuid.UUID,
+    culture_id: uuid.UUID,
+    owner_id: str | None,
+    style: str | None,
+    evidence: Sequence[Evidence],
+) -> int:
+    """Store a finished batch's evidence once (unique per batch x organism x param)."""
+    existing = {
+        (e.organism, e.param)
+        for e in (
+            await db.execute(select(BatchEvidence).where(BatchEvidence.batch_id == batch_id))
+        ).scalars()
+    }
+    added = 0
+    for ev in evidence:
+        if (ev.organism, ev.param) in existing or not (math.isfinite(ev.ell) and ev.lam > 0):
+            continue
         db.add(
-            PopulationPrior(
-                organism_id=organism_id, param_name=param_name, n_obs=n_new,
-                median=median, lo=lo, hi=hi, scale=scale,
+            BatchEvidence(
+                batch_id=batch_id, culture_id=culture_id, owner_id=owner_id, style=style,
+                organism=ev.organism, param=ev.param, ell=ev.ell, lam=ev.lam,
             )
         )  # fmt: skip
-    else:
-        row.n_obs, row.median, row.lo, row.hi, row.scale = n_new, median, lo, hi, scale
+        added += 1
     await db.flush()
+    return added
