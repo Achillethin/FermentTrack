@@ -199,7 +199,12 @@ Every non-health endpoint requires a Supabase Auth bearer token (see "Auth" belo
 
 ## Auth
 
-Cultures (and everything under them — batches, measurements, reminders) are scoped to a Supabase Auth user id (`Culture.owner_id`, the JWT `sub`). Set `FERMENTTRACK_SUPABASE_JWT_SECRET` (Supabase Project Settings → API → JWT Secret) or every request gets `503 Auth not configured`. The hosted frontend signs visitors in anonymously (`frontend/src/auth.js`) — no signup wall — so get a token for local API testing the same way: a Supabase anonymous sign-in returns `session.access_token`.
+Cultures (and everything under them — batches, measurements, reminders) are scoped to a Supabase Auth user id (`Culture.owner_id`, the JWT `sub`). The backend needs to know how to verify the Supabase access token:
+
+- `FERMENTTRACK_SUPABASE_URL=https://<project-ref>.supabase.co` — required for current Supabase projects, which sign access tokens with an asymmetric key (ES256/RS256). The public keys are read from `<url>/auth/v1/.well-known/jwks.json` and cached. This is the project URL, not the Postgres connection string.
+- `FERMENTTRACK_SUPABASE_JWT_SECRET` — optional; only for projects still signing with the legacy HS256 secret (Project Settings → API → JWT Secret).
+
+On Render, set `FERMENTTRACK_SUPABASE_URL` on the API service; the JWT secret can stay unset. With neither set every request gets `503 Auth not configured`. The hosted frontend signs visitors in anonymously (`frontend/src/auth.js`) — no signup wall — so get a token for local API testing the same way: a Supabase anonymous sign-in returns `session.access_token`.
 
 ## Related
 

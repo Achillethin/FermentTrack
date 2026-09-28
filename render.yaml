@@ -17,7 +17,12 @@ services:
       # trailing slash, no path.
       - key: FERMENTTRACK_CORS_ORIGINS
         sync: false
-      # Supabase project's JWT secret (Project Settings -> API -> JWT Secret),
-      # used to verify the access token supabase-js issues (fermenttrack.auth).
+      # Supabase project URL, https://<project-ref>.supabase.co (not the
+      # Postgres URL). Access tokens are verified against its JWKS
+      # (fermenttrack.auth).
+      - key: FERMENTTRACK_SUPABASE_URL
+        sync: false
+      # Optional: legacy HS256 JWT secret, only if the project still signs
+      # access tokens with it (Project Settings -> API -> JWT Secret).
       - key: FERMENTTRACK_SUPABASE_JWT_SECRET
         sync: false
