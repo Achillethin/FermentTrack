@@ -1,3 +1,35 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid theme("colors.emerald.400");
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Paper jar label: masking-tape stock with a printed inner rule. */
+  .ft-label {
+    background:
+      radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, 0.28), transparent 60%),
+      theme("colors.paper");
+    outline: 1px solid rgba(42, 33, 23, 0.35);
+    outline-offset: -7px;
+    box-shadow: 0 12px 28px -14px rgba(0, 0, 0, 0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui.jsx";
-import { API_URL, Card, apiError, errText, urgencyColor } from "./shared.jsx";
+import { API_URL, Card, apiError, errText } from "./shared.jsx";
+
+// Reminder urgency is low | medium | high | critical (stages.py); shared.urgencyColor keys safety actions.
+const URGENCY_CLASS = {
+  critical: "text-red-400 border-red-500/40 bg-red-950/40",
+  high: "text-orange-400 border-orange-500/40 bg-orange-950/40",
+  medium: "text-amber-400 border-amber-500/40 bg-amber-950/40",
+  low: "text-slate-400 border-slate-600/40 bg-slate-800/40",
+};
+const urgencyColor = (u) => URGENCY_CLASS[u] || URGENCY_CLASS.low;
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;

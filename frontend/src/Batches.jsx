@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import TemperatureField from "./prediction/TemperatureField.jsx";
 import { parseTemperature } from "./prediction/temperature.js";
 import { Button, Input, Select } from "./components/ui.jsx";
-import { API_URL, Card, SUBSTRATES, timeAgo } from "./shared.jsx";
+import { API_URL, SUBSTRATES, humanize, Card, timeAgo } from "./shared.jsx";
 
 function NewBatch({ onCreated }) {
   const [cultures, setCultures] = useState([]);
@@ -60,7 +60,7 @@ function NewBatch({ onCreated }) {
   }
 
   return (
-    <Card title="Start a new batch">
+    <Card title="Start a batch">
       <form className="space-y-3" onSubmit={submit}>
         <div>
           <label htmlFor="culture-select" className="mb-1 block text-xs text-slate-400">
@@ -150,7 +150,7 @@ function BatchPicker({ onPick, defaultOutcome = "in_progress" }) {
   }, [query, type, outcome]);
 
   return (
-    <Card title="Find a batch">
+    <Card title="Your batches">
       <div className="flex flex-wrap gap-2">
         <Input
           label="Search batches by culture name"
@@ -197,8 +197,8 @@ function BatchPicker({ onPick, defaultOutcome = "in_progress" }) {
               >
                 <span className="text-slate-200">{b.culture_name}</span>
                 <span className="text-slate-500">{b.culture_type}</span>
-                <span className="text-slate-500">{b.current_stage}</span>
-                <span className="text-xs text-slate-600">{timeAgo(b.started_at)}</span>
+                <span className="text-slate-500">{humanize(b.current_stage)}</span>
+                <span className="text-xs text-slate-400">{timeAgo(b.started_at)}</span>
               </button>
             </li>
           ))}
@@ -244,8 +244,11 @@ export default function Batches() {
   };
   return (
     <>
-      <NewBatch onCreated={open} />
+      <p className="max-w-[60ch] text-slate-300">
+        A journal and forecast for every batch you ferment: log what you see, check the model, stay in the safe range.
+      </p>
       <BatchPicker onPick={open} />
+      <NewBatch onCreated={open} />
     </>
   );
 }

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import PredictionPanel from "./prediction/PredictionPanel.jsx";
 import TemperatureEstimate from "./prediction/TemperatureEstimate.jsx";
-import { Button, Input, Select } from "./components/ui.jsx";
-import { API_URL, Card, apiError, errText, urgencyColor } from "./shared.jsx";
+import { Button, Input, Select, TabBar } from "./components/ui.jsx";
+import { API_URL, urgencyColor, humanize, Card, apiError, errText } from "./shared.jsx";
 
 function StageControl({ batchId, onAdvanced }) {
   const [busy, setBusy] = useState(false);
@@ -32,7 +32,7 @@ function StageControl({ batchId, onAdvanced }) {
   return (
     <div className="mt-2">
       <Button variant="secondary" size="sm" onClick={advance} disabled={busy}>
-        {busy ? "Advancing…" : "Advance to next stage →"}
+        {busy ? "Advancing…" : "Advance to next stage"}
       </Button>
       {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
     </div>
@@ -92,30 +92,60 @@ function RepeatBatch({ batchId }) {
   );
 }
 
-function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced, onTemperatureSaved }) {
+function Figure({ value, unit, caption }) {
   return (
-    <Card title="Batch">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <p className="text-lg font-medium">{culture.name}</p>
-          <p className="text-sm text-slate-400">{culture.type}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-medium">{batch.current_stage}</p>
-          <p className="text-sm text-slate-400">
-            {daysInStage.toFixed(1)} day{daysInStage === 1 ? "" : "s"} in stage
-          </p>
-        </div>
-      </div>
-      {batch.target && <p className="mt-2 text-sm text-slate-300">Target: {batch.target}</p>}
-      <TemperatureEstimate apiUrl={API_URL} batch={batch} type={culture.type} onSaved={onTemperatureSaved} />
-      <p className="mt-2 text-xs text-slate-500">
-        Started {new Date(batch.started_at).toLocaleString()} · outcome: {batch.outcome}
+    <div>
+      <p className="font-display text-2xl font-bold leading-none">
+        {value}
+        <span className="ml-1 text-base font-semibold text-ink/70">{unit}</span>
       </p>
-      {batch.outcome === "in_progress" && (
-        <StageControl batchId={batchId} onAdvanced={onAdvanced} />
-      )}
-    </Card>
+      <p className="mt-1 text-xs text-ink/75">{caption}</p>
+    </div>
+  );
+}
+
+const fmtDays = (d) => (d < 10 ? d.toFixed(1) : String(Math.round(d)));
+
+// The batch reads like a paper label stuck on the jar; its controls sit on the
+// dark strip below it.
+function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced, onTemperatureSaved }) {
+  const ageDays = Math.max(0, (Date.now() - new Date(batch.started_at).getTime()) / 86_400_000);
+  const finished = batch.outcome !== "in_progress";
+  return (
+    <section>
+      <div className="ft-label rounded-t-lg p-5 text-ink">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="break-words font-display text-[1.75rem] font-extrabold leading-tight">
+              {culture.name}
+            </h2>
+            <p className="mt-0.5 text-sm capitalize text-ink/75">{humanize(culture.type)}</p>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <span className="-rotate-2 rounded-md border-2 border-ink/80 px-2.5 py-0.5 font-display text-sm font-bold capitalize">
+              {humanize(batch.current_stage)}
+            </span>
+            {finished && (
+              <span className="rounded-md bg-ink px-2 py-0.5 text-xs font-bold capitalize text-paper">
+                {humanize(batch.outcome)}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-4 border-t border-ink/30 pt-3">
+          <Figure value={fmtDays(ageDays)} unit="d" caption="since it started" />
+          <Figure value={fmtDays(daysInStage)} unit="d" caption="in this stage" />
+        </div>
+        {batch.target && <p className="mt-3 text-sm">Target: {batch.target}</p>}
+      </div>
+      <div className="rounded-b-lg border border-t-0 border-slate-800 bg-slate-900/60 px-4 pb-4 pt-2 sm:px-5">
+        <TemperatureEstimate apiUrl={API_URL} batch={batch} type={culture.type} onSaved={onTemperatureSaved} />
+        <p className="mt-2 text-xs text-slate-400">
+          Started {new Date(batch.started_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+        </p>
+        {!finished && <StageControl batchId={batchId} onAdvanced={onAdvanced} />}
+      </div>
+    </section>
   );
 }
 
@@ -466,7 +496,9 @@ function Recipe({ batchId, substrate, recipe, saltSuggestion, onAdded }) {
   return (
     <Card title="Recipe">
       {recipe.length === 0 ? (
-        <p className="mb-3 text-sm text-slate-500">No ingredients logged yet.</p>
+        <p className="mb-3 text-sm text-slate-400">
+          No ingredients yet. Add them with quantities and the forecast will start from your recipe.
+        </p>
       ) : (
         <ul className="mb-3 divide-y divide-slate-800">
           {recipe.map((item) => (
@@ -1121,53 +1153,110 @@ function Biochemistry({ batchId, type }) {
   );
 }
 
+// Timeline events carry {type, value_numeric, value_text, notes}; notes are stored as type "note".
+function eventLine(event) {
+  const d = event.detail || {};
+  const isNote = event.kind === "note";
+  const value = [d.value_numeric, d.value_text].filter((v) => v != null && v !== "").join(" · ");
+  const type = String(d.type ?? "");
+  const title = isNote ? "Note" : type === "pH" ? type : type.charAt(0).toUpperCase() + type.slice(1);
+  return { title, value, extra: isNote ? null : d.notes };
+}
+
 function Timeline({ timeline }) {
   if (timeline.length === 0) {
     return (
-      <Card title="Timeline">
-        <p className="text-sm text-slate-500">No events yet.</p>
+      <Card title="History">
+        <p className="text-sm text-slate-400">Nothing logged yet. Observations and notes you add appear here.</p>
       </Card>
     );
   }
   return (
-    <Card title="Timeline">
-      <ul className="space-y-2">
+    <Card title="History">
+      <ol className="ml-1.5 border-l border-slate-700">
         {timeline
           .slice()
           .reverse()
-          .map((event, i) => (
-            <li key={i} className="text-sm">
-              <span className="text-slate-500">
-                {new Date(event.timestamp).toLocaleString()}
-              </span>{" "}
-              <span className="text-slate-300">· {event.kind}</span>
-              <div className="text-slate-400">{JSON.stringify(event.detail)}</div>
-            </li>
-          ))}
-      </ul>
+          .map((event, i) => {
+            const { title, value, extra } = eventLine(event);
+            return (
+              <li key={i} className="relative pb-4 pl-5 last:pb-0">
+                <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-slate-900 bg-emerald-400" />
+                <p className="text-sm text-slate-100">
+                  <span className="font-medium">{title}</span>
+                  {value && <span className="text-slate-300">: {value}</span>}
+                </p>
+                {extra && <p className="text-sm text-slate-300">{extra}</p>}
+                <p className="text-xs text-slate-400">
+                  {new Date(event.timestamp).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                </p>
+              </li>
+            );
+          })}
+      </ol>
     </Card>
   );
 }
 
+function SafetyIcon({ ok, hard }) {
+  return (
+    <svg viewBox="0 0 16 16" className="mt-0.5 h-4 w-4 shrink-0" fill="none" aria-hidden="true">
+      {ok ? (
+        <>
+          <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M5.2 8.2l1.9 1.9 3.7-3.9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      ) : hard ? (
+        <>
+          <path d="M5.2 1.8h5.6l3.4 3.4v5.6l-3.4 3.4H5.2L1.8 10.8V5.2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+          <path d="M8 4.8v3.6M8 10.6v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <path d="M8 2.2l6.2 11H1.8L8 2.2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+          <path d="M8 6.5v3M8 11.4v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+// Shown above the tabs so a hard stop is never hidden on another tab. With no
+// verdicts it collapses to a single quiet line.
 function Safety({ safety }) {
   const verdicts = [...safety.hard_stops, ...safety.warnings];
+  if (verdicts.length === 0) {
+    return (
+      <p
+        className={`flex gap-2 rounded-xl border px-4 py-2.5 text-sm ${
+          safety.safe
+            ? "border-emerald-500/25 bg-emerald-950/30 text-emerald-200"
+            : "border-red-500/40 bg-red-950/40 text-red-300"
+        }`}
+      >
+        <SafetyIcon ok={safety.safe} hard />
+        <span>{safety.summary_en}</span>
+      </p>
+    );
+  }
   return (
-    <Card title="Safety Advisory">
-      <p className={`mb-2 text-sm font-medium ${safety.safe ? "text-emerald-400" : "text-red-400"}`}>
+    <Card title="Safety">
+      <p className={`mb-3 text-sm font-medium ${safety.safe ? "text-emerald-300" : "text-red-300"}`}>
         {safety.summary_en}
       </p>
-      {verdicts.length > 0 && (
-        <ul className="space-y-2">
-          {verdicts.map((v) => (
-            <li key={v.rule_id} className={`rounded-lg border p-2 text-sm ${urgencyColor(v.action)}`}>
+      <ul className="space-y-2">
+        {verdicts.map((v) => (
+          <li key={v.rule_id} className={`flex gap-2 rounded-lg border p-3 text-sm ${urgencyColor(v.action)}`}>
+            <SafetyIcon hard={safety.hard_stops.includes(v)} />
+            <div>
               <p>
-                <strong className="uppercase">{v.action}:</strong> {v.reason_text_en}
+                <strong className="capitalize">{humanize(v.action)}:</strong> {v.reason_text_en}
               </p>
-              <p className="mt-1 text-xs opacity-70">{v.source_citation}</p>
-            </li>
-          ))}
-        </ul>
-      )}
+              <p className="mt-1 text-xs opacity-75">{v.source_citation}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }
@@ -1177,6 +1266,7 @@ export default function BatchView({ batchId }) {
   const [composition, setComposition] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState("forecast");
 
   async function loadPreview(id) {
     if (!id) return;
@@ -1202,10 +1292,32 @@ export default function BatchView({ batchId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const TABS = [
+    { id: "forecast", label: "Forecast" },
+    { id: "log", label: "Log" },
+    { id: "recipe", label: "Recipe" },
+    { id: "biochemistry", label: "Biochemistry" },
+  ];
+  const panel = (id, children) => (
+    <div
+      role="tabpanel"
+      id={`bt-panel-${id}`}
+      aria-labelledby={`bt-tab-${id}`}
+      hidden={tab !== id}
+      className="space-y-4 pt-4"
+    >
+      {children}
+    </div>
+  );
+
   return (
     <>
-      {loading && <p className="text-sm text-slate-500">Loading batch…</p>}
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {loading && <p className="text-sm text-slate-400">Loading batch…</p>}
+      {error && (
+        <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+          {error === "Batch not found" ? "Batch not found. Check the ID, or pick a batch from the list." : error}
+        </p>
+      )}
 
       {preview && (
         <>
@@ -1218,24 +1330,42 @@ export default function BatchView({ batchId }) {
             onTemperatureSaved={() => loadPreview(preview.batch.id)}
           />
           <RepeatBatch batchId={batchId} />
-          <PredictionPanel
-            key={preview.batch.id}
-            apiUrl={API_URL}
-            batchId={preview.batch.id}
-            startedAt={preview.batch.started_at}
-          />
-          <LogObservation batchId={batchId} onLogged={() => loadPreview(batchId)} />
-          <Recipe
-            batchId={batchId}
-            substrate={preview.culture.type}
-            recipe={preview.recipe}
-            saltSuggestion={composition?.salt_suggestion}
-            onAdded={() => loadPreview(batchId)}
-          />
-          <Composition data={composition} />
-          <Biochemistry batchId={preview.batch.id} type={preview.culture.type} />
-          <Timeline timeline={preview.timeline} />
           <Safety safety={preview.safety} />
+
+          <div className="sticky top-0 z-20 -mx-4 bg-slate-950/95 px-4 backdrop-blur">
+            <TabBar tabs={TABS} selected={tab} onSelect={setTab} idBase="bt" label="Batch sections" />
+          </div>
+
+          {panel(
+            "forecast",
+            <PredictionPanel
+              key={preview.batch.id}
+              apiUrl={API_URL}
+              batchId={preview.batch.id}
+              startedAt={preview.batch.started_at}
+            />
+          )}
+          {panel(
+            "log",
+            <>
+              <LogObservation batchId={batchId} onLogged={() => loadPreview(batchId)} />
+              <Timeline timeline={preview.timeline} />
+            </>
+          )}
+          {panel(
+            "recipe",
+            <>
+              <Recipe
+                batchId={batchId}
+                substrate={preview.culture.type}
+                recipe={preview.recipe}
+                saltSuggestion={composition?.salt_suggestion}
+                onAdded={() => loadPreview(batchId)}
+              />
+              <Composition data={composition} />
+            </>
+          )}
+          {panel("biochemistry", <Biochemistry batchId={preview.batch.id} type={preview.culture.type} />)}
         </>
       )}
     </>

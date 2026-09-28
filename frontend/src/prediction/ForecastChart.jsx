@@ -296,7 +296,7 @@ export default function ForecastChart({
                 <span
                   aria-hidden="true"
                   className="inline-block h-[3px] w-4 rounded-full"
-                  style={{ background: on ? seriesColor(s.slot) : "#475569" }}
+                  style={{ background: on ? seriesColor(s.slot) : "#6a6051" }}
                 />
                 <span className={s.key.startsWith("pop:") ? "italic" : undefined}>{s.label}</span>
               </button>

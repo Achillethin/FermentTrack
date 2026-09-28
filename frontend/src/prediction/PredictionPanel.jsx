@@ -74,33 +74,33 @@ function EncodingKey({ hasUnused }) {
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400" aria-label="How to read the charts" role="note">
       <span className={item}>
         <svg width="16" height="8" aria-hidden="true">
-          <line x1="1" x2="15" y1="4" y2="4" stroke="#cbd5e1" strokeWidth="2" strokeLinecap="round" />
+          <line x1="1" x2="15" y1="4" y2="4" stroke="#c2b8a7" strokeWidth="2" strokeLinecap="round" />
         </svg>
         model median
       </span>
       <span className={item}>
         <svg width="16" height="10" aria-hidden="true">
-          <rect x="0" y="0" width="16" height="10" rx="2" fill="#cbd5e1" fillOpacity="0.25" />
+          <rect x="0" y="0" width="16" height="10" rx="2" fill="#c2b8a7" fillOpacity="0.25" />
         </svg>
         90 % range
       </span>
       <span className={item}>
         <svg width="10" height="10" aria-hidden="true">
-          <circle cx="5" cy="5" r="4" fill="#f8fafc" />
+          <circle cx="5" cy="5" r="4" fill="#f6f2ec" />
         </svg>
         your reading
       </span>
       {hasUnused && (
         <span className={item}>
           <svg width="10" height="10" aria-hidden="true">
-            <circle cx="5" cy="5" r="3.5" fill="none" stroke="#f8fafc" strokeWidth="1.5" />
+            <circle cx="5" cy="5" r="3.5" fill="none" stroke="#f6f2ec" strokeWidth="1.5" />
           </svg>
           not used by the model
         </span>
       )}
       <span className={item}>
         <svg width="8" height="12" aria-hidden="true">
-          <line x1="4" x2="4" y1="0" y2="12" stroke="#cbd5e1" strokeWidth="1" />
+          <line x1="4" x2="4" y1="0" y2="12" stroke="#c2b8a7" strokeWidth="1" />
         </svg>
         now: reconstructed before, forecast after
       </span>
@@ -316,7 +316,7 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
       aria-busy={loading}
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="forecast-heading" className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+        <h2 id="forecast-heading" className="font-display text-lg font-bold text-slate-100">
           Fermentation forecast
         </h2>
         {data?.model?.confidence === "exploratory" ? (

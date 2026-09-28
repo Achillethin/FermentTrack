@@ -5,6 +5,7 @@ import Compare from "./Compare.jsx";
 import ExportButton from "./ExportButton.jsx";
 import Logbook from "./Logbook.jsx";
 import Today from "./Today.jsx";
+import { JarMark } from "./shared.jsx";
 
 // Legacy deep links: ?batch=<id> (pre-router) becomes #/batch/<id>.
 const legacyBatch = new URLSearchParams(window.location.search).get("batch");
@@ -42,8 +43,13 @@ export default function App() {
   const active = page === "batch" ? "batches" : page; // a batch page lives under Batches
 
   return (
-    <main className="mx-auto max-w-2xl space-y-4 p-4">
-      <h1 className="text-2xl font-bold">🧫 FermentTrack</h1>
+    <main className="mx-auto max-w-2xl space-y-4 px-4 pb-16 pt-3">
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="flex items-center gap-2 font-display text-xl font-extrabold tracking-tight">
+          <JarMark />
+          FermentTrack
+        </h1>
+      </header>
 
       <nav aria-label="Main" className="flex flex-wrap items-center gap-1 text-sm">
         {NAV.map(([key, label]) => (
@@ -51,7 +57,7 @@ export default function App() {
             key={key}
             href={`#/${key}`}
             aria-current={active === key ? "page" : undefined}
-            className={`rounded-lg px-3 py-2 ${
+            className={`flex min-h-[44px] items-center rounded-lg px-3 ${
               active === key ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200"
             }`}
           >

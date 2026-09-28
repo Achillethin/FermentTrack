@@ -17,10 +17,20 @@ export default defineConfig({
         description: "Batch journal and smart reminders for serious fermenters",
         start_url: process.env.VITE_BASE || "/FermentTrack/",
         display: "standalone",
-        background_color: "#0f172a",
-        theme_color: "#0f172a",
+        background_color: "#120f0c",
+        theme_color: "#120f0c",
         icons: [
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
+        ],
+      },
+      workbox: {
+        // Keep the Google Fonts CSS/files after first load so the installed app renders offline.
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\//,
+            handler: "StaleWhileRevalidate",
+            options: { cacheName: "fonts" },
+          },
         ],
       },
     }),
