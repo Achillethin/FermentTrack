@@ -31,6 +31,10 @@ HOMOLACTIC = {"lactic_acid": 0.90}
 # on glucose; with fructose as electron acceptor part goes to mannitol (untracked) and
 # acetate replaces ethanol. The split is a typical mixed outcome on vegetable sugars.
 HETEROLACTIC = {"lactic_acid": 0.45, "ethanol": 0.12, "acetic_acid": 0.10, "co2": 0.22}
+# L. sanfranciscensis on maltose: maltose phosphorylase gives glucose-1-P (fermented) and
+# free glucose, which the cell excretes while maltose lasts (Stolz et al. 1993; Gänzle
+# 2007): per hexose equivalent taken up, half goes back out as glucose.
+MALTOSE_PHOSPHOROLYSIS = {"hexoses": 0.5, **{k: v / 2 for k, v in HETEROLACTIC.items()}}
 # acetic acid bacteria: ethanol -> acetic acid, 1.304 g/g theoretical, 1.0-1.25 observed.
 ACETIC_OXIDATION = {"acetic_acid": 1.20}
 # glucose -> gluconic acid, 1.089 g/g theoretical.
@@ -100,6 +104,7 @@ def _r(lo: float, med: float, hi: float) -> Prior:
 # acetic acid bacteria: ~0.2-0.3 pg per cell, but they grow in pairs and chains, so one CFU
 # is typically 2-4 cells.
 YEAST_CELL_G = 2e-11
+BAKERS_YEAST = "Baker's yeast (S. cerevisiae)"
 LAB_CELL_G = 6e-13
 COCCUS_CELL_G = 5e-13
 
@@ -335,15 +340,19 @@ ORGANISM_KINETICS: dict[str, OrganismKinetics] = {
         OrganismKinetics(
             name="Lactobacillus sanfranciscensis",
             kingdom="bacteria",
-            role="sourdough lactic acid bacterium: maltose -> lactic + acetic acid, CO2",
+            role="sourdough lactic acid bacterium: maltose -> lactic + acetic acid, CO2; "
+            "releases glucose that maltose-negative yeasts live on",
             channels=(
-                Channel(("maltose",), HETEROLACTIC),
-                Channel(("hexoses",), HETEROLACTIC, weight=0.3),
+                Channel(("maltose",), MALTOSE_PHOSPHOROLYSIS),
+                # prefers maltose; glucose only when maltose runs out (Stolz et al. 1993)
+                Channel(("hexoses",), HETEROLACTIC, weight=0.1),
             ),
             mu_max=_r(0.5, 0.71, 0.9),  # Gänzle 1998
             ks=_r(0.4, 1.0, 3.0),  # est. 0.3-5
-            yield_xs=_r(0.08, 0.13, 0.2),
-            maint=_r(0.6, 1.2, 2.5),  # est.; sourdough acidifies in 8-16 h (Minervini 2012)
+            # per hexose-equivalent taken up; half leaves again as glucose, so yield and
+            # maintenance are twice the fermented-sugar values (same acid per g biomass)
+            yield_xs=_r(0.04, 0.065, 0.1),
+            maint=_r(1.2, 2.4, 5.0),  # est.; sourdough acidifies in 8-16 h (Minervini 2012)
             t_min=_t(3.0, 8.0, 15.0),  # est.
             t_opt=_t(31.0, 32.0, 33.5),  # Gänzle 1998; Brandt 2004
             t_max=_t(38.0, 40.0, 41.0),
@@ -361,6 +370,131 @@ ORGANISM_KINETICS: dict[str, OrganismKinetics] = {
             sources=(
                 "Gänzle et al. 1998 AEM 64:2616",
                 "Brandt et al. 2004 Eur Food Res Technol 218:333",
+                "Stolz et al. 1993 FEMS Microbiol Lett 109:237",
+            ),
+        ),
+        # Commercial yeast (poolish, biga, hybrid and Type II/III doughs). Same species as the
+        # wild starter yeast above, very different state: grown aerobically for maximal
+        # fermentative capacity. Rheofermentometer doughs (1.5-2 % fresh yeast) make ~500 mL
+        # CO2/h per 4.5 g fresh yeast, ~0.7 g CO2 (~1.6 g sugar) per g dry yeast per hour.
+        # Planner-only: not a reference organism (no DB row, never pooled).
+        OrganismKinetics(
+            name=BAKERS_YEAST,
+            kingdom="yeast",
+            role="commercial baker's yeast: ferments sugars to ethanol + CO2 fast from the start",
+            channels=(Channel(("hexoses", "maltose"), ALCOHOLIC),),
+            mu_max=_r(0.2, 0.3, 0.45),
+            ks=_r(0.5, 1.0, 2.5),
+            yield_xs=_r(0.05, 0.10, 0.15),
+            maint=_r(0.9, 1.5, 2.5),  # est. from gas production (above)
+            t_min=_t(0.4, 2.8, 5.0),  # Salvadó 2011
+            t_opt=_t(30.0, 32.3, 34.8),
+            t_max=_t(42.0, 45.4, 46.1),
+            ph_min=_t(2.2, 2.5, 3.0),
+            ph_opt=_t(4.5, 5.0, 5.5),
+            ph_max=_t(7.5, 8.0, 8.5),
+            mic_lactic_mm=_r(150.0, 300.0, 600.0),
+            mic_acetic_mm=_r(60.0, 100.0, 150.0),
+            aw_min=_t(0.88, 0.90, 0.92),
+            ethanol_max=_r(90.0, 112.0, 120.0),
+            x_max=_t(8.0, 8.6, 9.2),  # commercial doses reach 1e8-1e9 cells/g dough
+            h0=_r(0.05, 0.2, 0.6),  # active dry/fresh yeast starts within minutes
+            k_death=_r(0.001, 0.003, 0.01),
+            cell_mass_g=YEAST_CELL_G,
+            inverts_sucrose=_r(0.4, 1.2, 3.0),
+            sources=("Salvadó et al. 2011 AEM 77:2292", "Chopin Rheo F4 data sheet"),
+        ),
+        # Sourdough organisms added with the sourdough engine (2026-09-28): the classic
+        # traditional-sourdough yeast, a home-starter heterofermenter, a Type II thermophile.
+        OrganismKinetics(
+            name="Kazachstania humilis",  # formerly Candida milleri / C. humilis
+            kingdom="yeast",
+            role="sourdough yeast: cannot use maltose, lives on the glucose lactobacilli "
+            "release; ferments it to ethanol + CO2 (leavening)",
+            channels=(Channel(("hexoses",), ALCOHOLIC),),
+            mu_max=_r(0.2, 0.3, 0.45),  # est., comparable to S. cerevisiae in dough
+            ks=_r(0.5, 1.0, 2.5),
+            yield_xs=_r(0.05, 0.10, 0.15),  # est., anaerobic
+            maint=_r(0.1, 0.3, 0.8),  # est.
+            t_min=_t(0.0, 4.0, 8.0),  # est.
+            t_opt=_t(26.0, 27.5, 29.0),  # 27 (Gänzle 1998), 28 (Brandt 2004)
+            t_max=_t(34.0, 35.5, 37.0),  # no growth at 35-36 °C
+            ph_min=_t(2.8, 3.2, 3.6),  # unaffected at pH 3.5-5.5 (Brandt 2004)
+            ph_opt=_t(4.5, 5.0, 5.5),
+            ph_max=_t(7.5, 8.0, 8.5),
+            # lactate 50-250 mM at pH 4 (<= ~105 mM undissociated) had no effect
+            mic_lactic_mm=_r(200.0, 400.0, 800.0),
+            # acetate 140-175 mM at pH 4 (~120-150 mM undissociated) slowed it (Carbonetto 2020)
+            mic_acetic_mm=_r(100.0, 150.0, 250.0),
+            aw_min=_t(0.89, 0.91, 0.93),  # tolerates 4 % NaCl on flour (Brandt 2004), est.
+            ethanol_max=_r(60.0, 90.0, 120.0),  # est.
+            x_max=_t(7.3, 7.8, 8.3),  # 1.6e8 alone, 0.9e8 with LAB (Carbonetto 2020)
+            h0=_r(0.2, 0.8, 2.5),
+            k_death=_r(0.001, 0.003, 0.01),
+            cell_mass_g=YEAST_CELL_G,
+            sources=(
+                "Gänzle et al. 1998 AEM 64:2616",
+                "Brandt et al. 2004 Eur Food Res Technol 218:333",
+                "Carbonetto et al. 2020 Microorganisms 8:240",
+            ),
+        ),
+        OrganismKinetics(
+            name="Lactobacillus brevis",  # now Levilactobacillus brevis
+            kingdom="bacteria",
+            role="heterofermentative lactic acid bacterium common in home starters and rye "
+            "sours: maltose and glucose -> lactic + acetic acid, ethanol, CO2",
+            channels=(Channel(("maltose", "hexoses"), HETEROLACTIC),),
+            mu_max=_r(0.3, 0.5, 0.8),  # est. (MRS, 30 °C)
+            ks=_r(0.4, 1.0, 3.0),
+            yield_xs=_r(0.08, 0.13, 0.2),
+            maint=_r(0.4, 0.9, 2.0),  # est.
+            t_min=_t(5.0, 8.0, 12.0),  # est.
+            t_opt=_t(29.0, 32.0, 35.0),  # grows at 15, not at 45 °C
+            t_max=_t(40.0, 42.0, 45.0),
+            ph_min=_t(3.3, 3.5, 3.8),  # acid-tolerant (beer spoiler), est.
+            ph_opt=_t(5.0, 5.5, 6.0),
+            ph_max=_t(7.5, 8.0, 8.5),
+            mic_lactic_mm=_r(40.0, 80.0, 150.0),
+            mic_acetic_mm=_r(100.0, 180.0, 300.0),
+            aw_min=_t(0.93, 0.945, 0.96),  # est.
+            ethanol_max=_r(60.0, 90.0, 130.0),
+            x_max=_t(8.5, 9.0, 9.4),
+            h0=_r(1.0, 2.5, 6.0),
+            k_death=_r(0.001, 0.004, 0.012),
+            cell_mass_g=LAB_CELL_G,
+            sources=(
+                "De Vuyst & Neysens 2005 Trends Food Sci Technol 16:43",
+                "Landis et al. 2021 eLife 10:e61644",
+                "Minervini et al. 2014 AEM 80:3161",
+            ),
+        ),
+        OrganismKinetics(
+            name="Lactobacillus reuteri",  # now Limosilactobacillus reuteri
+            kingdom="bacteria",
+            role="thermophilic Type II sourdough lactobacillus: maltose -> lactic + acetic "
+            "acid at 35-40 °C; acidifies, barely leavens",
+            channels=(Channel(("maltose", "hexoses"), HETEROLACTIC),),
+            mu_max=_r(0.4, 0.7, 1.1),  # est.
+            ks=_r(0.4, 1.0, 3.0),
+            yield_xs=_r(0.08, 0.13, 0.2),
+            maint=_r(0.4, 1.0, 2.2),  # est.
+            t_min=_t(8.0, 12.0, 15.0),  # est.
+            t_opt=_t(37.0, 39.5, 42.0),  # Type II runs at 30-40 °C (Gänzle & Vogel 2003)
+            t_max=_t(45.0, 47.0, 49.0),
+            ph_min=_t(3.4, 3.6, 3.9),  # Type II sours reach pH ~3.5, est.
+            ph_opt=_t(5.5, 6.0, 6.5),
+            ph_max=_t(7.5, 8.0, 8.5),
+            mic_lactic_mm=_r(50.0, 100.0, 180.0),
+            mic_acetic_mm=_r(80.0, 150.0, 250.0),
+            aw_min=_t(0.94, 0.955, 0.97),  # est.
+            ethanol_max=_r(50.0, 80.0, 120.0),
+            x_max=_t(8.8, 9.2, 9.6),
+            h0=_r(1.0, 2.5, 6.0),
+            k_death=_r(0.001, 0.004, 0.012),
+            cell_mass_g=LAB_CELL_G,
+            sources=(
+                "Gänzle & Vogel 2003 Int J Food Microbiol 80:31",
+                "De Vuyst & Neysens 2005 Trends Food Sci Technol 16:43",
             ),
         ),
         OrganismKinetics(

@@ -77,6 +77,8 @@ proof?: temperature_c, hours
 | Salted bulk dough rises slower per cell than the unsalted levain; retard at 4 °C nearly stops rise | Gänzle 1998 (4 % NaCl) |
 | Existing sourdough/other-type tests unchanged | — |
 
+**Known calibration gap (2026-09-28):** the prior's median levain peak is ~1.5-2x slower than the fastest baker rules of thumb at low dilution (1:1:1 at 25.6 °C: median ~11 h, p05 ~6.5 h, vs "4-8 h"); at 1:4:4 the band (8.6-22.6 h) covers the ~12 h reported. The rise sub-model is phenomenological (saturation, retention cap, leak growing with cumulative acid exposure); its four parameters are the first thing jar readings recalibrate. Next step: fit the rise parameters to published dough-volume curves (Romano et al. 2007; Landis et al. 2021 rise data) instead of rules of thumb.
+
 ## 6. Learning per levain type, per baker, per starter (`prediction/population.py`, replaces the plug-in pooling)
 
 Owner requirement: "Achille's classic levain" inherits the **classic levain** class *and* **Achille**; "Aymard's rye levain" inherits the **rye** class and **Aymard**. So the effects are crossed and additive, per organism and pooled parameter (`mu_max`, `t_opt`), in the **literature prior's z-units** u (the literature prior is exactly N(0, 1) there):

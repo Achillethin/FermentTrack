@@ -30,6 +30,10 @@ OBS_SIGMA: dict[str, tuple[float, float]] = {
     "ph": (0.15, 0.15),
     "gravity": (0.002, 0.003),
     "brix": (0.3, 0.8),
+    # sourdough (est.): a jar mark reads to ~10 percentage points; the rise model is a
+    # coarse gas balance. TTA titration ~0.5 mL; model error mostly the buffer.
+    "rise": (10.0, 20.0),
+    "tta": (0.5, 1.5),
 }
 MIN_ESS = 15.0
 TARGET_ESS_FRACTION = 0.3
@@ -38,7 +42,7 @@ MAX_ROUNDS = 3
 
 @dataclass(frozen=True)
 class Observation:
-    key: str  # "ph" | "gravity" | "brix"
+    key: str  # "ph" | "gravity" | "brix" | a Trajectories.extra key ("rise", "tta")
     t_h: float
     value: float
 
@@ -99,6 +103,7 @@ def _stack(trs: list[Trajectories]) -> Trajectories:
         pools=np.concatenate([t.pools for t in trs]),
         biomass_g=np.concatenate([t.biomass_g for t in trs]),
         ph=np.concatenate([t.ph for t in trs]),
+        extra={k: np.concatenate([t.extra[k] for t in trs]) for k in trs[0].extra},
     )
 
 
@@ -119,9 +124,11 @@ def log_likelihood(
         elif o.key == "gravity":
             assert sg is not None
             pred = sg[:, i]
-        else:
+        elif o.key == "brix":
             assert brix is not None
             pred = brix[:, i]
+        else:
+            pred = tr.extra[o.key][:, i]
         s_meas, s_model = OBS_SIGMA[o.key]
         sigma2 = s_meas**2 + s_model**2
         r2 = (pred - o.value) ** 2
@@ -139,6 +146,12 @@ def _normalise(logw: FloatArray) -> tuple[FloatArray, float]:
     w = np.exp(logw - np.max(logw))
     w /= w.sum()
     return w, float(1.0 / np.sum(w**2))
+
+
+def _simulate(spec: ModelSpec, z: FloatArray, t_eval: FloatArray) -> Trajectories:
+    """A spec may chain several phases itself (sourdough.SourdoughModel.simulate_z)."""
+    chained = getattr(spec, "simulate_z", None)
+    return chained(z, t_eval) if chained else simulate(spec.params(z), t_eval)
 
 
 def run(
@@ -163,7 +176,7 @@ def run(
         return rng.standard_normal((k, 1))
 
     z0 = np.hstack([rng.standard_normal((n, d)), draw_extra(n)])
-    trs = [simulate(spec.params(z0[:, :d]), t_eval)]
+    trs = [_simulate(spec, z0[:, :d], t_eval)]
     zs = [z0]
     lls = [log_likelihood(trs[0], obs, t_index, solids(z0))]
     proposals = [(np.zeros(d + 1), np.ones(d + 1))]
@@ -186,7 +199,7 @@ def run(
         var = np.clip(var * 1.5, 0.05, 1.0)  # inflate: proposals should over-cover
         # adaptation rounds only need to locate the posterior: half-size batches
         z_new = mean + np.sqrt(var) * rng.standard_normal((max(n // 2, 48), d + 1))
-        tr_new = simulate(spec.params(z_new[:, :d]), t_eval)
+        tr_new = _simulate(spec, z_new[:, :d], t_eval)
         zs.append(z_new)
         trs.append(tr_new)
         lls.append(log_likelihood(tr_new, obs, t_index, solids(z_new)))

@@ -48,6 +48,12 @@ ORGANISMS: dict[str, str] = {
     "Acetobacter pasteurianus": "bacteria",
     "Lactobacillus kefiri": "bacteria",
     "Lactobacillus kefiranofaciens": "bacteria",
+    # Sourdough engine (2026-09-28): rows added by migration 0016, not yet in a KEGG
+    # snapshot (no enzyme links). Current names: Levilactobacillus brevis,
+    # Limosilactobacillus reuteri; Kazachstania humilis was Candida milleri/humilis.
+    "Kazachstania humilis": "yeast",
+    "Lactobacillus brevis": "bacteria",
+    "Lactobacillus reuteri": "bacteria",
 }
 
 # Hand-curated: fermentation_type -> default organisms (dominant, not exhaustive).

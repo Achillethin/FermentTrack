@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.integrate import solve_ivp  # type: ignore[import-untyped]
@@ -109,6 +109,8 @@ PRODUCTION_MIC_FACTOR = 2.5
 # Above an organism's maximum growth temperature cells die: ~0.1 ln-units per hour per °C
 # over Tmax (est.; e.g. salt-loving LAB in 60 °C koji garum are gone within hours).
 K_HEAT = 0.1
+MW_ETHANOL = 46.07
+MW_ACETIC = 60.05
 
 
 class SimulationError(RuntimeError):
@@ -292,6 +294,11 @@ class EnsembleParams:
     protease_late: FloatArray  # 1/h protease made per unit grown mycelium after growth
     fish_peptidase_k: FloatArray  # 1/h per unit fish enzyme at 50 °C (salt, access applied)
     k_flour_amylase: FloatArray  # 1/h at 50 °C, cereal enzymes (no koji needed)
+    # Heterolactic C2 branch (sourdough only; None elsewhere): the share phi of acetyl-P
+    # ending as acetate instead of ethanol, at 25 °C; phi(T) = phi25 * 2^((25 - T)/10).
+    # Electron acceptors (fructose, O2) let heterofermenters make acetate; stiff and cool
+    # doughs end up more acetic (Minervini et al. 2014; Gänzle 2014).
+    c2_acetate: FloatArray | None = None
 
 
 @dataclass
@@ -300,6 +307,10 @@ class Trajectories:
     pools: FloatArray  # (N, T, N_POOLS)
     biomass_g: FloatArray  # (N, T, M) g/kg
     ph: FloatArray  # (N, T)
+    # Derived series computed outside the ODE (sourdough rise, TTA): key -> (N, T). The
+    # likelihood reads readings of these keys from here.
+    extra: dict[str, FloatArray] = field(default_factory=dict)
+    y_end: FloatArray | None = None  # (N, state) raw state at the last time: a next phase's y0
 
 
 def _state_size(n_org: int) -> int:
@@ -327,6 +338,13 @@ def make_rhs(
     enz = p.enzymes
     amy_t = [np.full(n, v) for v in AMYLASE_PRODUCTION_T]
     pro_t = [np.full(n, v) for v in PROTEASE_PRODUCTION_T]
+    # mol of C2 (ethanol + acetate) per g of flux, for channels the C2 split re-divides
+    c2_mol = {
+        id(ch): ch.products["ethanol"] / MW_ETHANOL + ch.products.get("acetic_acid", 0.0) / MW_ACETIC
+        for o in p.organisms
+        for ch in o.kin.channels
+        if p.c2_acetate is not None and "ethanol" in ch.products and "lactic_acid" in ch.products
+    }
 
     def rhs(t: float, y_flat: FloatArray) -> FloatArray:
         evals[0] += 1
@@ -338,6 +356,11 @@ def make_rhs(
         dp = dy[:, :N_POOLS]
         temp = p.temperature(t)
 
+        phi = (
+            np.clip(p.c2_acetate * 2.0 ** ((25.0 - temp) / 10.0), 0.0, 0.95)
+            if p.c2_acetate is not None
+            else None
+        )
         acids = acid_moles(pools)
         h = solve_h(acids, p.buffer, p.z_strong, p.acid_ka, h_cache[0])
         h_cache[0] = h
@@ -401,8 +424,15 @@ def make_rhs(
                         frac = np.where(total > 0, pools[:, PI[k]] / total, 0.0)
                         conv = HEXOSE_PER_G.get(k, 1.0)
                         dp[:, PI[k]] -= v * frac / conv
+                    c2 = c2_mol.get(id(ch))
                     for prod, yld in ch.products.items():
+                        if c2 is not None and prod in ("ethanol", "acetic_acid"):
+                            continue
                         dp[:, PI[prod]] += v * yld
+                    if c2 is not None:
+                        assert phi is not None
+                        dp[:, PI["ethanol"]] += v * c2 * (1.0 - phi) * MW_ETHANOL
+                        dp[:, PI["acetic_acid"]] += v * c2 * phi * MW_ACETIC
 
             if o.invertase is not None:
                 suc = pools[:, PI["sucrose"]]
@@ -472,10 +502,17 @@ MAX_EVALS = 4000
 
 
 def simulate(
-    p: EnsembleParams, t_eval: FloatArray, max_evals: int | None = MAX_EVALS
+    p: EnsembleParams,
+    t_eval: FloatArray,
+    max_evals: int | None = MAX_EVALS,
+    y0: FloatArray | None = None,
 ) -> Trajectories:
-    """Integrate all members over t_eval (hours, increasing, starting at 0)."""
-    y0 = initial_state(p)
+    """Integrate all members over t_eval (hours, increasing, starting at 0).
+
+    `y0` (N, state size) starts from a given state instead of `initial_state(p)`: the next
+    phase of a multi-phase process (sourdough: levain -> dough -> proof)."""
+    if y0 is None:
+        y0 = initial_state(p)
     rhs = make_rhs(p, max_evals)
     # Pools to 1e-3 g/kg, log-states (ln X, ln q) to 1 %: finer than any reported digit.
     atol = np.tile(
@@ -503,4 +540,7 @@ def simulate(
     for i in range(len(t_eval)):
         h = solve_h(acid_moles(pools[:, i, :]), p.buffer, p.z_strong, p.acid_ka, h)
         ph[:, i] = -np.log10(h)
-    return Trajectories(t_h=np.asarray(t_eval, dtype=float), pools=pools, biomass_g=biomass, ph=ph)
+    return Trajectories(
+        t_h=np.asarray(t_eval, dtype=float), pools=pools, biomass_g=biomass, ph=ph,
+        y_end=ys[:, -1, :].copy(),
+    )
