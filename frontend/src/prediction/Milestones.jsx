@@ -77,14 +77,14 @@ export default function Milestones({ data, whatIf, exploratory }) {
           }`}
         >
           <p
-            className={`text-xs font-medium uppercase tracking-wide ${
+            className={`text-sm font-medium ${
               whatIf ? "text-amber-200" : "text-emerald-300/90"
             }`}
           >
             Next milestone · {kind}
           </p>
           <p className="mt-1.5 text-base font-medium text-slate-100">{hero.title}</p>
-          <p className="mt-0.5 text-3xl font-semibold tracking-tight text-white sm:text-4xl">{hero.d.when}</p>
+          <p className="mt-0.5 font-display text-4xl font-extrabold tracking-tight text-white sm:text-5xl">{hero.d.when}</p>
           <p className="mt-1 text-sm text-slate-300">
             {hero.d.range && <span>{hero.d.range}</span>}
             {hero.d.date && (
@@ -103,7 +103,7 @@ export default function Milestones({ data, whatIf, exploratory }) {
         </div>
       )}
 
-      {!hero && <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Milestones · {kind}</p>}
+      {!hero && <p className="text-sm font-medium text-slate-300">Milestones · {kind}</p>}
       {rest.length > 0 && (
         <ul className={`${hero ? "mt-3" : "mt-1"} divide-y divide-slate-800/80`}>
           {rest.map((i) => {

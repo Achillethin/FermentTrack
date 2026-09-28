@@ -41,7 +41,7 @@ export default function WhatIfControls({
     <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start sm:gap-6">
       <div className="min-w-0">
         <div className="flex items-baseline justify-between gap-3">
-          <label htmlFor={sliderId} className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          <label htmlFor={sliderId} className="text-sm font-medium text-slate-300">
             What if it ferments at
           </label>
           <output
@@ -99,7 +99,7 @@ export default function WhatIfControls({
 
       {horizonChoices.length > 1 && (
         <fieldset className="min-w-0">
-          <legend className="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">Forecast window</legend>
+          <legend className="mb-1.5 text-sm font-medium text-slate-300">Forecast window</legend>
           <div className="inline-flex rounded-lg border border-slate-700 bg-slate-950/60 p-0.5">
             {horizonChoices.map((h) => {
               const on = Math.abs(h - horizon) < 1e-6;
