@@ -27,7 +27,12 @@ from fermenttrack.prediction.engine import (
     initial_state,
     simulate,
 )
-from fermenttrack.prediction.model import ModelSpec, ParamSpec, TemperatureSchedule
+from fermenttrack.prediction.model import (
+    ModelSpec,
+    ParamSpec,
+    TemperatureFn,
+    TemperatureSchedule,
+)
 from fermenttrack.prediction.organisms import (
     BAKERS_YEAST,
     ORGANISM_KINETICS,
@@ -604,7 +609,7 @@ P_ATM_KPA = 101.325
 TTA_END_PH = 8.5
 
 
-def co2_saturation(temp_c: FloatArray, water_frac: float) -> FloatArray:
+def co2_saturation(temp_c: FloatArray, water_frac: FloatArray | float) -> FloatArray:
     """g CO2 per kg dough the dough water holds before bubbles grow (1 atm CO2)."""
     return np.asarray(water_frac * 1000.0 * CO2_SOL_0C * np.exp(-CO2_SOL_K * temp_c) * P_ATM_KPA)
 
@@ -685,6 +690,12 @@ class SourdoughModel:
             for i, (name, prior) in enumerate(EXTRA_PARAMS)
         }
 
+    def phase_params(self, k: int, z: FloatArray) -> EnsembleParams:
+        p = self.phase_specs[k].params(z[:, : self.base_dim])
+        hyd = max(self.phases[k].hydration_pct, 20.0)
+        p.c2_acetate = self.extra_values(z)["phi_ref"] * (100.0 / hyd) ** HYDRATION_EXPONENT
+        return p
+
     def simulate_z(self, z: FloatArray, t_eval: FloatArray) -> Trajectories:
         n = z.shape[0]
         ex = self.extra_values(z)
@@ -702,8 +713,7 @@ class SourdoughModel:
             last = k + 1 == len(self.phases)
             end = float(max(t_eval[-1], start)) if last else self.bounds[k + 1]
             mask = (t_eval >= start) & ((t_eval <= end) if last else (t_eval < end))
-            p = spec.params(z[:, : self.base_dim])
-            p.c2_acetate = ex["phi_ref"] * (100.0 / max(ph.hydration_pct, 20.0)) ** HYDRATION_EXPONENT
+            p = self.phase_params(k, z)
             y0 = None if y_prev is None else self._mix(y_prev, p, ph)
             local = np.unique(np.r_[0.0, t_eval[mask] - start, end - start])
             if len(local) == 1:  # zero-length phase
@@ -718,8 +728,8 @@ class SourdoughModel:
                     # the carried culture was saturated with CO2 already
                     "d0": (ph.carry if k else _seed_share(self.compiled)) * sat0,
                     "rmax": ex["rise_max"] * ph.gluten,
-                    "w": ph.water_frac,
-                    "v0": dough_litres_per_kg(ph.water_frac),
+                    "w": np.full(n, ph.water_frac),
+                    "v0": np.full(n, dough_litres_per_kg(ph.water_frac)),
                 }
                 gas = np.zeros(n)
                 seg["e_prev"] = np.maximum(seg["d0"] - sat0, 0.0)
@@ -757,6 +767,69 @@ class SourdoughModel:
         return y0
 
 
+def stack_params(ps: list[EnsembleParams]) -> EnsembleParams:
+    """Concatenate single-phase ensembles that differ only in their numbers (the feeding
+    chart: one solve for every ratio). Same organisms, same temperature schedule, same
+    salt, no enzymes."""
+    cat = np.concatenate
+    p0 = ps[0]
+    assert not p0.enzymes and all(np.allclose(p.acid_ka, p0.acid_ka) for p in ps)
+    orgs = []
+    for j, o in enumerate(p0.organisms):
+        fields: dict[str, Any] = {}
+        for f in dataclasses.fields(o):
+            v = getattr(o, f.name)
+            if f.name in ("kin", "can_grow") or v is None:
+                fields[f.name] = v
+            else:
+                fields[f.name] = cat([getattr(p.organisms[j], f.name) for p in ps])
+        orgs.append(dataclasses.replace(o, **fields))
+    temp = p0.temperature
+    assert isinstance(temp, TemperatureFn)
+    offsets = [p.temperature.offset for p in ps]  # type: ignore[attr-defined]
+    return dataclasses.replace(
+        p0,
+        n=sum(p.n for p in ps),
+        organisms=orgs,
+        pools0=cat([p.pools0 for p in ps]),
+        buffer=cat([p.buffer for p in ps]),
+        z_strong=cat([p.z_strong for p in ps]),
+        aw=cat([p.aw for p in ps]),
+        oxygen=cat([p.oxygen for p in ps]),
+        temperature=TemperatureFn(temp.schedule, cat(offsets)),
+        protease_ts_share=cat([p.protease_ts_share for p in ps]),
+        protease_late=cat([p.protease_late for p in ps]),
+        fish_peptidase_k=cat([p.fish_peptidase_k for p in ps]),
+        k_flour_amylase=cat([p.k_flour_amylase for p in ps]),
+        c2_acetate=cat([p.c2_acetate for p in ps]) if p0.c2_acetate is not None else None,
+    )
+
+
+def levain_rise(
+    model: SourdoughModel, tr: Trajectories, p: EnsembleParams, z: FloatArray
+) -> FloatArray:
+    """Rise (N, T) of a single-phase levain run of `model` (members in `z` order)."""
+    ph = model.phases[0]
+    ex = model.extra_values(z)
+    n = z.shape[0]
+    temps = np.stack([p.temperature(float(t)) for t in tr.t_h], axis=1)
+    sat0 = co2_saturation(temps[:, 0], ph.water_frac)
+    seg = {
+        "co2_0": tr.pools[:, 0, PI["co2"]],
+        "d0": _seed_share(model.compiled) * sat0,
+        "rmax": ex["rise_max"] * ph.gluten,
+        "w": np.full(n, ph.water_frac),
+        "v0": np.full(n, dough_litres_per_kg(ph.water_frac)),
+        "e_prev": np.zeros(n),
+        "damage": np.zeros(n),
+    }
+    rise, _, _ = _gas_balance(
+        tr.t_h, temps, tr.pools[:, :, PI["co2"]] - seg["co2_0"][:, None], tr.ph, seg,
+        np.zeros(n), ex["leak0"], ex["leak_acid"],
+    )  # fmt: skip
+    return rise
+
+
 def _seed_share(c: Compiled) -> float:
     b = c.plan.levain
     if b is None:
@@ -780,9 +853,9 @@ def _gas_balance(
     gluten) and stop being retained as the dough nears its expansion limit; a cooling dough
     re-dissolves gas. Returns (rise, gas at the end, excess at the end)."""
     n, nt = temps.shape
-    sat = co2_saturation(temps, seg["w"])
+    sat = co2_saturation(temps, seg["w"][:, None])
     excess = np.maximum(seg["d0"][:, None] + produced - sat, 0.0)
-    litres = gas_litres_per_g(temps) / seg["v0"]
+    litres = gas_litres_per_g(temps) / seg["v0"][:, None]
     rise = np.zeros((n, nt))
     gas = gas0.copy()
     e_prev = seg["e_prev"]
