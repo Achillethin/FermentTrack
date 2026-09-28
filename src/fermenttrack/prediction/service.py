@@ -31,6 +31,7 @@ from fermenttrack.prediction.inference import (
 from fermenttrack.prediction.inference import run as run_inference
 from fermenttrack.prediction.model import ModelSpec, TemperatureSchedule
 from fermenttrack.prediction.organisms import ORGANISM_KINETICS, Channel, OrganismKinetics
+from fermenttrack.prediction.population import POOLED_PARAMS
 from fermenttrack.prediction.priors import FloatArray, Prior
 from fermenttrack.prediction.profiles import (
     ADDED_MOLD_INOCULUM,
@@ -157,10 +158,19 @@ class PredictionInputs:
     recipe: tuple[RecipeIn, ...]
     measurements: tuple[MeasurementIn, ...]
     finished: bool = False
+    # organism name -> {param name -> Prior}: pooled population priors, pre-resolved by
+    # the router (see prediction/population.py). Part of the fingerprint on purpose — a
+    # changed pooled prior is a changed model, so cached forecasts must not go stale.
+    population_priors: dict[str, dict[str, Prior]] = field(default_factory=dict)
 
     def fingerprint(self) -> str:
         d = asdict(self)
         d["now_h"] = round(self.now_h)  # the forecast moves on hourly, not per request
+        if not d["population_priors"]:
+            # No pooled priors in play (the common case, and every pre-pooling test):
+            # fingerprint identically to before this field existed, so unrelated inputs
+            # keep their exact seed and cached results.
+            del d["population_priors"]
         blob = json.dumps(d, sort_keys=True, default=str)
         return hashlib.sha256(f"{MODEL_VERSION}|{blob}".encode()).hexdigest()
 
@@ -484,6 +494,7 @@ def _spec(
     plans: list[_OrganismPlan],
     init: _Initial,
     schedule: TemperatureSchedule,
+    population_priors: dict[str, dict[str, Prior]] | None = None,
 ) -> tuple[ModelSpec, list[_OrganismPlan]]:
     modelled = [p for p in plans if p.kin is not None]
     inoculum = []
@@ -506,6 +517,7 @@ def _spec(
         pools0=init.pools,
         salt_water_phase_pct=init.salt_wps,
         schedule=schedule,
+        population_priors=population_priors or {},
     )
     return spec, modelled
 
@@ -783,6 +795,9 @@ class _LRU:
 # Outputs are ~0.3-0.6 MB, posteriors (z-vectors + weights) up to ~1.3 MB.
 _OUTPUTS = _LRU(32)
 _POSTERIORS = _LRU(16)
+# Per-organism (values, weights) for population.POOLED_PARAMS, from a finished batch's
+# posterior — small, kept separately so it survives independently of the output cache.
+_POOL_SAMPLES = _LRU(16)
 # One solve at a time: a small instance has one core, and concurrent solves would only
 # multiply memory. A request waiting here for an identical one then hits the cache.
 _SOLVE_LOCK = threading.Lock()
@@ -791,6 +806,30 @@ _SOLVE_LOCK = threading.Lock()
 def clear_caches() -> None:
     _OUTPUTS.clear()
     _POSTERIORS.clear()
+    _POOL_SAMPLES.clear()
+
+
+def _pooled_param_samples(
+    spec: ModelSpec, z: FloatArray, weights: FloatArray
+) -> dict[str, dict[str, tuple[FloatArray, FloatArray]]]:
+    """Physical-space (values, weights) of population.POOLED_PARAMS, per modelled organism,
+    from this batch's converged AMIS posterior — for prediction.population's pooling."""
+    params = spec.params(z[:, : spec.dim])
+    out: dict[str, dict[str, tuple[FloatArray, FloatArray]]] = {}
+    for j, o in enumerate(spec.organisms):
+        out[o.name] = {
+            name: (getattr(params.organisms[j], name), weights) for name in POOLED_PARAMS
+        }
+    return out
+
+
+def population_samples(
+    inputs: PredictionInputs,
+) -> dict[str, dict[str, tuple[FloatArray, FloatArray]]] | None:
+    """This finished batch's pooled-param posterior samples, if `predict(inputs)` has
+    already run in this process (populates the cache); `None` otherwise — the caller
+    (routers/prediction.py) then just skips pooling for this call and retries next time."""
+    return _POOL_SAMPLES.get(inputs.fingerprint())
 
 
 def _nice_horizon(h: float) -> float:
@@ -851,7 +890,7 @@ def _forecast(
     base_sched, forecast_c, t_source, n_temp, temp_ignored = _schedule(
         inputs, profile, None, end_h
     )
-    spec, modelled = _spec(profile, plans, init, base_sched)
+    spec, modelled = _spec(profile, plans, init, base_sched, inputs.population_priors)
     seed = int(fp[:8], 16) % 2**31
 
     # The posterior depends on the inputs, not on the display window or a what-if, so it
@@ -871,6 +910,8 @@ def _forecast(
             )
         lite = _PosteriorLite(post.z, post.weights, post.tempered, post.ess)
         _POSTERIORS.put(fp, lite)
+        if inputs.finished:
+            _POOL_SAMPLES.put(fp, _pooled_param_samples(spec, post.z, post.weights))
         if temperature_c is None:
             z, weights, tr = post.z, post.weights, post.traj
 
@@ -879,7 +920,7 @@ def _forecast(
             what_sched, forecast_c, t_source, _, _ = _schedule(
                 inputs, profile, temperature_c, end_h
             )
-            spec, _ = _spec(profile, plans, init, what_sched)
+            spec, _ = _spec(profile, plans, init, what_sched, inputs.population_priors)
         z = _resample(lite.z, lite.weights, N_RESAMPLE, seed=int(fp[8:16], 16) % 2**31)
         try:
             tr = simulate(spec.params(z[:, : spec.dim]), t_eval)
