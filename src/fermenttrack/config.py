@@ -16,9 +16,15 @@ class Settings(BaseSettings):
     # origin, e.g. https://<user>.github.io). Defaults cover local Vite dev.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    # Supabase project's JWT secret (Project Settings -> API -> JWT Secret).
-    # Verifies the HS256 access token supabase-js issues; None disables auth
-    # (dev/tests use the sqlite default and skip it via TestClient overrides).
+    # Supabase project URL (https://<ref>.supabase.co). Projects on JWT signing
+    # keys (the default for new ones) sign access tokens with ES256/RS256; the
+    # public keys come from <url>/auth/v1/.well-known/jwks.json.
+    supabase_url: str | None = None
+
+    # Legacy Supabase JWT secret (Project Settings -> API -> JWT Secret), only
+    # needed if the project still signs access tokens with HS256. With neither
+    # this nor supabase_url set, authed routes return 503 (tests bypass auth
+    # via dependency_overrides).
     supabase_jwt_secret: str | None = None
 
     @field_validator("database_url")
