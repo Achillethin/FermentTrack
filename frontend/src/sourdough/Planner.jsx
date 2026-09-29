@@ -1,3 +1,4 @@
+import SaveAccount from "./SaveAccount.jsx";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button, Input } from "../components/ui.jsx";
 import ForecastChart from "../prediction/ForecastChart.jsx";
@@ -742,6 +743,7 @@ export default function Planner({ onOpenBatch }) {
       {plan && <ShareBar plan={plan} data={busy || error ? null : data} startMs={startMs} kind={kind} />}
 
       {plan && <TrackBake plan={plan} form={form} cultures={cultures} catalog={catalog} startMs={startMs} onOpenBatch={onOpenBatch} />}
+      <SaveAccount />
 
       {/* Phone: the answer stays in view while editing the form. */}
       {data && (peak != null || bulk != null) && (

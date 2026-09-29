@@ -50,3 +50,20 @@ window.fetch = async (input, init = {}) => {
   headers.set("Authorization", `Bearer ${session.access_token}`);
   return nativeFetch(input, { ...init, headers });
 };
+
+// The signed-in Supabase user (null when auth isn't configured, e.g. local dev).
+export async function currentUser() {
+  if (!supabase) return null;
+  await ensureSession();
+  const { data } = await supabase.auth.getUser();
+  return data.user ?? null;
+}
+
+// Anonymous -> permanent account: the same user id (no data moves); Supabase emails a
+// confirmation link, after which the batches survive cleared storage or a new phone.
+export async function saveWithEmail(email) {
+  if (!supabase) throw new Error("Accounts aren't set up on this server.");
+  const here = window.location.origin + window.location.pathname;
+  const { error } = await supabase.auth.updateUser({ email }, { emailRedirectTo: here });
+  if (error) throw error;
+}
