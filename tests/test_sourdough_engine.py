@@ -191,3 +191,29 @@ def test_rise_readings_calibrate_the_forecast() -> None:
     assert calib["status"] == "calibrated"
     assert _ms(calib, "levain_peak")["p50"] < _ms(prior, "levain_peak")["p50"]
     assert all(o["used"] for o in calib["observations"])
+
+
+def test_rise_does_not_depend_on_the_time_grid(monkeypatch: pytest.MonkeyPatch) -> None:
+    # stats review P0: calibration evaluates on sparse {0, readings, now} grids
+    import fermenttrack.prediction.sourdough as sd
+
+    d = _levain("home_starter", 1, 25.6)
+    m = SourdoughModel(compile_plan(plan_from_dict(d)), [0.0])
+    z = np.zeros((1, m.dim))
+    fine = m.simulate_z(z, np.linspace(0.0, 24.0, 241)).extra["rise"][0]
+    sparse = m.simulate_z(z, np.array([0.0, 12.0, 24.0])).extra["rise"][0]
+    assert sparse[1] == pytest.approx(fine[120], abs=1.0)
+    assert sparse[2] == pytest.approx(fine[240], abs=1.0)
+    monkeypatch.setattr(sd, "GAS_DT", 0.05)  # the internal step is converged
+    finer = m.simulate_z(z, np.array([0.0, 12.0, 24.0])).extra["rise"][0]
+    assert finer[1] == pytest.approx(sparse[1], rel=0.05, abs=2.0)
+
+
+def test_a_non_leavening_sour_needs_yeast_in_the_dough() -> None:
+    d = _levain("type_ii", 10, 37, hydration=200)
+    d["dough"] = {"flour_g": 800, "water_g": 500, "salt_g": 16, "temperature_c": 26}
+    with pytest.raises(ValueError, match="yeast"):
+        plan_from_dict(d)
+    d["dough"]["yeast_g"] = 8
+    d["dough"]["yeast"] = "fresh"
+    assert plan_from_dict(d).dough is not None

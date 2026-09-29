@@ -44,6 +44,7 @@ from fermenttrack.prediction.sourdough import (
     STYLES,
     Build,
     Compiled,
+    PhaseTrace,
     Plan,
     SourdoughModel,
     compile_plan,
@@ -208,35 +209,75 @@ def _simulate(model: SourdoughModel, z: FloatArray, t: FloatArray) -> Trajectori
         raise PredictionUnavailable(str(exc)) from exc
 
 
-def _natural_ends(
+# Search windows (h) for a phase's natural end: first window, hard cap. A window is extended
+# while more than UNRESOLVED of the members have not reached their end yet.
+SEARCH = {"levain": (24.0, PEAK_SEARCH_H), "bulk": (12.0, BULK_SEARCH_H)}
+UNRESOLVED = 0.04  # the p95 of a band needs >= 95 % of members resolved
+FINE_DT = 0.1  # h: phase grids, hence boundary resolution (6 min)
+
+
+def _grid(a: float, b: float, extra: list[float] | tuple[float, ...] = ()) -> FloatArray:
+    pts = [a, b, *(x for x in extra if a <= x <= b)]
+    return np.unique(np.r_[np.arange(a, b, FINE_DT), pts])
+
+
+@dataclass
+class _Chain:
+    traces: list[PhaseTrace]  # per phase, cut at the next phase's start
+    bounds: list[float]
+    milestones: list[dict[str, Any]]
+    peak: FloatArray | None  # per-member levain peak (h), for downstream bands
+
+
+def _run_chain(
+    model: SourdoughModel,
     compiled: Compiled,
     known: list[float],
     z: FloatArray,
     w: FloatArray,
     now_h: float,
-    priors: dict[str, dict[str, Prior]],
-    measured: dict[int, float],
+    obs_t: list[float],
     warnings: list[str],
-) -> tuple[list[float], list[dict[str, Any]], float | None]:
-    """Phase starts for every phase, the rise milestones, and the natural end (p95) of an
-    open-ended last phase. A levain ends at its peak, a bulk at the target rise, unless the
-    plan fixes the time or the batch logged the next stage. Each natural end comes from the
-    phase run on past its own end (the peak is not cut short by an early mix)."""
-    bounds = list(known)
-    milestones: list[dict[str, Any]] = []
+) -> _Chain:
+    """Each phase solved once, on a fine grid, from the state where the previous one ended.
+    A phase ends where the batch logged the next stage, else after the plan's fixed hours,
+    else at the ensemble's median natural end (levain peak, bulk target rise), never before
+    now. Levain and bulk run on past their end so their milestones are not cut short."""
     n = len(z)
-    tail: float | None = None
-    for k, ph in enumerate(compiled.phases):
+    bounds = list(known)
+    traces: list[PhaseTrace] = []
+    milestones: list[dict[str, Any]] = []
+    peak: FloatArray | None = None
+    prev: PhaseTrace | None = None
+    pi: int | None = None
+    phases = compiled.phases
+    for k, ph in enumerate(phases):
         start = bounds[k]
+        logged = bounds[k + 1] if k + 1 < len(bounds) else None
+        fixed = start + ph.hours if ph.hours is not None else None
+        stop = logged if logged is not None else fixed
+        extra = [t for t in obs_t if t >= start] + [x for x in (logged, fixed) if x is not None]
         times: FloatArray | None = None
-        search = PEAK_SEARCH_H if ph.key == "levain" else BULK_SEARCH_H
         if ph.key in ("levain", "bulk"):
-            model = SourdoughModel(compiled, bounds[: k + 1], priors, measured)
-            t = np.linspace(start, start + search, 241)
-            rise = _simulate(model, z, t).extra["rise"]
+            first, cap = SEARCH[ph.key]
+            until = max(start + first, stop or 0.0, max(extra, default=0.0), now_h)
+            tr = model.run_phase(k, z, _grid(start, until, extra), prev, pi)
+
+            def natural(tr: PhaseTrace) -> FloatArray:
+                if ph.key == "levain":
+                    return _peak_times(tr.t, tr.rise)
+                target = compiled.plan.dough.target_rise_pct if compiled.plan.dough else 75.0
+                return _first_crossing(tr.t, tr.rise, np.full(n, target), below=False)
+
+            times = natural(tr)
+            while np.mean(~np.isfinite(times)) > UNRESOLVED and tr.t[-1] < start + cap - 1e-9:
+                more_to = min(tr.t[-1] + first, start + cap)
+                more = model.run_phase(k, z, _grid(tr.t[-1], more_to), tr, len(tr.t) - 1, extend=True)
+                tr = tr.join(more)
+                times = natural(tr)
             if ph.key == "levain":
-                doubled = _first_crossing(t, rise, np.full(n, 100.0), below=False)
-                times = _peak_times(t, rise)
+                peak = times
+                doubled = _first_crossing(tr.t, tr.rise, np.full(n, 100.0), below=False)
                 milestones += [
                     _milestone("levain_doubled", f"{ph.label} doubled",
                                "ready to use for most breads", "rise", 100.0, "above", doubled, w),
@@ -244,33 +285,54 @@ def _natural_ends(
                                "most leavening power; it falls after this", "rise", 0.0, "max",
                                times, w),
                 ]  # fmt: skip
-                what = f"the {ph.label.lower()} to peak"
             else:
                 target = compiled.plan.dough.target_rise_pct if compiled.plan.dough else 75.0
-                times = _first_crossing(t, rise, np.full(n, target), below=False)
+                band = times
+                if peak is not None and k == 1 and logged is None and phases[0].hours is None:
+                    # each member would be mixed at its own peak, not at the median one
+                    band = times + np.where(np.isfinite(peak), peak - start, 0.0)
                 milestones.append(
                     _milestone("bulk_target", f"Bulk: +{target:g} % rise",
-                               "shape now (aliquot jar)", "rise", target, "above", times, w)
+                               "shape now (aliquot jar)", "rise", target, "above", band, w)
                 )  # fmt: skip
-                what = f"the dough to rise {target:g} %"
+        else:  # proof / retard: a fixed duration (or up to now for a logged batch)
+            until = max(fixed or start, now_h, max(extra, default=start))
+            tr = model.run_phase(k, z, _grid(start, until, extra), prev, pi)
         q = _q(times, w)[0] if times is not None else None
-        if k + 1 < len(compiled.phases):
-            if k + 1 < len(bounds):
-                continue  # logged
-            if ph.hours is not None:
-                end = start + ph.hours
-            elif q is not None and q["p50"] is not None:
-                end = float(q["p50"])
+        last = k + 1 == len(phases)
+        if last:
+            if fixed is not None:
+                end = fixed
+            elif q is not None:
+                p50 = q["p50"] or tr.t[-1]
+                end = (q["p95"] or tr.t[-1]) + (2.0 if ph.key == "bulk" else 0.15 * (p50 - start))
             else:
-                end = start + search
-                warnings.append(
-                    f"Most model runs do not expect {what} within {search:g} h: the next step "
-                    "was placed at that limit. Check the temperature and the amounts."
-                )
-            bounds.append(max(end, now_h))
-        elif ph.hours is None and q is not None:
-            tail = q["p95"] or q["p50"] or (start + search)
-    return bounds, milestones, tail
+                end = tr.t[-1]
+            end = max(end, now_h + 1.0)
+        elif stop is not None:
+            end = stop
+        elif q is not None and q["p50"] is not None:
+            end = max(float(q["p50"]), now_h)
+        else:
+            end = max(tr.t[-1], now_h)
+            what = "peak" if ph.key == "levain" else "reach its target rise"
+            warnings.append(
+                f"Most model runs do not expect the {ph.label.lower()} to {what} within "
+                f"{tr.t[-1] - start:g} h: the next step was placed there. Check the temperature "
+                "and the amounts."
+            )
+        if end > tr.t[-1] + 1e-9:  # run on (a logged batch past its search window)
+            more = model.run_phase(k, z, _grid(tr.t[-1], end, extra), tr, len(tr.t) - 1, extend=True)
+            tr = tr.join(more)
+        i = int(min(np.searchsorted(tr.t, end - 1e-9), len(tr.t) - 1))
+        if last:
+            traces.append(tr.cut(0, i + 1))
+        else:
+            if len(bounds) == k + 1:
+                bounds.append(float(tr.t[i]))
+            traces.append(tr.cut(0, i))  # the next phase starts at t[i]
+            prev, pi = tr, i
+    return _Chain(traces, bounds, milestones, peak)
 
 
 def _forecast(plan: Plan, inputs: BakeInputs, fp: str) -> dict[str, Any]:
@@ -278,7 +340,7 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str) -> dict[str, Any]:
     warnings: list[str] = []
     obs, shown = _observations(inputs)
     priors = inputs.population_priors
-    known = [0.0, *[b for b in inputs.known_bounds if b > 0]][: len(compiled.phases)]
+    known = _known_starts(compiled, inputs)
     measured = _measured_temps(inputs, known)
     seed = int(fp[:8], 16) % 2**31
 
@@ -299,23 +361,13 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str) -> dict[str, Any]:
     w = np.full(len(z), 1.0 / len(z))
     _POSTERIORS.put(fp, (model, post.z, post.weights))
 
-    # 2. future phase boundaries and the rise milestones from the calibrated ensemble
-    bounds, milestones, tail = _natural_ends(
-        compiled, known, z, w, inputs.now_h, priors, measured, warnings
-    )
-    last = compiled.phases[-1]
-    if last.hours is not None:
-        horizon = bounds[-1] + last.hours
-    else:
-        horizon = (tail or bounds[-1] + 12.0) + (2.0 if last.key == "bulk" else 0.15 * (tail or 12.0))
-    horizon = round(max(horizon, inputs.now_h + 1.0, 2.0), 1)
-
-    # 3. the full chain over the display window
-    full = SourdoughModel(compiled, bounds, priors, measured)
-    grid = np.linspace(0.0, horizon, GRID_POINTS)
-    t_eval = np.unique(np.concatenate([grid, obs_t]))
-    gi = np.searchsorted(t_eval, grid)
-    tr = _simulate(full, z, t_eval)
+    # 2. every phase once, from the calibrated ensemble: boundaries, rise milestones
+    full = SourdoughModel(compiled, None, priors, measured)
+    chain = _run_chain(full, compiled, known, z, w, inputs.now_h, list(obs_t), warnings)
+    bounds, milestones = chain.bounds, chain.milestones
+    tr, t_eval = _stitch(chain.traces, len(full.organisms))
+    horizon = round(float(t_eval[-1]), 2)
+    gi = _display_index(t_eval, bounds, obs_t)
     n = len(z)
     for v, note in ((4.2, "noticeably sour"), (4.0, "well acidified")):
         milestones.append(_milestone(
@@ -413,6 +465,48 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str) -> dict[str, Any]:
         "phases": phases,
         "summary": compiled.summary,
     }
+
+
+def _known_starts(compiled: Compiled, inputs: BakeInputs) -> list[float]:
+    """Phase starts that are facts: logged stage changes, and plan-fixed durations that
+    have already elapsed (a baker who mixed on schedule but never tapped "bulk")."""
+    logged = [b for b in inputs.known_bounds if b > 0]
+    known = [0.0]
+    for k, ph in enumerate(compiled.phases[:-1]):
+        if k < len(logged):
+            known.append(logged[k])
+        elif ph.hours is not None and known[-1] + ph.hours <= inputs.now_h:
+            known.append(known[-1] + ph.hours)
+        else:
+            break
+    return known
+
+
+def anchored(compiled: Compiled, inputs: BakeInputs) -> bool:
+    """A finished batch can teach the model only if every phase start is a fact: readings
+    after an unlogged mix would otherwise be fitted to the wrong phase."""
+    return len(_known_starts(compiled, inputs)) == len(compiled.phases)
+
+
+def _stitch(traces: list[PhaseTrace], m: int) -> tuple[Trajectories, FloatArray]:
+    t = np.concatenate([tr.t for tr in traces])
+    cat = np.concatenate
+    tr = Trajectories(
+        t_h=t,
+        pools=cat([x.pools for x in traces], axis=1),
+        biomass_g=cat([x.biomass for x in traces], axis=1),
+        ph=cat([x.ph for x in traces], axis=1),
+        extra={k: cat([getattr(x, k) for x in traces], axis=1) for k in ("rise", "tta", "fq")},
+    )
+    return tr, t
+
+
+def _display_index(t: FloatArray, bounds: list[float], obs_t: FloatArray) -> FloatArray:
+    """~GRID_POINTS indices into the fine chain, always keeping phase starts and readings."""
+    keep = set(np.linspace(0, len(t) - 1, GRID_POINTS).astype(int).tolist())
+    for x in (*bounds, *obs_t.tolist()):
+        keep.add(int(min(np.searchsorted(t, x - 1e-9), len(t) - 1)))
+    return np.asarray(sorted(keep))
 
 
 def _hm(h: float) -> str:

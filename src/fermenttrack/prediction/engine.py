@@ -311,6 +311,7 @@ class Trajectories:
     # likelihood reads readings of these keys from here.
     extra: dict[str, FloatArray] = field(default_factory=dict)
     y_end: FloatArray | None = None  # (N, state) raw state at the last time: a next phase's y0
+    y: FloatArray | None = None  # (N, T, state) raw states, only with simulate(keep_states=True)
 
 
 def _state_size(n_org: int) -> int:
@@ -506,8 +507,9 @@ def simulate(
     t_eval: FloatArray,
     max_evals: int | None = MAX_EVALS,
     y0: FloatArray | None = None,
+    keep_states: bool = False,
 ) -> Trajectories:
-    """Integrate all members over t_eval (hours, increasing, starting at 0).
+    """Integrate all members over t_eval (hours, increasing; the state is y0 at t_eval[0]).
 
     `y0` (N, state size) starts from a given state instead of `initial_state(p)`: the next
     phase of a multi-phase process (sourdough: levain -> dough -> proof)."""
@@ -520,7 +522,7 @@ def simulate(
     )
     sol = solve_ivp(
         rhs,
-        (0.0, float(t_eval[-1])),
+        (float(t_eval[0]), float(t_eval[-1])),
         y0.reshape(-1),
         method="RK23",
         t_eval=t_eval,
@@ -543,4 +545,5 @@ def simulate(
     return Trajectories(
         t_h=np.asarray(t_eval, dtype=float), pools=pools, biomass_g=biomass, ph=ph,
         y_end=ys[:, -1, :].copy(),
+        y=ys if keep_states else None,
     )

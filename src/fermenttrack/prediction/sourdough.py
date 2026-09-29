@@ -348,6 +348,11 @@ def validate(plan: Plan) -> None:
                 raise ValueError("levain_g must be between 0 and the levain built")
     if plan.proof is not None and plan.dough is None:
         raise ValueError("a proof needs a dough")
+    leavens = style.seed == "yeast" or any(
+        ORGANISM_KINETICS[o].kingdom == "yeast" for o in style.organisms
+    )
+    if plan.dough is not None and not leavens and plan.dough.yeast_g <= 0:
+        raise ValueError(f"{style.name} does not leaven: the dough needs yeast (yeast_g)")
 
 
 def plan_to_dict(plan: Plan) -> dict[str, Any]:
@@ -607,6 +612,7 @@ CO2_SOL_0C = 1.6e-5
 CO2_SOL_K = math.log(1.6e-5 / 5e-6) / 50.0
 P_ATM_KPA = 101.325
 TTA_END_PH = 8.5
+GAS_DT = 0.1  # h, internal step of the gas balance (converged: see the grid test)
 
 
 def co2_saturation(temp_c: FloatArray, water_frac: FloatArray | float) -> FloatArray:
@@ -622,6 +628,76 @@ def dough_litres_per_kg(water_frac: float) -> float:
     return water_frac + (1.0 - water_frac) / FLOUR_SOLIDS_KG_L
 
 
+@dataclass
+class PhaseTrace:
+    """One phase run: states and derived series at absolute times t (N members)."""
+
+    k: int
+    start: float  # the phase's own t = 0 (absolute h)
+    t: FloatArray  # (T,) absolute h
+    y: FloatArray  # (N, T, state) raw ODE states
+    pools: FloatArray
+    biomass: FloatArray
+    ph: FloatArray
+    rise: FloatArray
+    gas: FloatArray
+    excess: FloatArray
+    damage: FloatArray
+    tta: FloatArray
+    fq: FloatArray
+    seg: dict[str, Any]
+
+    def cut(self, a: int, b: int) -> PhaseTrace:
+        """Points a..b-1."""
+        sl = slice(a, b)
+        return dataclasses.replace(
+            self, t=self.t[sl], y=self.y[:, sl], pools=self.pools[:, sl],
+            biomass=self.biomass[:, sl], ph=self.ph[:, sl], rise=self.rise[:, sl],
+            gas=self.gas[:, sl], excess=self.excess[:, sl], damage=self.damage[:, sl],
+            tta=self.tta[:, sl], fq=self.fq[:, sl],
+        )  # fmt: skip
+
+    def join(self, more: PhaseTrace) -> PhaseTrace:
+        """This trace continued by `more` (which starts at this trace's last point)."""
+        cat = np.concatenate
+        return dataclasses.replace(
+            self, t=cat([self.t, more.t[1:]]), y=cat([self.y, more.y[:, 1:]], axis=1),
+            pools=cat([self.pools, more.pools[:, 1:]], axis=1),
+            biomass=cat([self.biomass, more.biomass[:, 1:]], axis=1),
+            ph=cat([self.ph, more.ph[:, 1:]], axis=1),
+            rise=cat([self.rise, more.rise[:, 1:]], axis=1),
+            gas=cat([self.gas, more.gas[:, 1:]], axis=1),
+            excess=cat([self.excess, more.excess[:, 1:]], axis=1),
+            damage=cat([self.damage, more.damage[:, 1:]], axis=1),
+            tta=cat([self.tta, more.tta[:, 1:]], axis=1),
+            fq=cat([self.fq, more.fq[:, 1:]], axis=1),
+        )  # fmt: skip
+
+
+def assemble(
+    pieces: list[tuple[PhaseTrace, FloatArray]], t_eval: FloatArray, n: int, m: int
+) -> Trajectories:
+    """Trajectories at t_eval from phase traces, each covering t_eval[mask]."""
+    pools = np.zeros((n, len(t_eval), N_POOLS))
+    biomass = np.zeros((n, len(t_eval), m))
+    ph_out = np.zeros((n, len(t_eval)))
+    extra = {k: np.zeros((n, len(t_eval))) for k in ("rise", "tta", "fq")}
+    last: PhaseTrace | None = None
+    for tr, mask in pieces:
+        idx = np.clip(np.searchsorted(tr.t, t_eval[mask] - 1e-9), 0, len(tr.t) - 1)
+        pools[:, mask] = tr.pools[:, idx]
+        biomass[:, mask] = tr.biomass[:, idx]
+        ph_out[:, mask] = tr.ph[:, idx]
+        extra["rise"][:, mask] = tr.rise[:, idx]
+        extra["tta"][:, mask] = tr.tta[:, idx]
+        extra["fq"][:, mask] = tr.fq[:, idx]
+        last = tr
+    return Trajectories(
+        t_h=t_eval, pools=pools, biomass_g=biomass, ph=ph_out, extra=extra,
+        y_end=None if last is None else last.y[:, -1],
+    )  # fmt: skip
+
+
 class SourdoughModel:
     """Duck-types ModelSpec for inference: `specs`, `dim`, `simulate_z(z, t_eval)`.
 
@@ -630,13 +706,13 @@ class SourdoughModel:
     def __init__(
         self,
         compiled: Compiled,
-        bounds: list[float],
+        bounds: list[float] | None = None,
         population_priors: dict[str, dict[str, Prior]] | None = None,
         measured_temps: dict[int, float] | None = None,
     ) -> None:
         self.compiled = compiled
-        self.bounds = bounds
-        self.phases = compiled.phases[: len(bounds)]
+        self.bounds = bounds or [0.0]
+        self.phases = compiled.phases if bounds is None else compiled.phases[: len(bounds)]
         style = compiled.style
         base = PROFILES["sourdough"]
         lag = style.h0_factor * (REFRIGERATED_LAG if compiled.plan.starter == "refrigerated" else 1.0)
@@ -696,59 +772,82 @@ class SourdoughModel:
         p.c2_acetate = self.extra_values(z)["phi_ref"] * (100.0 / hyd) ** HYDRATION_EXPONENT
         return p
 
-    def simulate_z(self, z: FloatArray, t_eval: FloatArray) -> Trajectories:
-        n = z.shape[0]
+    def run_phase(
+        self,
+        k: int,
+        z: FloatArray,
+        t_abs: FloatArray,
+        prev: PhaseTrace | None = None,
+        i: int | None = None,
+        extend: bool = False,
+    ) -> PhaseTrace:
+        """Phase k over the absolute times t_abs (t_abs[0] = where it starts). It starts from
+        `prev` at index i: mixed into the phase's fresh ingredients, or (extend=True) the
+        same phase simply continued. Raw states are kept so a later boundary can start
+        the next phase from any of these times."""
+        ph = self.phases[k]
+        p = self.phase_params(k, z)
         ex = self.extra_values(z)
-        m = len(self.organisms)
+        n = z.shape[0]
+        t_abs = np.asarray(t_abs, dtype=float)
+        if len(t_abs) == 1:  # zero-length phase
+            t_abs = np.array([t_abs[0], t_abs[0] + 1e-6])
+        # The gas balance steps explicitly between output times: always run it on a fine
+        # internal grid, so the rise does not depend on which times were asked for
+        # (sparse calibration grids vs the forecast grid).
+        t_abs = np.unique(np.r_[t_abs, np.arange(t_abs[0], t_abs[-1], GAS_DT)])
+        phase_start = prev.start if extend and prev is not None else float(t_abs[0])
+        local = t_abs - phase_start  # the phase's own clock (temperature ramps)
+        if prev is None:
+            y0 = None
+        else:
+            assert i is not None
+            y0 = prev.y[:, i] if extend else self._mix(prev.y[:, i], p, ph)
+        tr = simulate(p, local, y0=y0, keep_states=True)
+        assert tr.y is not None
+        temps = np.stack([p.temperature(float(t)) for t in local], axis=1)
+        co2 = tr.pools[:, :, PI["co2"]]
+        if prev is not None and (extend or ph.continues):
+            assert i is not None
+            seg = prev.seg  # the same dough: its gas keeps building
+            gas0, e0, dmg0 = prev.gas[:, i], prev.excess[:, i], prev.damage[:, i]
+        else:  # a fresh mix starts a new gas balance
+            sat0 = co2_saturation(temps[:, 0], ph.water_frac)
+            seg = {
+                "co2_0": co2[:, 0],
+                # the carried culture was saturated with CO2 already
+                "d0": (ph.carry if prev is not None else _seed_share(self.compiled)) * sat0,
+                "rmax": ex["rise_max"] * ph.gluten,
+                "w": np.full(n, ph.water_frac),
+                "v0": np.full(n, dough_litres_per_kg(ph.water_frac)),
+            }
+            gas0, dmg0 = np.zeros(n), np.zeros(n)  # fresh flour: an intact gluten network
+            e0 = np.maximum(seg["d0"] - sat0, 0.0)
+        rise, gas, excess, damage = _gas_balance(
+            local, temps, co2 - seg["co2_0"][:, None], tr.ph, seg, gas0, e0, dmg0,
+            ex["leak0"], ex["leak_acid"],
+        )  # fmt: skip
+        return PhaseTrace(
+            k=k, start=phase_start, t=t_abs, y=tr.y, pools=tr.pools, biomass=tr.biomass_g,
+            ph=tr.ph, rise=rise, gas=gas, excess=excess, damage=damage,
+            tta=tta(tr.pools, p), fq=fermentation_quotient(tr.pools), seg=seg,
+        )  # fmt: skip
+
+    def simulate_z(self, z: FloatArray, t_eval: FloatArray) -> Trajectories:
+        """The chain over fixed `bounds`, reported at t_eval (inference, tests)."""
+        n = z.shape[0]
         t_eval = np.asarray(t_eval, dtype=float)
-        pools = np.zeros((n, len(t_eval), N_POOLS))
-        biomass = np.zeros((n, len(t_eval), m))
-        ph_out = np.zeros((n, len(t_eval)))
-        extra = {k: np.zeros((n, len(t_eval))) for k in ("rise", "tta", "fq")}
-        y_prev: FloatArray | None = None
-        gas = np.zeros(n)
-        seg: dict[str, Any] = {}
-        for k, (ph, spec) in enumerate(zip(self.phases, self.phase_specs, strict=True)):
+        pieces: list[tuple[PhaseTrace, FloatArray]] = []
+        prev: PhaseTrace | None = None
+        for k in range(len(self.phases)):
             start = self.bounds[k]
             last = k + 1 == len(self.phases)
             end = float(max(t_eval[-1], start)) if last else self.bounds[k + 1]
             mask = (t_eval >= start) & ((t_eval <= end) if last else (t_eval < end))
-            p = self.phase_params(k, z)
-            y0 = None if y_prev is None else self._mix(y_prev, p, ph)
-            local = np.unique(np.r_[0.0, t_eval[mask] - start, end - start])
-            if len(local) == 1:  # zero-length phase
-                local = np.array([0.0, 1e-6])
-            tr = simulate(p, local, y0=y0)
-            # rise: a fresh mix starts a new gas balance; a proof continues the bulk's
-            temps = np.stack([p.temperature(float(t)) for t in local], axis=1)
-            if not ph.continues:
-                sat0 = co2_saturation(temps[:, 0], ph.water_frac)
-                seg = {
-                    "co2_0": tr.pools[:, 0, PI["co2"]],
-                    # the carried culture was saturated with CO2 already
-                    "d0": (ph.carry if k else _seed_share(self.compiled)) * sat0,
-                    "rmax": ex["rise_max"] * ph.gluten,
-                    "w": np.full(n, ph.water_frac),
-                    "v0": np.full(n, dough_litres_per_kg(ph.water_frac)),
-                }
-                gas = np.zeros(n)
-                seg["e_prev"] = np.maximum(seg["d0"] - sat0, 0.0)
-                seg["damage"] = np.zeros(n)  # fresh flour: an intact gluten network
-            rise, gas, seg["e_prev"] = _gas_balance(
-                local, temps, tr.pools[:, :, PI["co2"]] - seg["co2_0"][:, None], tr.ph, seg,
-                gas, ex["leak0"], ex["leak_acid"],
-            )  # fmt: skip
-            idx = np.searchsorted(local, t_eval[mask] - start)
-            pools[:, mask] = tr.pools[:, idx]
-            biomass[:, mask] = tr.biomass_g[:, idx]
-            ph_out[:, mask] = tr.ph[:, idx]
-            extra["rise"][:, mask] = rise[:, idx]
-            extra["tta"][:, mask] = tta(tr.pools[:, idx], p)
-            extra["fq"][:, mask] = fermentation_quotient(tr.pools[:, idx])
-            y_prev = tr.y_end
-        return Trajectories(
-            t_h=t_eval, pools=pools, biomass_g=biomass, ph=ph_out, extra=extra, y_end=y_prev
-        )
+            t_abs = np.unique(np.r_[start, t_eval[mask], end])
+            prev = self.run_phase(k, z, t_abs, prev, None if prev is None else len(prev.t) - 1)
+            pieces.append((prev, mask))
+        return assemble(pieces, t_eval, n, len(self.organisms))
 
     def _mix(self, y_prev: FloatArray, p: EnsembleParams, ph: Phase) -> FloatArray:
         """State at the start of a phase: the carried share of the previous state plus the
@@ -820,12 +919,11 @@ def levain_rise(
         "rmax": ex["rise_max"] * ph.gluten,
         "w": np.full(n, ph.water_frac),
         "v0": np.full(n, dough_litres_per_kg(ph.water_frac)),
-        "e_prev": np.zeros(n),
-        "damage": np.zeros(n),
     }
-    rise, _, _ = _gas_balance(
+    rise, _, _, _ = _gas_balance(
         tr.t_h, temps, tr.pools[:, :, PI["co2"]] - seg["co2_0"][:, None], tr.ph, seg,
-        np.zeros(n), ex["leak0"], ex["leak_acid"],
+        np.zeros(n), np.maximum(seg["d0"] - sat0, 0.0), np.zeros(n), ex["leak0"],
+        ex["leak_acid"],
     )  # fmt: skip
     return rise
 
@@ -845,21 +943,24 @@ def _gas_balance(
     ph: FloatArray,
     seg: dict[str, Any],
     gas0: FloatArray,
+    e0: FloatArray,
+    damage0: FloatArray,
     leak0: FloatArray,
     leak_acid: FloatArray,
-) -> tuple[FloatArray, FloatArray, FloatArray]:
+) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:
     """Rise % over t (N, T) from the CO2 produced since the mix. CO2 first saturates the
-    dough water; the excess inflates bubbles; bubbles leak (faster once acid weakens the
-    gluten) and stop being retained as the dough nears its expansion limit; a cooling dough
-    re-dissolves gas. Returns (rise, gas at the end, excess at the end)."""
+    dough water; the excess inflates bubbles; bubbles leak (faster as acid exposure
+    accumulates and weakens the gluten) and stop being retained as the dough nears its
+    expansion limit; a cooling dough re-dissolves gas. Returns rise and the balance's
+    state (gas g/kg, excess CO2 g/kg, acid damage h) at every time, so it can resume."""
     n, nt = temps.shape
     sat = co2_saturation(temps, seg["w"][:, None])
     excess = np.maximum(seg["d0"][:, None] + produced - sat, 0.0)
     litres = gas_litres_per_g(temps) / seg["v0"][:, None]
     rise = np.zeros((n, nt))
-    gas = gas0.copy()
-    e_prev = seg["e_prev"]
-    damage = seg["damage"]
+    gas_t = np.zeros((n, nt))
+    damage_t = np.zeros((n, nt))
+    gas, e_prev, damage = gas0.copy(), e0, damage0
     for i in range(nt):
         dt = t[i] - t[i - 1] if i else 0.0
         damage = damage + dt * np.clip((WEAK_PH - ph[:, i]) / WEAK_SPAN, 0.0, 1.0)
@@ -872,8 +973,9 @@ def _gas_balance(
         gas = np.maximum(gas, 0.0)
         e_prev = excess[:, i]
         rise[:, i] = 100.0 * gas * litres[:, i]
-    seg["damage"] = damage
-    return rise, gas, e_prev
+        gas_t[:, i] = gas
+        damage_t[:, i] = damage
+    return rise, gas_t, excess, damage_t
 
 
 def tta(pools: FloatArray, p: EnsembleParams) -> FloatArray:
