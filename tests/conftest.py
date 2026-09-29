@@ -7,7 +7,13 @@ database via aiosqlite instead, accepting minor dialect differences.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import os
+
+# Small dense solves (REML, conditioning) are 10-60x slower with OpenBLAS threads fighting
+# other processes for the cores; must be set before numpy is first imported.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+from collections.abc import AsyncIterator  # noqa: E402
 
 import pytest
 import pytest_asyncio
