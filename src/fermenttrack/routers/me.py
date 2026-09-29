@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -48,6 +48,11 @@ async def delete_my_data(
             (BatchEvidence.owner_id == user_id)
             | BatchEvidence.culture_id.in_([c.id for c in cultures])
         )
+    )
+    # born_from links between one's own cultures would block deleting a parent before
+    # its child (FK checked per statement on Postgres): detach the lineage first
+    await db.execute(
+        update(Culture).where(Culture.owner_id == user_id).values(born_from=None)
     )
     for culture in cultures:
         await db.delete(culture)  # cascades to batches and everything under them

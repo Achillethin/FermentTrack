@@ -21,6 +21,11 @@ async def create_culture(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> Culture:
+    if payload.born_from is not None:
+        # lineage only within your own starters: never a link into another account
+        parent = await db.get(Culture, payload.born_from)
+        if parent is None or parent.owner_id != user_id:
+            raise HTTPException(status_code=404, detail="Parent culture not found")
     culture = Culture(**payload.model_dump(), owner_id=user_id)
     db.add(culture)
     await db.commit()

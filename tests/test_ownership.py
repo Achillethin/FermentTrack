@@ -66,3 +66,19 @@ async def test_export_and_delete_my_data(client: AsyncClient) -> None:
     assert (await client.delete("/me")).status_code == 204
     assert (await client.get("/me/export")).json() == []
     assert (await client.get("/cultures")).json() == []
+
+
+async def test_born_from_must_be_your_own_culture(client, db_session) -> None:
+    from fermenttrack.models import Culture
+
+    theirs = Culture(name="Their starter", type="sourdough", owner_id="someone-else")
+    db_session.add(theirs)
+    await db_session.commit()
+    resp = await client.post("/cultures", json={"name": "Mine", "type": "sourdough",
+                                                "born_from": str(theirs.id)})  # fmt: skip
+    assert resp.status_code == 404
+    parent = await client.post("/cultures", json={"name": "Mother", "type": "sourdough"})
+    child = await client.post("/cultures", json={"name": "Daughter", "type": "sourdough",
+                                                 "born_from": parent.json()["id"]})  # fmt: skip
+    assert child.status_code == 201
+    assert (await client.delete("/me")).status_code == 204  # lineage does not block erasure
