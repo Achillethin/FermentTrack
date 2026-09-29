@@ -244,7 +244,9 @@ class BatchEvidence(Base):
         UUID(as_uuid=True), ForeignKey("cultures.id", ondelete="CASCADE"), nullable=False
     )
     owner_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ferment_type: Mapped[str] = mapped_column(Text, nullable=False)
     style: Mapped[str | None] = mapped_column(Text, nullable=True)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False)
     organism: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     param: Mapped[str] = mapped_column(Text, nullable=False)
     ell: Mapped[float] = mapped_column(Float, nullable=False)

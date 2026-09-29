@@ -94,6 +94,17 @@ var:      v_g   v_k      v_u      v_s        ω       = 0.30 + 0.20 + 0.10 + 0.3
 - **Style** = the starter's levain type (`cultures.style`, e.g. `rye_sour`; falls back to the batch plan's style, then to the culture type for other ferments). **Baker** = the culture's `owner_id`. **Starter** = the culture.
 - ponytail: the five variances are fixed fractions (est.); `scripts/` gains a REML estimator validated on synthetic data, to run once ≥ 5 starters have ≥ 3 batches. The old `population_priors` table is left in place, unused.
 
+### 6.1 Revisions after the statistical review (2026-09-29)
+
+- **Joint evidence.** A batch's likelihood summary is computed jointly over all pooled parameters (debiased weighted covariance C_post; Lambda = C_post^-1 - diag(1/v_prior), eigen-clipped); each parameter is stored with its conservative marginal precision 1/(Lambda^-1)_jj, so a ridge (mu_max x t_opt at one temperature) is not counted twice. The Monte Carlo variance of ell, diag(Lambda^-1 P_post Lambda^-1)/ESS, is added to 1/lambda.
+- **Noise-aware gate.** A parameter is stored only if lambda v_prior > c/(1-c), c = 3 sqrt(2/ESS) (3 sd of a variance ratio's sampling error): pure Monte Carlo noise at production size leaves no rows. Nothing is learned from a tempered posterior, from readings the model flags as misfits, from a batch whose phase starts were not logged (sourdough), or below ESS 50; a finished batch whose display posterior is too thin gets one dedicated 480-member AMIS run.
+- **Exact division.** Learned priors are exactly Gaussian in the literature z-units (`LiftedPrior`: value(z) = lit.value(m + sd z)), so prior-data conflict across the literature median divides out exactly.
+- **Rise sub-model learned too.** phi_ref, rise_max, leak0, leak_acid are pooled under the pseudo-organism "(rise model)", so the rise model's error is not absorbed into mu_max.
+- **t_opt** is learned only from batches spanning >= 4 °C.
+- **Scope.** The global class and the baker effect are per ferment type (rows are filtered by type); only successful batches count (outcome stored); a missing style/baker label is a group of its own; baker's yeast is never pooled; a finished batch's own evidence is excluded from its displayed forecast.
+- **Rise numerics.** The gas balance always steps on an internal 0.1 h grid (calibration grids no longer change the model); each phase is solved once (phase runner).
+- **Bands.** Bulk-target times carry each member's own levain-peak offset when the mix is at the peak (not only the median one).
+
 ## 7. API and app
 
 - `GET /sourdough/catalog` (styles, flours, defaults: the UI's single source of truth), `POST /sourdough/plan`, `POST /sourdough/feeding-chart`.

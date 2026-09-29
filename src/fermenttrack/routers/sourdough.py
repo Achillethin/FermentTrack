@@ -91,7 +91,7 @@ async def starter_priors(
         starter = culture.id
         style = culture.style or style
     return await population.learned_priors(
-        db, organisms, style=style, baker=user_id, starter=starter
+        db, organisms, ferment_type="sourdough", style=style, baker=user_id, starter=starter
     )
 
 

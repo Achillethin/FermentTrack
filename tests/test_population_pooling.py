@@ -90,6 +90,43 @@ def test_one_baker_alone_is_not_double_counted() -> None:
     assert m_o < 0.9 * m_s
 
 
+def test_pure_monte_carlo_noise_stores_no_evidence() -> None:
+    # stats review P0: a prior-only ensemble at production size must not look informative
+    class _Kin:
+        name = "Lactobacillus plantarum"
+
+    rng = np.random.default_rng(1)
+    specs = [ParamSpec("mu_max", LP.mu_max, 0), ParamSpec("t_opt", LP.t_opt, 0)]
+    stored = sum(
+        len(population.likelihood_summaries(specs, [_Kin()], rng.standard_normal((160, 2)),
+                                            np.ones(160)))  # fmt: skip
+        for _ in range(200)
+    )
+    assert stored <= 2  # ~0 false evidence in 400 parameter draws
+    # a tempered posterior teaches nothing
+    z = rng.standard_normal((4000, 2)) * 0.3
+    assert population.likelihood_summaries(specs, [_Kin()], z, np.ones(4000), tempered=0.5) == []
+
+
+def test_learned_prior_in_conflict_with_the_data_divides_out_exactly() -> None:
+    # stats review P1: prior at u = -1, data at u = +0.5 (across the literature median)
+    class _Kin:
+        name = "Lactobacillus sanfranciscensis"
+
+    lit = ORGANISM_KINETICS["Lactobacillus sanfranciscensis"].mu_max
+    prior = population.from_u(lit, -1.0, 0.3)
+    lam_true, ell_true = 3.0, 0.5
+    v_post = 1.0 / (1.0 / 0.3 + lam_true)
+    m_post = v_post * (-1.0 / 0.3 + lam_true * ell_true)
+    u = m_post + np.sqrt(v_post) * np.random.default_rng(2).standard_normal(40000)
+    z = (u + 1.0) / np.sqrt(0.3)
+    (ev,) = population.likelihood_summaries(
+        [ParamSpec("mu_max", prior, 0)], [_Kin()], z[:, None], np.ones(len(z))
+    )
+    assert ev.ell == pytest.approx(ell_true, abs=0.05)
+    assert ev.lam == pytest.approx(lam_true, rel=0.1)
+
+
 def test_likelihood_summary_divides_out_the_prior_it_ran_under() -> None:
     class _Kin:
         name = "Lactobacillus plantarum"
@@ -137,15 +174,19 @@ async def _finished_batch(db_session: AsyncSession, style: str | None = None) ->
     culture = Culture(name="Kraut", type="lacto_ferment", owner_id=TEST_USER_ID, style=style)
     db_session.add(culture)
     await db_session.flush()
-    started = datetime.now(UTC) - timedelta(hours=72)
-    ended = started + timedelta(hours=48)
+    # ten days of daily pH readings a little faster than the prior median, well inside the
+    # band: informative about mu_max, fitting the model (no misfit, untempered)
+    started = datetime.now(UTC) - timedelta(days=12)
+    ended = started + timedelta(hours=240)
     batch = Batch(
         culture_id=culture.id, started_at=started, current_stage="done",
         stage_entered_at=ended, outcome="success", ended_at=ended,
     )  # fmt: skip
     db_session.add(batch)
     await db_session.flush()
-    for h, v in ((1, 6.1), (24, 5.2), (47, 4.3)):
+    readings = ((24, 6.1), (48, 5.6), (72, 4.9), (96, 4.4), (120, 4.15), (144, 4.0),
+                (168, 3.9), (192, 3.85), (216, 3.8), (239, 3.78))  # fmt: skip
+    for h, v in readings:
         db_session.add(
             Measurement(batch_id=batch.id, measured_at=started + timedelta(hours=h), type="pH",
                         value_numeric=v)
@@ -173,10 +214,13 @@ async def test_finished_batch_records_evidence_exactly_once(
     assert len({(r.organism, r.param) for r in rows}) == len(rows)  # once, despite two calls
     assert all(r.culture_id == batch.culture_id and r.owner_id == TEST_USER_ID for r in rows)
     assert all(r.style == "lacto_ferment" and r.lam > 0 for r in rows)
+    assert all(r.ferment_type == "lacto_ferment" and r.outcome == "success" for r in rows)
+    # one temperature only: t_opt is not identifiable from this batch
+    assert {r.param for r in rows} == {"mu_max"}
     # the next batch of this starter starts from the learned prior
     learned = await population.learned_priors(
-        db_session, ["Lactobacillus plantarum"], style="lacto_ferment", baker=TEST_USER_ID,
-        starter=batch.culture_id,
+        db_session, ["Lactobacillus plantarum"], ferment_type="lacto_ferment",
+        style="lacto_ferment", baker=TEST_USER_ID, starter=batch.culture_id,
     )
     got = {p for p in learned.get("Lactobacillus plantarum", {})}
     assert got == {r.param for r in rows}
@@ -193,8 +237,8 @@ async def test_account_delete_erases_learned_evidence(
     batch = await _finished_batch(db_session)
     db_session.add(
         BatchEvidence(batch_id=batch.id, culture_id=batch.culture_id, owner_id=TEST_USER_ID,
-                      style="lacto_ferment", organism="Lactobacillus plantarum",
-                      param="mu_max", ell=0.5, lam=3.0)
+                      ferment_type="lacto_ferment", style="lacto_ferment", outcome="success",
+                      organism="Lactobacillus plantarum", param="mu_max", ell=0.5, lam=3.0)
     )  # fmt: skip
     await db_session.commit()
     assert (await client.delete("/me")).status_code == 204

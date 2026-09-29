@@ -349,8 +349,9 @@ ORGANISM_KINETICS: dict[str, OrganismKinetics] = {
             ),
             mu_max=_r(0.5, 0.71, 0.9),  # Gänzle 1998
             ks=_r(0.4, 1.0, 3.0),  # est. 0.3-5
-            # per hexose-equivalent taken up; half leaves again as glucose, so yield and
-            # maintenance are twice the fermented-sugar values (same acid per g biomass)
+            # per hexose-equivalent taken up; half leaves again as glucose, so the yield is
+            # half and the maintenance twice the fermented-sugar values (same acid per g
+            # biomass on maltose)
             yield_xs=_r(0.04, 0.065, 0.1),
             maint=_r(1.2, 2.4, 5.0),  # est.; sourdough acidifies in 8-16 h (Minervini 2012)
             t_min=_t(3.0, 8.0, 15.0),  # est.

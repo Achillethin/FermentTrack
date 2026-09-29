@@ -217,3 +217,9 @@ def test_a_non_leavening_sour_needs_yeast_in_the_dough() -> None:
     d["dough"]["yeast_g"] = 8
     d["dough"]["yeast"] = "fresh"
     assert plan_from_dict(d).dough is not None
+
+
+@pytest.mark.xfail(strict=True, reason="known calibration gap (spec § 5): the prior median "
+                   "peak is slower than vigorous home starters (1:1:1 at ~25 °C: 4-8 h)")
+def test_home_starter_median_peak_matches_baker_timing() -> None:
+    assert _ms(_run(_levain("home_starter", 1, 25.6)), "levain_peak")["p50"] <= 8.0

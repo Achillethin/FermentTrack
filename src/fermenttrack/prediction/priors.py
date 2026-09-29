@@ -45,6 +45,27 @@ class Prior:
         return np.asarray(self.median + np.where(z < 0, z * s_lo, z * s_hi))
 
 
+@dataclass(frozen=True)
+class LiftedPrior(Prior):
+    """A learned prior that is exactly Gaussian N(m, sd^2) in the z-units of a `base`
+    (literature) prior: value(z) = base.value(m + sd * z). median/lo/hi are its 5/50/95 %
+    points (for display and fingerprints). Keeping it Gaussian in the base's units lets a
+    batch's posterior be divided by it exactly (prediction/population.py)."""
+
+    base: Prior | None = None
+    m: float = 0.0
+    sd: float = 1.0
+
+    def value(self, z: FloatArray) -> FloatArray:
+        assert self.base is not None
+        return self.base.value(self.m + self.sd * np.asarray(z))
+
+    @classmethod
+    def of(cls, base: Prior, m: float, sd: float) -> LiftedPrior:
+        lo, med, hi = base.value(np.array([m - Z90 * sd, m, m + Z90 * sd]))
+        return cls(float(med), float(lo), float(hi), base.scale, base, m, sd)
+
+
 def fixed(value: float, scale: Literal["log", "lin"] = "log") -> Prior:
     """A parameter held at one value (no spread)."""
     return Prior(value, value, value, scale)

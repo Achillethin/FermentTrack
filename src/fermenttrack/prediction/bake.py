@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 
+from fermenttrack.prediction import population
 from fermenttrack.prediction.engine import PI, SimulationError, Trajectories, simulate
 from fermenttrack.prediction.inference import (
     MIN_ESS,
@@ -36,6 +37,7 @@ from fermenttrack.prediction.service import (
     _organism_out,
     _OrganismPlan,
     _resample,
+    learning_evidence,
     OrganismIn,
     _SOLVE_LOCK,
 )
@@ -132,9 +134,24 @@ def forecast(plan: Plan, inputs: BakeInputs) -> dict[str, Any]:
     return dict(hit)
 
 
-def posterior_for(fp: str) -> tuple[SourdoughModel, FloatArray, FloatArray] | None:
-    """(model, z, weights) of a batch forecast computed in this process, for pooling."""
+def evidence_for(fp: str) -> list[population.Evidence] | None:
+    """A finished batch's evidence if its forecast ran in this process ([] when it may not
+    teach anything: tempered, misfitting readings, unlogged phase starts); None if not."""
     return _POSTERIORS.get(fp)
+
+
+def phases_out(compiled: Compiled, bounds: list[float], horizon: float,
+               measured: dict[int, float]) -> list[dict[str, Any]]:  # fmt: skip
+    return [
+        {
+            "key": ph.key,
+            "label": ph.label,
+            "start_h": round(bounds[k], 2),
+            "end_h": round(bounds[k + 1] if k + 1 < len(bounds) else horizon, 2),
+            "temperature_c": measured.get(k, ph.temperature_c),
+        }
+        for k, ph in enumerate(compiled.phases)
+    ]
 
 
 def _observations(inputs: BakeInputs) -> tuple[list[Observation], list[dict[str, Any]]]:
@@ -359,7 +376,7 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str) -> dict[str, Any]:
         raise PredictionUnavailable("The model could not be computed for this bake within its budget.")
     z = _resample(post.z, post.weights, N_RESAMPLE, seed=int(fp[8:16], 16) % 2**31)
     w = np.full(len(z), 1.0 / len(z))
-    _POSTERIORS.put(fp, (model, post.z, post.weights))
+    learnable = inputs.finished and anchored(compiled, inputs)
 
     # 2. every phase once, from the calibrated ensemble: boundaries, rise milestones
     full = SourdoughModel(compiled, None, priors, measured)
@@ -387,17 +404,20 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str) -> dict[str, Any]:
         )
     elif obs and (post.tempered < 1.0 or post.ess < 2 * MIN_ESS):
         warnings.append("Calibration is approximate: few model runs explain your readings well.")
+    if inputs.finished and not anchored(compiled, inputs):
+        warnings.append(
+            "Log the move to bulk (and shaping) next time: without those times the app cannot "
+            "learn from this bake."
+        )
+    temps = [p["temperature_c"] for p in phases_out(compiled, bounds, horizon, measured)]
+    _POSTERIORS.put(
+        fp,
+        learning_evidence(model, obs, t_cal, post, seed, max(temps) - min(temps))
+        if learnable and not fits
+        else [],
+    )
 
-    phases = [
-        {
-            "key": ph.key,
-            "label": ph.label,
-            "start_h": round(bounds[k], 2),
-            "end_h": round(bounds[k + 1] if k + 1 < len(bounds) else horizon, 2),
-            "temperature_c": measured.get(k, ph.temperature_c),
-        }
-        for k, ph in enumerate(compiled.phases)
-    ]
+    phases = phases_out(compiled, bounds, horizon, measured)
     style = compiled.style
     plans = [
         _OrganismPlan(
@@ -589,7 +609,7 @@ def feeding_chart(
     starter: str,
     ratios: tuple[float, ...],
     population_priors: dict[str, dict[str, Prior]],
-    members: int = 40,
+    members: int = 64,
 ) -> dict[str, Any]:
     """Peak time per seed ratio 1:r:r·h. One ensemble per ratio sharing the same z draws, so
     the ratios differ only by the dilution (common random numbers: the chart is monotone)."""

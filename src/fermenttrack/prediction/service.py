@@ -31,7 +31,7 @@ from fermenttrack.prediction.inference import (
 from fermenttrack.prediction.inference import run as run_inference
 from fermenttrack.prediction.model import ModelSpec, TemperatureSchedule
 from fermenttrack.prediction.organisms import ORGANISM_KINETICS, Channel, OrganismKinetics
-from fermenttrack.prediction.population import Evidence, likelihood_summaries
+from fermenttrack.prediction.population import MIN_LEARN_ESS, Evidence, likelihood_summaries
 from fermenttrack.prediction.priors import FloatArray, Prior
 from fermenttrack.prediction.profiles import (
     ADDED_MOLD_INOCULUM,
@@ -809,6 +809,32 @@ def clear_caches() -> None:
     _POOL_SAMPLES.clear()
 
 
+LEARN_MEMBERS = 480  # a finished batch is learned from once: afford a tight posterior
+
+
+def learning_evidence(
+    spec: Any, obs: list[Observation], t_eval: FloatArray, post: Any, seed: int,
+    temp_span_c: float | None = None,
+) -> list[Evidence]:
+    """A finished batch's evidence. The forecast's own posterior is sized for display; if
+    its ESS is too low for moment estimates to beat Monte Carlo noise (or it had to be
+    tempered), a dedicated, larger AMIS run is made (once per batch) and judged instead.
+    Nothing is learned from a tempered posterior."""
+    ess = 1.0 / float(np.sum((post.weights / post.weights.sum()) ** 2))
+    if post.tempered < 1.0 or ess < 2 * MIN_LEARN_ESS:
+        try:
+            post = run_inference(spec, obs, t_eval, n=LEARN_MEMBERS, seed=seed + 1)
+        except SimulationError:
+            return []
+    if temp_span_c is None:
+        temps = spec.schedule.temp_c
+        temp_span_c = max(temps) - min(temps)
+    return likelihood_summaries(
+        spec.specs, spec.organisms, post.z, post.weights, tempered=post.tempered,
+        temp_span_c=temp_span_c,
+    )
+
+
 def population_samples(inputs: PredictionInputs) -> list[Evidence] | None:
     """This finished batch's evidence (likelihood summaries per organism x pooled param),
     if `predict(inputs)` has already run inference in this process; `None` otherwise (the
@@ -895,7 +921,7 @@ def _forecast(
         lite = _PosteriorLite(post.z, post.weights, post.tempered, post.ess)
         _POSTERIORS.put(fp, lite)
         if inputs.finished:
-            _POOL_SAMPLES.put(fp, likelihood_summaries(spec.specs, spec.organisms, post.z, post.weights))
+            _POOL_SAMPLES.put(fp, learning_evidence(spec, obs.used, t_eval, post, seed))
         if temperature_c is None:
             z, weights, tr = post.z, post.weights, post.traj
 
@@ -959,6 +985,8 @@ def _forecast(
         if (m := _milestone(ms, t_eval[:in_window], window, weights)) is not None
     ]
     misfits = _check_fit(obs, tr, z, weights, t_eval)
+    if misfits and inputs.finished:
+        _POOL_SAMPLES.put(fp, [])  # readings the model cannot explain teach it nothing
 
     ph0 = weighted_quantiles(tr.ph[:, 0], weights, (0.5,))[0]
     initial_values = {

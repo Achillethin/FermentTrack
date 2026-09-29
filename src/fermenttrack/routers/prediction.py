@@ -21,7 +21,7 @@ from fermenttrack.auth import get_current_user_id
 from fermenttrack.database import get_db
 from fermenttrack.models import Batch, BatchIngredient, Ingredient, OrganismEnzyme
 from fermenttrack.prediction import population
-from fermenttrack.prediction.bake import BakeInputs, posterior_for
+from fermenttrack.prediction.bake import BakeInputs, evidence_for
 from fermenttrack.prediction.bake import forecast as bake_forecast
 from fermenttrack.prediction.sourdough import STYLES, compile_plan, plan_from_dict, plan_to_dict
 from fermenttrack.prediction.service import (
@@ -47,7 +47,9 @@ def _utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
-async def _learn(db: AsyncSession, batch: Batch, style: str | None, evidence: list | None) -> None:
+async def _learn(
+    db: AsyncSession, batch: Batch, ferment_type: str, style: str | None, evidence: list | None
+) -> None:
     claim = await db.execute(
         update(Batch)
         .where(Batch.id == batch.id, Batch.population_pooled_at.is_(None))
@@ -61,7 +63,7 @@ async def _learn(db: AsyncSession, batch: Batch, style: str | None, evidence: li
         return
     await population.record_evidence(
         db, batch_id=batch.id, culture_id=batch.culture_id, owner_id=batch.culture.owner_id,
-        style=style, evidence=evidence,
+        ferment_type=ferment_type, style=style, outcome=batch.outcome, evidence=evidence,
     )  # fmt: skip
     await db.commit()
 
@@ -105,7 +107,8 @@ async def _sourdough_prediction(
     extra = tuple(o.name for o, src, _ in organisms if src != "default" and o.name not in style_names)
     compiled_names = compile_plan(plan, extra).organisms
     priors = await population.learned_priors(
-        db, compiled_names, style=style, baker=culture.owner_id, starter=culture.id
+        db, compiled_names, ferment_type="sourdough", style=style, baker=culture.owner_id,
+        starter=culture.id, exclude_batch=batch.id if finished else None,
     )
     inputs = BakeInputs(
         plan=plan_to_dict(plan),
@@ -129,12 +132,7 @@ async def _sourdough_prediction(
     except PredictionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
     if finished and batch.population_pooled_at is None and body.get("status") == "calibrated":
-        post = posterior_for(inputs.fingerprint())
-        evidence = (
-            None if post is None
-            else population.likelihood_summaries(post[0].specs, post[0].organisms, post[1], post[2])
-        )  # fmt: skip
-        await _learn(db, batch, style, evidence)
+        await _learn(db, batch, "sourdough", style, evidence_for(inputs.fingerprint()))
     body["started_at"] = started
     body["now_h"] = round(now_h, 3)
     return PredictionOut.model_validate(body)
@@ -199,8 +197,8 @@ async def get_batch_prediction(
     # baker's evidence from finished batches, resolved here (service.py stays DB-free).
     style = culture.style or culture.type
     population_priors = await population.learned_priors(
-        db, [o.name for o, *_ in organisms], style=style, baker=culture.owner_id,
-        starter=culture.id,
+        db, [o.name for o, *_ in organisms], ferment_type=culture.type, style=style,
+        baker=culture.owner_id, starter=culture.id, exclude_batch=batch.id if finished else None,
     )
 
     inputs = PredictionInputs(
@@ -234,7 +232,7 @@ async def get_batch_prediction(
     # has no posterior to learn from. The claim (compare-and-swap on population_pooled_at)
     # makes two concurrent requests for the same finished batch record it once.
     if finished and batch.population_pooled_at is None and body.get("status") == "calibrated":
-        await _learn(db, batch, style, population_samples(inputs))
+        await _learn(db, batch, culture.type, style, population_samples(inputs))
 
     # cached outputs are keyed per hour: report the exact start and "now"
     body["started_at"] = started

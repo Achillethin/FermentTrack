@@ -365,7 +365,8 @@ def plan_to_dict(plan: Plan) -> dict[str, Any]:
 
 # ── phases ──────────────────────────────────────────────────────────────
 
-INSTANT_YEAST_CFU_G = 2e10  # viable cells per g instant dry yeast (est. 1-3e10)
+# bakers swap 1 g instant for ~3 g fresh yeast
+INSTANT_YEAST_CFU_G = 3e10  # viable cells per g instant dry yeast (est.)
 FRESH_YEAST_CFU_G = 1e10  # per g fresh compressed yeast (~30 % dry matter)
 REFRIGERATED_LAG = 3.0  # a starter straight from the fridge lags ~3x longer (est.)
 RAMP_H = 3.0  # a 1 kg dough takes hours to reach fridge temperature
@@ -596,6 +597,8 @@ HYDRATION_EXPONENT = 0.8  # phi ~ hydration^-0.8: FQ 2.4x between DY 160 and 280
 RISE_MAX = _r(120.0, 200.0, 320.0)  # % rise a strong white-wheat dough can hold (est.)
 LEAK0 = _r(0.01, 0.03, 0.08)  # 1/h gas loss of a sound dough (~88 % retained, Rheo F4)
 LEAK_ACID = _r(0.1, 0.3, 0.8)  # 1/h extra loss once acid has weakened the gluten (est.)
+# Learned priors for these arrive under this pseudo-organism (prediction/population.py).
+RISE_MODEL = "(rise model)"
 EXTRA_PARAMS: tuple[tuple[str, Prior], ...] = (
     ("phi_ref", PHI_REF), ("rise_max", RISE_MAX), ("leak0", LEAK0), ("leak_acid", LEAK_ACID),
 )  # fmt: skip
@@ -753,7 +756,9 @@ class SourdoughModel:
             prev_temp = temp
         s0 = self.phase_specs[0]
         self.base_dim = s0.dim
-        self.specs: list[ParamSpec] = [*s0.specs, *(ParamSpec(n, p) for n, p in EXTRA_PARAMS)]
+        learned = (population_priors or {}).get(RISE_MODEL, {})
+        self.extra_priors = [(n, learned.get(n, p)) for n, p in EXTRA_PARAMS]
+        self.specs: list[ParamSpec] = [*s0.specs, *(ParamSpec(n, p) for n, p in self.extra_priors)]
         self.dim = len(self.specs)
 
     # ModelSpec duck-typing (population pooling reads specs/organisms; run uses dim)
@@ -763,7 +768,7 @@ class SourdoughModel:
     def extra_values(self, z: FloatArray) -> dict[str, FloatArray]:
         return {
             name: prior.value(z[:, self.base_dim + i])
-            for i, (name, prior) in enumerate(EXTRA_PARAMS)
+            for i, (name, prior) in enumerate(self.extra_priors)
         }
 
     def phase_params(self, k: int, z: FloatArray) -> EnsembleParams:
