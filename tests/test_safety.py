@@ -72,3 +72,19 @@ def test_rule_engine_direct_botulism_scenario() -> None:
     assert report.safe is False
     assert any(v.reason_code == "BOTULISM_RISK_LOW_ACID" for v in report.hard_stops)
     assert any(v.reason_code == "LOW_SALT_VEG_FERMENT" for v in report.warnings)
+
+
+async def test_no_alarm_about_values_nobody_measured(client: AsyncClient) -> None:
+    """A levain with only a rise reading: no pH, no salt logged. The botulism rule must not
+    fire on TwinState's default pH 6.5 / salt 3 % (it said "do not consume")."""
+    culture = await client.post("/cultures", json={"name": "Levain", "type": "sourdough"})
+    batch = await client.post("/batches", json={"culture_id": culture.json()["id"]})
+    batch_id = batch.json()["id"]
+    await client.post(f"/batches/{batch_id}/measure", json={"type": "rise", "value_numeric": 40})
+    report = (await client.get(f"/batches/{batch_id}/safety")).json()
+    assert report["safe"] is True and report["hard_stops"] == []
+    # once pH and salt are measured and unsafe, it still fires
+    await client.post(f"/batches/{batch_id}/measure", json={"type": "pH", "value_numeric": 5.5})
+    await client.post(f"/batches/{batch_id}/measure", json={"type": "salt_pct", "value_numeric": 1.5})
+    await client.post(f"/batches/{batch_id}/measure", json={"type": "temperature", "value_numeric": 25})
+    assert (await client.get(f"/batches/{batch_id}/safety")).json()["safe"] is False

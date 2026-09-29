@@ -559,7 +559,10 @@ export default function Planner({ onOpenBatch }) {
   const [reload, setReload] = useState(0);
   const resultsRef = useRef(null);
 
-  useEffect(() => window.scrollTo(0, 0), []);
+  // braces: newer Chrome's scrollTo returns a Promise, which React would take for a cleanup
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
   useEffect(() => {
     setCatalogError(null);
     getCatalog()
