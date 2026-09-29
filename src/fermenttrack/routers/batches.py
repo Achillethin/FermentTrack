@@ -126,6 +126,61 @@ async def create_batch(
     return batch
 
 
+@router.post("/{batch_id}/repeat", response_model=BatchOut, status_code=201)
+async def repeat_batch(
+    batch_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> Batch:
+    """Start a fresh batch from an existing one's recipe: same culture/target/
+    temperature, ingredients and custom organisms cloned. Measurements, notes,
+    reminders, outcome and stage history are deliberately not carried over."""
+    src = await _get_batch(
+        batch_id, db, user_id=user_id, with_culture=True, with_batch_ingredients=True
+    )
+    culture = src.culture
+    organisms = (
+        await db.execute(select(BatchOrganism).where(BatchOrganism.batch_id == src.id))
+    ).scalars().all()
+
+    started_at = now_utc()
+    initial_stage = first_stage(culture.type)
+    batch = Batch(
+        culture_id=src.culture_id,
+        started_at=started_at,
+        current_stage=initial_stage,
+        stage_entered_at=started_at,
+        target=src.target,
+        expected_temperature_c=src.expected_temperature_c,
+    )
+    db.add(batch)
+    await db.flush()
+
+    db.add_all(
+        BatchIngredient(
+            batch_id=batch.id,
+            ingredient_id=bi.ingredient_id,
+            quantity=bi.quantity,
+            unit=bi.unit,
+            role=bi.role,
+        )
+        for bi in src.batch_ingredients
+    )
+    db.add_all(
+        BatchOrganism(
+            batch_id=batch.id, organism_id=bo.organism_id, source=bo.source, notes=bo.notes
+        )
+        for bo in organisms
+    )
+    reminder = build_reminder_for_stage(batch, culture.type, initial_stage, started_at)
+    if reminder is not None:
+        db.add(reminder)
+
+    await db.commit()
+    await db.refresh(batch)
+    return batch
+
+
 @router.get("", response_model=list[BatchSummaryOut])
 async def list_batches(
     q: str | None = Query(None, description="Substring match on culture name"),
@@ -160,6 +215,7 @@ async def list_batches(
             culture_type=culture.type,
             started_at=batch.started_at,
             current_stage=batch.current_stage,
+            stage_entered_at=batch.stage_entered_at,
             target=batch.target,
             outcome=batch.outcome,
             ended_at=batch.ended_at,
