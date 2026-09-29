@@ -138,6 +138,39 @@ async def _sourdough_prediction(
     return PredictionOut.model_validate(body)
 
 
+async def forecast_context(
+    db: AsyncSession, batch: Batch
+) -> tuple[tuple[RecipeIn, ...], list, dict[uuid.UUID, list[str]]]:
+    """Recipe, resolved organisms and their KEGG enzymes: what a batch forecast is built
+    from besides its readings (also scripts/validate_forecasts.py)."""
+    rows = await db.execute(
+        select(BatchIngredient)
+        .where(BatchIngredient.batch_id == batch.id)
+        .options(selectinload(BatchIngredient.ingredient).selectinload(Ingredient.nutrients))
+    )
+    recipe = tuple(
+        RecipeIn(
+            bi.ingredient.name,
+            bi.quantity,
+            bi.unit,
+            {n.nutrient: n.amount_per_100g for n in bi.ingredient.nutrients},
+            bi.role,
+        )
+        for bi in rows.scalars()
+    )
+    organisms = await _resolve_batch_organisms(batch, db)
+    enzymes: dict[uuid.UUID, list[str]] = {}
+    if organisms:
+        links = await db.execute(
+            select(OrganismEnzyme)
+            .where(OrganismEnzyme.organism_id.in_([t[0].id for t in organisms]))
+            .options(selectinload(OrganismEnzyme.enzyme))
+        )
+        for oe in links.scalars():
+            enzymes.setdefault(oe.organism_id, []).append(oe.enzyme.ec_number)
+    return recipe, organisms, enzymes
+
+
 @router.get("/{batch_id}/prediction", response_model=PredictionOut)
 async def get_batch_prediction(
     batch_id: uuid.UUID,
@@ -153,33 +186,7 @@ async def get_batch_prediction(
     batch = await _get_batch(
         batch_id, db, user_id=user_id, with_measurements=True, with_culture=True
     )
-
-    rows = await db.execute(
-        select(BatchIngredient)
-        .where(BatchIngredient.batch_id == batch_id)
-        .options(selectinload(BatchIngredient.ingredient).selectinload(Ingredient.nutrients))
-    )
-    recipe = tuple(
-        RecipeIn(
-            bi.ingredient.name,
-            bi.quantity,
-            bi.unit,
-            {n.nutrient: n.amount_per_100g for n in bi.ingredient.nutrients},
-            bi.role,
-        )
-        for bi in rows.scalars()
-    )
-
-    organisms = await _resolve_batch_organisms(batch, db)
-    enzymes: dict[uuid.UUID, list[str]] = {}
-    if organisms:
-        links = await db.execute(
-            select(OrganismEnzyme)
-            .where(OrganismEnzyme.organism_id.in_([t[0].id for t in organisms]))
-            .options(selectinload(OrganismEnzyme.enzyme))
-        )
-        for oe in links.scalars():
-            enzymes.setdefault(oe.organism_id, []).append(oe.enzyme.ec_number)
+    recipe, organisms, enzymes = await forecast_context(db, batch)
 
     started = _utc(batch.started_at)
     finished = batch.outcome != "in_progress"

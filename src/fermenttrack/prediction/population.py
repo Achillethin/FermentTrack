@@ -24,6 +24,7 @@ from __future__ import annotations
 import math
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from dataclasses import dataclass
 from typing import Any
 
@@ -230,10 +231,12 @@ async def learned_priors(
     baker: str | None,
     starter: uuid.UUID | None,
     exclude_batch: uuid.UUID | None = None,
+    recorded_before: datetime | None = None,
 ) -> dict[str, dict[str, Prior]]:
     """organism -> {param -> Prior} for a new batch; only entries with evidence (the rest
     stay on the literature). `exclude_batch`: a finished batch's own evidence must not
-    feed its own forecast. Only successful batches of the same ferment type count."""
+    feed its own forecast. Only successful batches of the same ferment type count.
+    `recorded_before` (aware): only what the app knew then (leave-future-out validation)."""
     names = [o for o in organisms if o in ORGANISM_KINETICS and o not in NOT_POOLED]
     if ferment_type == "sourdough":
         names.append(RISE_MODEL)
@@ -252,6 +255,9 @@ async def learned_priors(
         q = q.where(BatchEvidence.batch_id != exclude_batch)
     by: dict[tuple[str, str], list[Row]] = {}
     for e in (await db.execute(q)).scalars():
+        made = e.created_at if e.created_at.tzinfo else e.created_at.replace(tzinfo=UTC)
+        if recorded_before is not None and made >= recorded_before:
+            continue  # filtered here, not in SQL: SQLite drops the timezone
         by.setdefault((e.organism, e.param), []).append(
             Row(e.style, e.owner_id, str(e.culture_id), e.ell, e.lam)
         )
