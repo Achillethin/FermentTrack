@@ -49,3 +49,6 @@ frontend/.env
 
 # Playwright MCP browser artifacts
 .playwright-mcp/
+
+# local dev database (sourdough UI verification)
+sd.db

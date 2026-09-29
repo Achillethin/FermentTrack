@@ -175,12 +175,12 @@ export default function ModelDetails({ data }) {
           <>
             Starting point{" "}
             <span className="text-slate-400">
-              · {initial.source === "recipe" ? "from your recipe" : `a typical ${type} recipe`}
+              · {{ recipe: "from your recipe", plan: "from your plan" }[initial.source] ?? `a typical ${type} recipe`}
             </span>
           </>
         }
       >
-        {initial.source !== "recipe" && (
+        {initial.source === "typical_recipe" && (
           <p className="mb-2 text-xs text-slate-400">
             No quantified recipe is logged for this batch, so the model starts from a typical {type} recipe. Log
             ingredient quantities to use yours.

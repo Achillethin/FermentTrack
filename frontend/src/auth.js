@@ -17,7 +17,13 @@ export const supabase =
 
 let sessionPromise = null;
 
+// Dev only: a token minted locally for a backend run with
+// FERMENTTRACK_SUPABASE_JWT_SECRET (no Supabase project needed). The DEV
+// guard folds this to undefined in production builds.
+const devToken = import.meta.env.DEV ? import.meta.env.VITE_DEV_TOKEN : undefined;
+
 async function ensureSession() {
+  if (devToken) return { access_token: devToken };
   if (!supabase) return null;
   if (!sessionPromise) {
     sessionPromise = supabase.auth.getSession().then(async ({ data }) => {
@@ -30,7 +36,7 @@ async function ensureSession() {
   return sessionPromise;
 }
 
-const apiOrigin = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+export const apiOrigin = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 const nativeFetch = window.fetch.bind(window);
 
 window.fetch = async (input, init = {}) => {
