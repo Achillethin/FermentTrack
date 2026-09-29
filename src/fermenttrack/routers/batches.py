@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from fermenttrack.auth import get_current_user_id
+from fermenttrack.auth import get_current_user_id, is_admin
 from fermenttrack.composition import RecipeItem, compose, suggest_salt
 from fermenttrack.database import get_db
 from fermenttrack.models import (
@@ -74,15 +74,15 @@ async def _get_batch(
     with_measurements: bool = False,
     with_culture: bool = False,
     with_batch_ingredients: bool = False,
+    admin_read: bool = False,
 ) -> Batch:
     # Owner check by joining Culture rather than trusting a loaded relationship,
     # so it holds regardless of with_culture (the join is filter-only; loader
-    # options below are unaffected).
-    stmt = (
-        select(Batch)
-        .join(Culture, Batch.culture_id == Culture.id)
-        .where(Batch.id == batch_id, Culture.owner_id == user_id)
-    )
+    # options below are unaffected). admin_read: read-only routes let an admin
+    # (auth.is_admin) see any batch; routes that change data never pass it.
+    stmt = select(Batch).join(Culture, Batch.culture_id == Culture.id).where(Batch.id == batch_id)
+    if not (admin_read and is_admin(user_id)):
+        stmt = stmt.where(Culture.owner_id == user_id)
     if with_measurements:
         stmt = stmt.options(selectinload(Batch.measurements))
     if with_culture:
@@ -358,7 +358,7 @@ async def get_timeline(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> BatchTimeline:
-    batch = await _get_batch(batch_id, db, user_id=user_id, with_measurements=True)
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_measurements=True, admin_read=True)
     return BatchTimeline(batch=BatchOut.model_validate(batch), events=_build_timeline_events(batch))
 
 
@@ -482,7 +482,7 @@ async def list_batch_ingredients(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> list[BatchIngredient]:
-    await _get_batch(batch_id, db, user_id=user_id)  # raises 404 if missing/not owned
+    await _get_batch(batch_id, db, user_id=user_id, admin_read=True)  # 404 if missing/not owned
     result = await db.execute(select(BatchIngredient).where(BatchIngredient.batch_id == batch_id))
     return list(result.scalars().all())
 
@@ -537,7 +537,7 @@ async def get_batch_composition(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> BatchCompositionOut:
-    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True)  # 404 if missing
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True, admin_read=True)
     result = await db.execute(
         select(BatchIngredient)
         .where(BatchIngredient.batch_id == batch_id)
@@ -592,6 +592,7 @@ async def get_batch_preview(
         with_measurements=True,
         with_culture=True,
         with_batch_ingredients=True,
+        admin_read=True,
     )
 
     now = now_utc()
@@ -621,6 +622,7 @@ async def get_batch_preview(
         recipe=[BatchIngredientOut.model_validate(bi) for bi in batch.batch_ingredients],
         timeline=_build_timeline_events(batch),
         safety=safety,
+        read_only=batch.culture.owner_id != user_id,
     )
 
 
@@ -669,7 +671,7 @@ async def get_batch_biochemistry(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> BatchBiochemistryOut:
-    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True)
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True, admin_read=True)
     organisms = await _resolve_batch_organisms(batch, db)
 
     result = await db.execute(

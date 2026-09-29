@@ -1,12 +1,8 @@
-// Stage 0 auth: every visitor gets an anonymous Supabase session (no signup
-// wall) so their batches are private to them from the first click. Patches
-// window.fetch to attach the session's access token to API calls, so none of
-// App.jsx's existing fetch(`${API_URL}/...`) call sites need to change.
-//
-// ponytail: anonymous-only for now — no "claim this account with an email"
-// flow yet, so clearing browser storage loses access to the batches. Add
-// supabase.auth.updateUser({ email }) behind a "save my batches" prompt when
-// that matters.
+// Auth: every visitor gets an anonymous Supabase session (no signup wall) so their
+// batches are private to them from the first click; a guest can attach an email
+// (saveWithEmail: same account) or sign in to an email account on another device
+// (signInWithEmail). Patches window.fetch to attach the current access token to API
+// calls, so no fetch(`${API_URL}/...`) call site needs to change.
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -15,25 +11,49 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const supabase =
   supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
-let sessionPromise = null;
+let signInPromise = null;
 
 // Dev only: a token minted locally for a backend run with
 // FERMENTTRACK_SUPABASE_JWT_SECRET (no Supabase project needed). The DEV
 // guard folds this to undefined in production builds.
 const devToken = import.meta.env.DEV ? import.meta.env.VITE_DEV_TOKEN : undefined;
 
-async function ensureSession() {
+// The current session. supabase-js keeps it refreshed (access tokens last ~1 h), so it
+// is read on every call rather than cached here. With none yet, one anonymous sign-in
+// (shared by concurrent callers); a failure is not remembered, so Retry works.
+export async function ensureSession() {
   if (devToken) return { access_token: devToken };
   if (!supabase) return null;
-  if (!sessionPromise) {
-    sessionPromise = supabase.auth.getSession().then(async ({ data }) => {
-      if (data.session) return data.session;
-      const { data: signedIn, error } = await supabase.auth.signInAnonymously();
-      if (error) throw error;
-      return signedIn.session;
-    });
+  const { data } = await supabase.auth.getSession();
+  if (data.session) return data.session;
+  if (!signInPromise) {
+    signInPromise = supabase.auth
+      .signInAnonymously()
+      .then(({ data: signedIn, error }) => {
+        if (error) throw error;
+        return signedIn.session;
+      })
+      .finally(() => {
+        signInPromise = null;
+      });
   }
-  return sessionPromise;
+  return signInPromise;
+}
+
+// Sign in to an existing (or new) email account on this device: Supabase emails a
+// one-time link that comes back here signed in. Replaces this device's guest session.
+export async function signInWithEmail(email) {
+  if (!supabase) throw new Error("Accounts aren't set up on this server.");
+  const here = window.location.origin + window.location.pathname;
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: here, shouldCreateUser: true },
+  });
+  if (error) throw error;
+}
+
+export async function signOut() {
+  if (supabase) await supabase.auth.signOut();
 }
 
 export const apiOrigin = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");

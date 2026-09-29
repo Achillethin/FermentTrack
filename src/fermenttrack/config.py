@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     # via dependency_overrides).
     supabase_jwt_secret: str | None = None
 
+    # Comma-separated Supabase user ids (JWT `sub`) with read-only access to every
+    # user's logbook and bakes (routers/admin.py). Server-side on purpose: nothing a
+    # client can put in its token (user_metadata is user-editable) grants it.
+    admin_user_ids: str = ""
+
     @field_validator("database_url")
     @classmethod
     def _use_psycopg3_dialect(cls, v: str) -> str:

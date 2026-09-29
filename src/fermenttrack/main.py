@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fermenttrack.config import settings
 from fermenttrack.routers import (
+    admin,
     batches,
     cultures,
     foods,
@@ -42,6 +43,7 @@ app.include_router(safety.router)
 app.include_router(prediction.router)
 app.include_router(sourdough.router)
 app.include_router(webhooks.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")

@@ -1337,6 +1337,11 @@ export default function BatchView({ batchId }) {
 
       {preview && (
         <>
+          {preview.read_only && (
+            <p role="note" className="rounded-lg border border-sky-500/30 bg-sky-950/30 p-3 text-sm text-sky-200">
+              Admin view of someone else’s bake: read-only. Only its owner can log readings or change it.
+            </p>
+          )}
           <BatchHeader
             batchId={batchId}
             batch={preview.batch}

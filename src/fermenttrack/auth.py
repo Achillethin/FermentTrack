@@ -22,7 +22,7 @@ from functools import lru_cache
 from typing import Any
 
 import jwt
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from fermenttrack.config import settings
@@ -69,3 +69,14 @@ async def get_current_user_id(authorization: str | None = Header(default=None)) 
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token") from None
     return str(payload["sub"])
+
+
+def is_admin(user_id: str) -> bool:
+    """Read-only access to every account's data (FERMENTTRACK_ADMIN_USER_IDS)."""
+    return user_id in {u.strip() for u in settings.admin_user_ids.split(",") if u.strip()}
+
+
+async def require_admin(user_id: str = Depends(get_current_user_id)) -> str:  # noqa: B008
+    if not is_admin(user_id):
+        raise HTTPException(status_code=403, detail="Admins only")
+    return user_id

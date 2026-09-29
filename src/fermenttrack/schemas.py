@@ -329,6 +329,7 @@ class BatchPreview(BaseModel):
     recipe: list[BatchIngredientOut]
     timeline: list[TimelineEvent]
     safety: SafetyReportOut
+    read_only: bool = False  # an admin viewing someone else's batch: no edits
 
 
 # ── Biochemistry ─────────────────────────────────────────────────────────
@@ -635,6 +636,16 @@ class LogEntryOut(BaseModel):
     kind: Literal["measurement", "note", "stage-change"]
     timestamp: datetime
     detail: dict
+    owner: str | None = None  # the account (Supabase user id); only on /admin/log
+
+
+class WhoAmIOut(BaseModel):
+    user_id: str
+    admin: bool
+
+
+class AdminCultureOut(CultureOut):
+    owner_id: str | None
 
 
 BatchCreate.model_rebuild()

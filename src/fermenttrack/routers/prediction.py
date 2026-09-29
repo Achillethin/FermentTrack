@@ -184,7 +184,7 @@ async def get_batch_prediction(
     user_id: str = Depends(get_current_user_id),
 ) -> PredictionOut:
     batch = await _get_batch(
-        batch_id, db, user_id=user_id, with_measurements=True, with_culture=True
+        batch_id, db, user_id=user_id, with_measurements=True, with_culture=True, admin_read=True
     )
     recipe, organisms, enzymes = await forecast_context(db, batch)
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Account from "./Account.jsx";
 import BatchView from "./BatchView.jsx";
 import Batches from "./Batches.jsx";
 import Compare from "./Compare.jsx";
@@ -6,7 +7,7 @@ import ExportButton from "./ExportButton.jsx";
 import Logbook from "./Logbook.jsx";
 import Planner from "./sourdough/Planner.jsx";
 import Today from "./Today.jsx";
-import { JarMark } from "./shared.jsx";
+import { API_URL, JarMark } from "./shared.jsx";
 
 // Legacy deep links: ?batch=<id> (pre-router) becomes #/batch/<id>.
 const legacyBatch = new URLSearchParams(window.location.search).get("batch");
@@ -14,17 +15,36 @@ if (legacyBatch && !window.location.hash) {
   window.history.replaceState(null, "", `${window.location.pathname}#/batch/${legacyBatch}`);
 }
 
-const PAGES = { today: Today, logbook: Logbook, batches: Batches, compare: Compare };
+function AdminLog() {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-400">
+        Every account’s logbook, read-only. Open an entry to see that bake; only its owner can change it.
+      </p>
+      <Logbook admin />
+    </div>
+  );
+}
+
+const PAGES = {
+  today: Today,
+  logbook: Logbook,
+  batches: Batches,
+  compare: Compare,
+  account: Account,
+  admin: AdminLog,
+};
 const NAV = [
   ["today", "Today"],
   ["logbook", "Logbook"],
   ["batches", "Batches"],
   ["compare", "Compare"],
   ["levain", "Planner"],
+  ["account", "Account"],
 ];
 
-// #/batch/<id> | #/today | #/logbook | #/batches | #/compare | #/levain[?p=<shared plan>];
-// anything else → today.
+// #/batch/<id> | #/today | #/logbook | #/batches | #/compare | #/levain[?p=<shared plan>]
+// | #/account | #/admin; anything else → today.
 function parseHash(hash) {
   const m = hash.match(/^#\/batch\/([^/?]+)\/?$/);
   if (m) return { page: "batch", id: m[1] };
@@ -33,8 +53,14 @@ function parseHash(hash) {
   return { page: Object.prototype.hasOwnProperty.call(PAGES, page) ? page : "today" };
 }
 
+// A guest session could not be created (e.g. anonymous sign-ins disabled in Supabase):
+// supabase-js auth errors carry __isAuthError; a network failure is not one of them.
+const isAuthFailure = (err) => Boolean(err?.__isAuthError || /sign-?ins? .*disabled/i.test(err?.message || ""));
+
 export default function App() {
   const [hash, setHash] = useState(window.location.hash);
+  const [me, setMe] = useState(null); // {user_id, admin}
+  const [authBlocked, setAuthBlocked] = useState(null);
 
   useEffect(() => {
     const onChange = () => setHash(window.location.hash);
@@ -42,13 +68,29 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
 
+  useEffect(() => {
+    fetch(`${API_URL}/me`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setMe)
+      .catch((err) => {
+        if (isAuthFailure(err)) setAuthBlocked(err.message);
+      });
+  }, []);
+
   const { page, id } = parseHash(hash);
   // The levain planner is a full-screen page with its own way back (a baker's entry point).
-  if (page === "levain") {
+  if (page === "levain" && !authBlocked) {
     return <Planner onOpenBatch={(batchId) => (window.location.hash = `#/batch/${batchId}`)} />;
   }
   const Page = PAGES[page];
   const active = page === "batch" ? "batches" : page; // a batch page lives under Batches
+  const nav = me?.admin ? [...NAV, ["admin", "Admin"]] : NAV;
+
+  let content;
+  if (authBlocked) content = <Account blocked={authBlocked} />;
+  else if (page === "batch") content = <BatchView key={id} batchId={id} />;
+  else if (page === "admin" && !me?.admin) content = <p className="text-sm text-slate-400">Admins only.</p>;
+  else content = <Page />;
 
   return (
     <main className="mx-auto max-w-2xl space-y-4 px-4 pb-16 pt-3">
@@ -60,7 +102,7 @@ export default function App() {
       </header>
 
       <nav aria-label="Main" className="flex flex-wrap items-center gap-1 text-sm">
-        {NAV.map(([key, label]) => (
+        {nav.map(([key, label]) => (
           <a
             key={key}
             href={`#/${key}`}
@@ -77,7 +119,7 @@ export default function App() {
         </span>
       </nav>
 
-      {page === "batch" ? <BatchView key={id} batchId={id} /> : <Page />}
+      {content}
     </main>
   );
 }

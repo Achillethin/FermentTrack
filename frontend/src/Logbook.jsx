@@ -83,6 +83,11 @@ function Entry({ e, d }) {
           <span className={`rounded border px-1.5 text-xs ${KIND_STYLE[e.kind] || "border-slate-600 text-slate-400"}`}>
             {KIND_LABEL[e.kind] || e.kind}
           </span>
+          {e.owner && (
+            <span className="text-xs text-slate-500" title={e.owner}>
+              account {e.owner.slice(0, 8)}
+            </span>
+          )}
         </div>
         {present(main) && <p className="break-words text-slate-300">{main}</p>}
         {present(extra) && <p className="break-words text-xs text-slate-500">{extra}</p>}
@@ -91,7 +96,9 @@ function Entry({ e, d }) {
   );
 }
 
-export default function Logbook() {
+// admin: every account's entries (read-only admin access; see routers/admin.py).
+export default function Logbook({ admin = false }) {
+  const scope = admin ? "/admin" : "/me";
   const [q, setQ] = useState("");
   const [dq, setDq] = useState(""); // debounced q
   const [cultureId, setCultureId] = useState("");
@@ -119,7 +126,7 @@ export default function Logbook() {
 
   useEffect(() => {
     const c = new AbortController();
-    fetch(`${API_URL}/cultures`, { signal: c.signal })
+    fetch(`${API_URL}${admin ? "/admin/cultures" : "/cultures"}`, { signal: c.signal })
       .then((r) => (r.ok ? r.json() : []))
       .then((list) => Array.isArray(list) && setCultures(list))
       .catch(() => {});
@@ -135,7 +142,7 @@ export default function Logbook() {
       const start = new Date(`${since}T00:00:00`); // no offset => local midnight
       if (!isNaN(start)) params.set("since", start.toISOString());
     }
-    return fetch(`${API_URL}/me/log?${params}`, { signal }).then(async (res) => {
+    return fetch(`${API_URL}${scope}/log?${params}`, { signal }).then(async (res) => {
       if (!res.ok) throw new Error(await apiError(res, "Could not load the logbook"));
       const page = await res.json();
       if (!Array.isArray(page)) throw new Error("Unexpected response from the server");

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import delete as sa_delete
@@ -16,10 +17,16 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from fermenttrack.auth import get_current_user_id
+from fermenttrack.auth import get_current_user_id, is_admin
 from fermenttrack.database import get_db
 from fermenttrack.models import Batch, BatchEvidence, Culture, Measurement
-from fermenttrack.schemas import CultureExportOut, LogBatchOut, LogCultureOut, LogEntryOut
+from fermenttrack.schemas import (
+    CultureExportOut,
+    LogBatchOut,
+    LogCultureOut,
+    LogEntryOut,
+    WhoAmIOut,
+)
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -55,8 +62,27 @@ async def my_log(
     user_id: str = Depends(get_current_user_id),
 ) -> list[LogEntryOut]:
     """Reverse-chronological logbook across all of the caller's batches."""
+    return await log_entries(
+        db, [Culture.owner_id == user_id], q, culture_id, type, since, limit, offset
+    )
+
+
+async def log_entries(
+    db: AsyncSession,
+    scope: list[Any],
+    q: str | None,
+    culture_id: uuid.UUID | None,
+    type: str | None,
+    since: datetime | None,
+    limit: int,
+    offset: int,
+    *,
+    with_owner: bool = False,
+) -> list[LogEntryOut]:
+    """The logbook over the cultures matching `scope`: one account's (/me/log), or every
+    account's for an admin (/admin/log, with_owner labels each entry's account)."""
     pat = _like(q) if q else None
-    where = [Culture.owner_id == user_id]
+    where = list(scope)
     if culture_id:
         where.append(Culture.id == culture_id)
 
@@ -121,9 +147,17 @@ async def my_log(
             culture=LogCultureOut(id=c.id, name=c.name, type=c.type),
             batch=LogBatchOut(id=b.id, current_stage=b.current_stage, started_at=b.started_at),
             kind=kind, timestamp=ts, detail=detail,
+            owner=c.owner_id if with_owner else None,
         )
         for ts, eid, kind, c, b, detail in entries[offset : offset + limit]
     ]
+
+
+@router.get("", response_model=WhoAmIOut)
+async def who_am_i(user_id: str = Depends(get_current_user_id)) -> WhoAmIOut:
+    """The caller's account id (to share with the operator, e.g. to be made an admin) and
+    whether it has admin read access."""
+    return WhoAmIOut(user_id=user_id, admin=is_admin(user_id))
 
 
 @router.delete("", status_code=204)
