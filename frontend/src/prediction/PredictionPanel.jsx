@@ -19,10 +19,10 @@ const CANON = {
   growth: ["mycelium", "amylase", "protease", "peptidase", "fish_enzyme"],
 };
 
-const GROUP_ORDER = ["ph", "density", "growth", "substrates", "products", "population"];
+const GROUP_ORDER = ["rise", "ph", "density", "acidity", "growth", "substrates", "products", "population"];
 
 // Readings a user can log that the model calibrates on.
-const MEASURABLE = { ph: "pH", gravity: "gravity", brix: "Brix" };
+const MEASURABLE = { ph: "pH", gravity: "gravity", brix: "Brix", rise: "rise", tta: "TTA" };
 
 const NO_REF_LINES = [];
 
@@ -33,6 +33,12 @@ const isExploratoryWarning = (w) => /^exploratory\b/i.test(w);
 
 function chartMeta(group, unit) {
   switch (group) {
+    case "rise":
+      return { title: "Rise", subtitle: "% above the mark made after feeding or mixing" };
+    case "acidity": // tta (mL) and fq (mol/mol) group by unit into two charts
+      return unit === "mol/mol"
+        ? { title: "Lactic : acetic", subtitle: "mol/mol · lower is sharper, more vinegary", tab: "Lactic:acetic" }
+        : { title: "TTA", subtitle: `${unit} of 0.1 N NaOH per 10 g · total sourness`, tab: "TTA" };
     case "ph":
       return { title: "pH", subtitle: "lower is more acidic" };
     case "density":
@@ -54,6 +60,46 @@ function chartMeta(group, unit) {
     default:
       return { title: group, subtitle: unit, tab: group };
   }
+}
+
+// One chart per group+unit, series in canonical order with a colour slot that
+// sticks to the series key across refetches (`slotsBy` persists between calls).
+export function groupCharts(data, slotsBy) {
+  if (!data?.series?.length) return [];
+  const organismsOrder = (data.organisms || []).map((o) => o.series_key).filter(Boolean);
+  const byId = new Map();
+  for (const s of data.series) {
+    const id = `${s.group}:${s.unit}`;
+    if (!byId.has(id)) byId.set(id, { id, group: s.group, unit: s.unit, series: [] });
+    byId.get(id).series.push(s);
+  }
+  const out = [...byId.values()];
+  for (const c of out) {
+    const canon = c.group === "population" ? organismsOrder : CANON[c.group] || [];
+    const rank = (k) => {
+      const i = canon.indexOf(k);
+      return i === -1 ? 999 : i;
+    };
+    c.series.sort((a, b) => rank(a.key) - rank(b.key) || a.label.localeCompare(b.label));
+    const slots = slotsBy.get(c.id) || new Map();
+    slotsBy.set(c.id, slots);
+    for (const s of c.series) {
+      if (!slots.has(s.key)) {
+        const used = new Set(slots.values());
+        let slot = 1;
+        while (used.has(slot) && slot < 8) slot++;
+        slots.set(s.key, slot);
+      }
+    }
+    c.series = c.series.map((s) => ({ ...s, slot: slots.get(s.key) }));
+    c.meta = chartMeta(c.group, c.unit);
+    c.observations = (data.observations || []).filter((o) => c.series.some((s) => s.key === o.key));
+  }
+  const gi = (g) => {
+    const i = GROUP_ORDER.indexOf(g);
+    return i === -1 ? 99 : i;
+  };
+  return out.sort((a, b) => gi(a.group) - gi(b.group));
 }
 
 function Skeleton() {
@@ -257,48 +303,12 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
     });
   }, []);
 
-  const charts = useMemo(() => {
-    if (!data?.series?.length) return [];
-    const organismsOrder = (data.organisms || []).map((o) => o.series_key).filter(Boolean);
-    const byId = new Map();
-    for (const s of data.series) {
-      const id = `${s.group}:${s.unit}`;
-      if (!byId.has(id)) byId.set(id, { id, group: s.group, unit: s.unit, series: [] });
-      byId.get(id).series.push(s);
-    }
-    const out = [...byId.values()];
-    for (const c of out) {
-      const canon = c.group === "population" ? organismsOrder : CANON[c.group] || [];
-      const rank = (k) => {
-        const i = canon.indexOf(k);
-        return i === -1 ? 999 : i;
-      };
-      c.series.sort((a, b) => rank(a.key) - rank(b.key) || a.label.localeCompare(b.label));
-      const slots = slotsRef.current.get(c.id) || new Map();
-      slotsRef.current.set(c.id, slots);
-      for (const s of c.series) {
-        if (!slots.has(s.key)) {
-          const used = new Set(slots.values());
-          let slot = 1;
-          while (used.has(slot) && slot < 8) slot++;
-          slots.set(s.key, slot);
-        }
-      }
-      c.series = c.series.map((s) => ({ ...s, slot: slots.get(s.key) }));
-      c.meta = chartMeta(c.group, c.unit);
-      c.observations = (data.observations || []).filter((o) => c.series.some((s) => s.key === o.key));
-    }
-    const gi = (g) => {
-      const i = GROUP_ORDER.indexOf(g);
-      return i === -1 ? 99 : i;
-    };
-    return out.sort((a, b) => gi(a.group) - gi(b.group));
-  }, [data]);
+  const charts = useMemo(() => groupCharts(data, slotsRef.current), [data]);
 
-  // Always visible: pH and density (what you can measure). Without a pH chart
+  // Always visible: rise, pH and density (what you can measure). Without a pH chart
   // (koji), the chart holding the first milestone's series takes its place.
   const primaryIds = useMemo(() => {
-    const ids = new Set(charts.filter((c) => c.group === "ph" || c.group === "density").map((c) => c.id));
+    const ids = new Set(charts.filter((c) => ["rise", "ph", "density"].includes(c.group)).map((c) => c.id));
     if (!charts.some((c) => c.group === "ph") && charts.length) {
       const key = (data?.milestones || []).map((m) => m.threshold?.series).find(Boolean);
       ids.add((charts.find((c) => c.series.some((x) => x.key === key)) || charts[0]).id);
@@ -397,6 +407,7 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
         series={c.series}
         observations={c.observations}
         refLines={chartRefs(c)}
+        phases={data.phases || []}
         nowH={data.now_h}
         horizonH={data.horizon_h}
         startedAt={data.started_at}

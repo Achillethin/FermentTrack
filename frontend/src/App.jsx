@@ -4,6 +4,8 @@ import TemperatureEstimate from "./prediction/TemperatureEstimate.jsx";
 import TemperatureField from "./prediction/TemperatureField.jsx";
 import { parseTemperature } from "./prediction/temperature.js";
 import { Button, Input, Select, TabBar } from "./components/ui.jsx";
+import Planner, { PlannerLink, useHash } from "./sourdough/Planner.jsx";
+import PlanCard, { StyleSelect } from "./sourdough/PlanCard.jsx";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
@@ -159,6 +161,8 @@ const OBSERVATION_TYPES = [
   "temperature",
   "gravity",
   "brix",
+  "rise",
+  "tta",
   "smell",
   "taste",
   "appearance",
@@ -166,7 +170,13 @@ const OBSERVATION_TYPES = [
   "other",
 ];
 
-function LogObservation({ batchId, onLogged }) {
+// Sourdough readings the forecast calibrates on; offered on sourdough batches only.
+const SOURDOUGH_READINGS = {
+  rise: { label: "Rise %", hint: "% above the mark you made after feeding/mixing", title: "Rise", unit: "%" },
+  tta: { label: "TTA (mL 0.1 N / 10 g)", hint: "mL of 0.1 N NaOH to bring 10 g to pH 8.5", title: "TTA", unit: "mL" },
+};
+
+function LogObservation({ batchId, onLogged, sourdough = false }) {
   const [type, setType] = useState("pH");
   const [customType, setCustomType] = useState("");
   const [valueNumeric, setValueNumeric] = useState("");
@@ -176,7 +186,7 @@ function LogObservation({ batchId, onLogged }) {
   const [error, setError] = useState(null);
 
   const isNote = type === "note";
-  const isNumeric = ["pH", "temperature", "gravity", "brix"].includes(type);
+  const isNumeric = ["pH", "temperature", "gravity", "brix", "rise", "tta"].includes(type);
 
   async function submit(e) {
     e.preventDefault();
@@ -226,9 +236,9 @@ function LogObservation({ batchId, onLogged }) {
       <form className="space-y-2" onSubmit={submit}>
         <div className="flex gap-2">
           <Select label="Observation type" value={type} onChange={(e) => setType(e.target.value)}>
-            {OBSERVATION_TYPES.map((t) => (
+            {OBSERVATION_TYPES.filter((t) => sourdough || !SOURDOUGH_READINGS[t]).map((t) => (
               <option key={t} value={t}>
-                {t}
+                {SOURDOUGH_READINGS[t]?.label ?? t}
               </option>
             ))}
           </Select>
@@ -274,6 +284,7 @@ function LogObservation({ batchId, onLogged }) {
                 onChange={(e) => setValueText(e.target.value)}
               />
             </div>
+            {SOURDOUGH_READINGS[type] && <p className="text-xs text-slate-400">{SOURDOUGH_READINGS[type].hint}</p>}
             <Input
               label="Additional notes"
               className="w-full"
@@ -1168,10 +1179,16 @@ function Biochemistry({ batchId, type }) {
 // Timeline events carry {type, value_numeric, value_text, notes}; notes are stored as type "note".
 function eventLine(event) {
   const d = event.detail || {};
+  if (event.kind === "stage_change") {
+    const stage = humanize(d.value_text);
+    return { title: `Moved to ${stage.charAt(0).toUpperCase()}${stage.slice(1)}`, value: "", extra: null };
+  }
+  const reading = SOURDOUGH_READINGS[d.type];
   const isNote = event.kind === "note";
-  const value = [d.value_numeric, d.value_text].filter((v) => v != null && v !== "").join(" · ");
+  const numeric = d.value_numeric != null && reading ? `${d.value_numeric} ${reading.unit}` : d.value_numeric;
+  const value = [numeric, d.value_text].filter((v) => v != null && v !== "").join(" · ");
   const type = String(d.type ?? "");
-  const title = isNote ? "Note" : type === "pH" ? type : type.charAt(0).toUpperCase() + type.slice(1);
+  const title = isNote ? "Note" : reading ? reading.title : type === "pH" ? type : type.charAt(0).toUpperCase() + type.slice(1);
   return { title, value, extra: isNote ? null : d.notes };
 }
 
@@ -1278,6 +1295,7 @@ function NewBatch({ onCreated }) {
   const [cultureId, setCultureId] = useState("");
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState("kombucha");
+  const [style, setStyle] = useState("");
   const [target, setTarget] = useState("");
   const [expectedTemp, setExpectedTemp] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1304,7 +1322,7 @@ function NewBatch({ onCreated }) {
         const res = await fetch(`${API_URL}/cultures`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: newName, type: newType }),
+          body: JSON.stringify({ name: newName, type: newType, ...(newType === "sourdough" && style ? { style } : {}) }),
         });
         if (!res.ok) throw new Error("Could not create culture");
         id = (await res.json()).id;
@@ -1371,6 +1389,7 @@ function NewBatch({ onCreated }) {
             </Select>
           </div>
         )}
+        {!cultureId && newType === "sourdough" && <StyleSelect value={style} onChange={setStyle} />}
         <Input
           label="Batch target (optional)"
           className="w-full"
@@ -1523,6 +1542,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("forecast");
   const [switching, setSwitching] = useState(false);
+  const onPlanner = useHash() === "#/levain";
 
   async function loadPreview(id) {
     if (!id) return;
@@ -1556,10 +1576,21 @@ export default function App() {
     setSwitching(false);
     loadPreview(id);
   };
+  if (onPlanner) {
+    return (
+      <Planner
+        onOpenBatch={(id) => {
+          window.location.hash = "";
+          open(id);
+        }}
+      />
+    );
+  }
   // With no batch open the two entry points are the whole screen; once one is
   // open they fold behind "Switch batch" so the batch gets the screen.
   const chooser = (
     <>
+      <PlannerLink />
       <BatchPicker onPick={open} />
       <NewBatch onCreated={open} />
     </>
@@ -1644,13 +1675,20 @@ export default function App() {
           {panel(
             "log",
             <>
-              <LogObservation batchId={batchId} onLogged={() => loadPreview(batchId)} />
+              <LogObservation
+                batchId={batchId}
+                sourdough={preview.culture.type === "sourdough"}
+                onLogged={() => loadPreview(batchId)}
+              />
               <Timeline timeline={preview.timeline} />
             </>
           )}
           {panel(
             "recipe",
             <>
+              {preview.culture.type === "sourdough" && (
+                <PlanCard batch={preview.batch} culture={preview.culture} onSaved={() => loadPreview(batchId)} />
+              )}
               <Recipe
                 batchId={batchId}
                 substrate={preview.culture.type}

@@ -15,6 +15,7 @@
   --viz-axis: #453e34; /* slate-700 baseline */
   --viz-now: #c2b8a7;
   --viz-past-wash: rgba(168, 156, 138, 0.06);
+  --viz-phase-wash: rgba(168, 156, 138, 0.08); /* every other sourdough phase */
   --viz-crosshair: #dcd3c5;
   --viz-ref: #fab219; /* status "warning" step: 4.6 food-safety reference */
   --viz-obs: #f6f2ec; /* measured points wear ink, not a series hue */

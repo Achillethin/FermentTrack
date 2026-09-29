@@ -55,6 +55,8 @@ const HALO = {
  * "now" split, optional reference lines, shared crosshair and tooltip.
  *
  * series: [{ key, label, unit, t_h, p05, p50, p95, slot }] (same t_h grid)
+ * phases (optional, sourdough): [{ key, label, start_h, end_h }] drawn as
+ * alternating washes with a dashed boundary and a label at the top.
  */
 export default function ForecastChart({
   id,
@@ -64,6 +66,7 @@ export default function ForecastChart({
   series,
   observations = [],
   refLines = [],
+  phases = [],
   nowH,
   horizonH,
   startedAt,
@@ -343,6 +346,32 @@ export default function ForecastChart({
               />
             )}
 
+            {/* phase washes and boundaries */}
+            {phases.map((p, i) => {
+              const x0 = x(Math.max(0, p.start_h));
+              const x1 = x(Math.min(horizonH, p.end_h));
+              if (x1 <= x0) return null;
+              return (
+                <g key={`ph-${p.key}`}>
+                  {i % 2 === 1 && (
+                    <rect x={x0} y={margin.top} width={x1 - x0} height={innerH} style={{ fill: "var(--viz-phase-wash)" }} />
+                  )}
+                  {p.start_h > 0 && (
+                    <line
+                      x1={x0}
+                      x2={x0}
+                      y1={margin.top}
+                      y2={margin.top + innerH}
+                      style={{ stroke: "var(--viz-text-muted)" }}
+                      strokeOpacity={0.5}
+                      strokeDasharray="3 3"
+                      shapeRendering="crispEdges"
+                    />
+                  )}
+                </g>
+              );
+            })}
+
             {/* y grid */}
             {yInfo.ticks.map((v) => (
               <g key={v}>
@@ -452,6 +481,22 @@ export default function ForecastChart({
                 </text>
               ) : null
             )}
+
+            {/* phase labels, top-left inside each phase when they fit */}
+            {phases.map((p) => {
+              const x0 = x(Math.max(0, p.start_h));
+              const x1 = x(Math.min(horizonH, p.end_h));
+              return x1 - x0 > p.label.length * 6 + 8 ? (
+                <text
+                  key={`pl-${p.key}`}
+                  x={x0 + 4}
+                  y={margin.top + 11}
+                  style={{ ...HALO, fill: "var(--viz-text-muted)", fontSize: 10 }}
+                >
+                  {p.label}
+                </text>
+              ) : null;
+            })}
 
             {/* now marker, with the region labels beside it in the top margin */}
             {nowH >= 0 && nowH <= horizonH && (
