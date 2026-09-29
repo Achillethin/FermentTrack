@@ -1542,7 +1542,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("forecast");
   const [switching, setSwitching] = useState(false);
-  const onPlanner = useHash() === "#/levain";
+  const onPlanner = /^#\/levain(\?|$)/.test(useHash());
 
   async function loadPreview(id) {
     if (!id) return;

@@ -22,6 +22,7 @@ import {
   styleOf,
   toLocalInput,
 } from "./plan.js";
+import { buildIcs, planEvents, sharedForm, shareUrl } from "./share.js";
 
 const DEBOUNCE_MS = 600;
 const FORM_KEY = "ft.levain.form.v1";
@@ -536,6 +537,65 @@ function TrackBake({ plan, form, cultures, catalog, startMs, onOpenBatch }) {
   );
 }
 
+// ── share and remind ────────────────────────────────────────────────────
+
+function ShareBar({ plan, data, startMs, kind }) {
+  const [msg, setMsg] = useState(null);
+  useEffect(() => setMsg(null), [plan]);
+  const events = data ? planEvents(data, startMs, kind === "yeast" ? "Pre-ferment" : "Levain") : [];
+
+  async function share() {
+    const url = shareUrl(plan, window.location);
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Levain plan", text: "My levain plan on FermentTrack", url });
+        return;
+      } catch (e) {
+        if (e.name === "AbortError") return; // the baker closed the share sheet
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setMsg({ text: "Link copied." });
+    } catch {
+      setMsg({ text: "Copy this link:", url });
+    }
+  }
+
+  function calendar() {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([buildIcs(events, startMs)], { type: "text/calendar;charset=utf-8" }));
+    a.download = "levain-plan.ics";
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  }
+
+  return (
+    <Section title="Share and remind">
+      <p className="text-sm text-slate-300">
+        Send this plan to a friend (the link holds the recipe only, not your starter or times), or put the timings in your
+        calendar with an alert 15 minutes before each.
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <Button variant="secondary" size="lg" className="min-h-[48px]" onClick={share}>
+          Share this plan
+        </Button>
+        <Button variant="secondary" size="lg" className="min-h-[48px]" disabled={!events.length} onClick={calendar}>
+          Add to calendar
+        </Button>
+      </div>
+      <div aria-live="polite" className="mt-2 text-sm text-slate-300">
+        {msg?.text}
+        {msg?.url && (
+          <Input readOnly aria-label="Plan link" className="mt-1 w-full text-base sm:text-sm" value={msg.url} onFocus={(e) => e.target.select()} />
+        )}
+      </div>
+    </Section>
+  );
+}
+
 // ── screen ───────────────────────────────────────────────────────────────
 
 function restoreForm(catalog) {
@@ -557,7 +617,9 @@ export default function Planner({ onOpenBatch }) {
   const [pro, setPro] = useState(() => load(PRO_KEY) === "1");
   const [startAt, setStartAt] = useState(() => toLocalInput(new Date()));
   const [reload, setReload] = useState(0);
+  const [opened, setOpened] = useState(false);
   const resultsRef = useRef(null);
+  const hash = useHash();
 
   // braces: newer Chrome's scrollTo returns a Promise, which React would take for a cleanup
   useEffect(() => {
@@ -578,6 +640,17 @@ export default function Planner({ onOpenBatch }) {
   useEffect(() => {
     if (form) save(FORM_KEY, JSON.stringify(form));
   }, [form]);
+  // A shared link (#/levain?p=...) replaces the form once, then leaves the URL so a
+  // reload keeps the baker's own edits. Malformed links are ignored.
+  useEffect(() => {
+    if (!catalog || !hash.includes("?")) return;
+    const shared = sharedForm(hash, catalog);
+    if (shared) {
+      setForm(shared);
+      setOpened(true);
+    }
+    window.location.replace("#/levain");
+  }, [hash, catalog]);
 
   const { plan, errors, info } = useMemo(
     () => (form && catalog ? formToPlan(form, catalog) : { plan: null, errors: {}, info: {} }),
@@ -628,6 +701,11 @@ export default function Planner({ onOpenBatch }) {
       <p className="max-w-[60ch] text-slate-300">
         Pick your style, say how you feed it, and see when it peaks and when the dough is ready, on the clock.
       </p>
+      {opened && (
+        <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-950/40 px-3 py-2 text-sm text-slate-100">
+          Opened a shared plan. Set when you feed it below.
+        </p>
+      )}
 
       <PlanForm
         catalog={catalog}
@@ -660,6 +738,8 @@ export default function Planner({ onOpenBatch }) {
         {error && <Retry error={error} what="work out the timings" onRetry={() => setReload((n) => n + 1)} />}
         {data && <Results data={data} startMs={startMs} pro={pro} kind={kind} busy={busy} />}
       </div>
+
+      {plan && <ShareBar plan={plan} data={busy || error ? null : data} startMs={startMs} kind={kind} />}
 
       {plan && <TrackBake plan={plan} form={form} cultures={cultures} catalog={catalog} startMs={startMs} onOpenBatch={onOpenBatch} />}
 
