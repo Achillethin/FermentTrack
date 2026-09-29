@@ -283,6 +283,7 @@ class BatchSummaryOut(BaseModel):
     culture_type: str
     started_at: datetime
     current_stage: str
+    stage_entered_at: datetime
     target: str | None
     outcome: str
     ended_at: datetime | None
@@ -608,6 +609,34 @@ class FeedingChartOut(BaseModel):
 
 
 CultureWithBatches.model_rebuild()
+
+
+# ── Logbook (GET /me/log) ────────────────────────────────────────────────
+
+class LogCultureOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    type: str
+
+
+class LogBatchOut(BaseModel):
+    id: uuid.UUID
+    current_stage: str
+    started_at: datetime
+
+
+class LogEntryOut(BaseModel):
+    # Source row id: Measurement.id (readings, notes and logged stage changes), or Batch.id for
+    # the synthesized stage-change of a batch without logged history — clients must key on
+    # kind + id, not id alone.
+    id: uuid.UUID
+    culture: LogCultureOut
+    batch: LogBatchOut
+    kind: Literal["measurement", "note", "stage-change"]
+    timestamp: datetime
+    detail: dict
+
+
 BatchCreate.model_rebuild()
 BatchUpdate.model_rebuild()
 PredictionOut.model_rebuild()
