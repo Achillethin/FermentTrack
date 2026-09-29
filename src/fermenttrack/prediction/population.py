@@ -27,6 +27,7 @@ from typing import Any
 import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from fermenttrack.models import BatchEvidence
 from fermenttrack.prediction.organisms import ORGANISM_KINETICS
@@ -186,18 +187,27 @@ async def learned_priors(
     names = [o for o in organisms if o in ORGANISM_KINETICS]
     if not names:
         return {}
-    res = await db.execute(select(BatchEvidence).where(BatchEvidence.organism.in_(names)))
+    res = await db.execute(
+        select(BatchEvidence)
+        .where(BatchEvidence.organism.in_(names))
+        .order_by(BatchEvidence.created_at)  # MAX_ROWS keeps the most recent
+    )
     by: dict[tuple[str, str], list[Row]] = {}
     for e in res.scalars():
         by.setdefault((e.organism, e.param), []).append(
             Row(e.style, e.owner_id, str(e.culture_id), e.ell, e.lam)
         )
+    # the dense solve is CPU: off the event loop, like the forecasts themselves
+    return await run_in_threadpool(_condition_all, by, style, baker, str(starter) if starter else None)
+
+
+def _condition_all(
+    by: dict[tuple[str, str], list[Row]], style: str | None, baker: str | None, starter: str | None
+) -> dict[str, dict[str, Prior]]:
     out: dict[str, dict[str, Prior]] = {}
     for (org, param), rows in by.items():
         lit = getattr(ORGANISM_KINETICS[org], param)
-        out.setdefault(org, {})[param] = learned_prior(
-            lit, rows, style, baker, str(starter) if starter else None
-        )
+        out.setdefault(org, {})[param] = learned_prior(lit, rows, style, baker, starter)
     return out
 
 

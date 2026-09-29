@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from fermenttrack.prediction.engine import PI, SimulationError, Trajectories
+from fermenttrack.prediction.engine import PI, SimulationError, Trajectories, simulate
 from fermenttrack.prediction.inference import (
     MIN_ESS,
     OBS_SIGMA,
@@ -47,7 +47,9 @@ from fermenttrack.prediction.sourdough import (
     Plan,
     SourdoughModel,
     compile_plan,
+    levain_rise,
     plan_to_dict,
+    stack_params,
 )
 
 MODEL_VERSION = "sourdough-v1"
@@ -504,39 +506,49 @@ def feeding_chart(
     if hit is not None:
         return dict(hit)
     style = STYLES[style_key]
-    rows = []
     rng = np.random.default_rng(int(hashlib.sha256(key.encode()).hexdigest()[:8], 16))
+    t = np.linspace(0.0, PEAK_SEARCH_H, 241)
+    models, params = [], []
     z = None
-    with _SOLVE_LOCK:
-        for r in ratios:
-            plan = Plan(
-                style_key,
-                Build(100.0, 100.0 * r, 100.0 * r * hydration_pct / 100.0, flour, temperature_c),
-                starter=starter,  # type: ignore[arg-type]
-            )
-            model = SourdoughModel(compile_plan(plan), [0.0], population_priors)
-            if z is None:
-                z = rng.standard_normal((members, model.dim))
-            t = np.linspace(0.0, PEAK_SEARCH_H, 241)
-            tr = _simulate(model, z, t)
-            w = np.full(members, 1.0 / members)
-            peak = _peak_times(t, tr.extra["rise"])
-            doubled = _first_crossing(t, tr.extra["rise"], np.full(members, 100.0), below=False)
-            pq, _ = _q(peak, w)
-            dq, _ = _q(doubled, w)
-            i_peak = np.clip(np.searchsorted(t, np.where(np.isfinite(peak), peak, t[-1])), 0, len(t) - 1)
-            ph_at = tr.ph[np.arange(members), i_peak]
-            rise_at = tr.extra["rise"][np.arange(members), i_peak]
-            rows.append(
-                {
-                    "ratio": r,
-                    "label": f"1:{r:g}:{r * hydration_pct / 100:g}",
-                    "peak_h": pq,
-                    "doubled_h": dq,
-                    "ph_at_peak": round(float(np.median(ph_at)), 2),
-                    "rise_at_peak_pct": round(float(np.median(rise_at)), 0),
-                }
-            )
+    for r in ratios:
+        plan = Plan(
+            style_key,
+            Build(100.0, 100.0 * r, 100.0 * r * hydration_pct / 100.0, flour, temperature_c),
+            starter=starter,  # type: ignore[arg-type]
+        )
+        model = SourdoughModel(compile_plan(plan), [0.0], population_priors)
+        if z is None:  # common random numbers: the ratios differ only by the dilution
+            z = rng.standard_normal((members, model.dim))
+        models.append(model)
+        params.append(model.phase_params(0, z))
+    assert z is not None
+    with _SOLVE_LOCK:  # one stacked solve for every ratio
+        try:
+            tr = simulate(stack_params(params), t)
+        except SimulationError as exc:
+            raise PredictionUnavailable(str(exc)) from exc
+    w = np.full(members, 1.0 / members)
+    rows = []
+    idx = np.arange(members)
+    for i, (r, model, p) in enumerate(zip(ratios, models, params, strict=True)):
+        blk = slice(i * members, (i + 1) * members)
+        part = Trajectories(t_h=t, pools=tr.pools[blk], biomass_g=tr.biomass_g[blk], ph=tr.ph[blk])
+        rise = levain_rise(model, part, p, z)
+        peak = _peak_times(t, rise)
+        doubled = _first_crossing(t, rise, np.full(members, 100.0), below=False)
+        pq, _ = _q(peak, w)
+        dq, _ = _q(doubled, w)
+        i_peak = np.clip(np.searchsorted(t, np.where(np.isfinite(peak), peak, t[-1])), 0, len(t) - 1)
+        rows.append(
+            {
+                "ratio": r,
+                "label": f"1:{r:g}:{r * hydration_pct / 100:g}",
+                "peak_h": pq,
+                "doubled_h": dq,
+                "ph_at_peak": round(float(np.median(part.ph[idx, i_peak])), 2),
+                "rise_at_peak_pct": round(float(np.median(rise[idx, i_peak])), 0),
+            }
+        )
     out = {"temperature_c": temperature_c, "style": style.key, "rows": rows}
     _CHARTS.put(key, out)
     return dict(out)
