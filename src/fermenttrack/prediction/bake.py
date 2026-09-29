@@ -352,7 +352,17 @@ def _run_chain(
     return _Chain(traces, bounds, milestones, peak)
 
 
-def _forecast(plan: Plan, inputs: BakeInputs, fp: str) -> dict[str, Any]:
+def member_values(plan: Plan, inputs: BakeInputs) -> tuple[FloatArray, dict[str, FloatArray], FloatArray]:
+    """(t, {ph, rise, tta} -> (members, len(t)), weights) behind forecast(plan, inputs), on
+    its fine chain up to its horizon: for scoring held-out readings member by member
+    (scripts/validate_forecasts.py). Not cached."""
+    keep: dict[str, Any] = {}
+    with _SOLVE_LOCK:
+        _forecast(plan, inputs, inputs.fingerprint(), keep)
+    return keep["t"], keep["values"], keep["weights"]
+
+
+def _forecast(plan: Plan, inputs: BakeInputs, fp: str, keep: dict[str, Any] | None = None) -> dict[str, Any]:
     compiled = compile_plan(plan, inputs.extra_organisms)
     warnings: list[str] = []
     obs, shown = _observations(inputs)
@@ -383,6 +393,8 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str) -> dict[str, Any]:
     chain = _run_chain(full, compiled, known, z, w, inputs.now_h, list(obs_t), warnings)
     bounds, milestones = chain.bounds, chain.milestones
     tr, t_eval = _stitch(chain.traces, len(full.organisms))
+    if keep is not None:  # member_values
+        keep.update(t=t_eval, values={"ph": tr.ph, **{k: tr.extra[k] for k in ("rise", "tta")}}, weights=w)
     horizon = round(float(t_eval[-1]), 2)
     gi = _display_index(t_eval, bounds, obs_t)
     n = len(z)

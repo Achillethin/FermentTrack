@@ -878,12 +878,26 @@ def predict(
     return dict(hit)
 
 
+def member_values(
+    inputs: PredictionInputs, horizon_h: float
+) -> tuple[FloatArray, dict[str, FloatArray], FloatArray]:
+    """(t, series -> (members, len(t)) values, weights) behind predict(inputs) over
+    [0, horizon_h]: the same seeded posterior, for scoring held-out readings member by member
+    (scripts/validate_forecasts.py). Not cached."""
+    keep: dict[str, Any] = {}
+    profile = profile_for(inputs.fermentation_type)
+    with _SOLVE_LOCK:
+        _forecast(inputs, profile, inputs.fingerprint(), None, horizon_h, keep)
+    return keep["t"], keep["values"], keep["weights"]
+
+
 def _forecast(
     inputs: PredictionInputs,
     profile: FermentProfile,
     fp: str,
     temperature_c: float | None,
     horizon: float,
+    keep: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     init = _initial_state(profile, inputs.recipe)
     plans = _plan_organisms(inputs, profile)
@@ -942,6 +956,8 @@ def _forecast(
 
     want_density = profile.show_density
     values = _series_values(tr, spec, z, want_density)
+    if keep is not None:  # member_values
+        keep.update(t=t_eval, values=values, weights=weights)
     t_grid = t_eval[grid_idx]
     series: list[dict[str, Any]] = []
     for key, v in values.items():
