@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
 from fermenttrack.biochem import FERMENTATION_TYPE_ORGANISMS, ORGANISMS
-from fermenttrack.prediction import derived, engine, service
+from fermenttrack.prediction import compounds, derived, engine, service
 from fermenttrack.prediction.engine import N_POOLS, PI
+from fermenttrack.prediction.priors import Z90
 from fermenttrack.prediction.profiles import PROFILES
 
 
@@ -91,3 +94,68 @@ def test_batch_energy_never_rises(ferment: str) -> None:
         + 3.0 * (g("lactic_acid") + g("acetic_acid") + g("gluconic_acid"))
     )  # fmt: skip
     assert np.all(np.diff(kcal, axis=1) <= 1e-3 * kcal[:, :1])
+
+
+def _uniform(n: int) -> np.ndarray:
+    return np.full(n, 1.0 / n)
+
+
+def test_sweet_noticeable_share_is_the_threshold_distribution() -> None:
+    n = 20000
+    pools = _pools(1, n)
+    pools[:, 0, PI["sucrose"]] = 3.0
+    der = derived.evaluate(pools, np.full((n, 1), 6.0), PROFILES["kombucha"], derived.UNKNOWN, 1)
+    share = float(np.mean(der.activity["sweet"][:, 0] > 1.0))
+    prior = compounds.SWEET_THRESHOLD
+    z = math.log(3.0 / prior.median) / (math.log(prior.hi / prior.median) / Z90)
+    assert share == pytest.approx(0.5 * (1 + math.erf(z / math.sqrt(2))), abs=0.01)
+
+
+def test_sour_counts_protonated_acid_not_total_acid() -> None:
+    pools = _pools(2)
+    pools[0, :, PI["lactic_acid"]] = 9.0  # 0.1 mol/kg
+    der = derived.evaluate(
+        pools, np.array([[3.0, 6.0]]), PROFILES["lacto_ferment"], derived.UNKNOWN, 1
+    )
+    sour = der.activity["sour"][0]
+    assert sour[0] > 50 * sour[1]  # 88 % protonated at pH 3, 0.7 % at pH 6
+
+
+def test_kombucha_ladder_climbs_with_the_sugar_acid_balance() -> None:
+    n = 4000
+    pools = _pools(3, n)
+    pools[:, :, PI["sucrose"]] = [70.0, 20.0, 5.0]
+    pools[:, :, PI["acetic_acid"]] = [0.7, 1.5, 12.0]
+    der = derived.evaluate(pools, np.full((n, 3), 3.5), PROFILES["kombucha"], derived.UNKNOWN, 2)
+    t = np.array([0.0, 1.0, 2.0])
+    block = derived.sensory_block(der, t, _uniform(n), np.arange(3), 1.0, 2)
+    tp = block["taste_phases"]
+    prob = np.array([tp["prob"][name] for name in tp["vocabulary"]])
+    assert np.allclose(prob.sum(axis=0), 1.0)
+    assert list(prob.argmax(axis=0)) == [0, 1, 3]  # sweet, balanced, vinegary
+
+
+def test_now_past_the_window_clamps_to_the_end() -> None:
+    pools = _pools(3)
+    der = derived.evaluate(pools, np.full((1, 3), 6.0), PROFILES["kefir"], derived.UNKNOWN, 3)
+    t = np.array([0.0, 5.0, 10.0])
+    block = derived.sensory_block(der, t, _uniform(1), np.arange(3), 99.0, 2)
+    assert block["now_h"] == block["end_h"] == 10.0
+
+
+def test_label_rows_and_series() -> None:
+    pools = _pools(2, 8)
+    pools[:, :, PI["lactose"]] = [48.0, 30.0]
+    pools[:, :, PI["lactic_acid"]] = [0.0, 8.0]
+    der = derived.evaluate(pools, np.full((8, 2), 4.5), PROFILES["kefir"], derived.UNKNOWN, 4)
+    t = np.array([0.0, 24.0])
+    block = derived.sensory_block(der, t, _uniform(8), np.arange(2), 24.0, 1)
+    rows = {r["key"]: r for r in block["nutrition_label"]}
+    assert rows["lactose"]["start"]["p50"] == pytest.approx(4.8)
+    assert rows["fat"]["start"] is None and rows["energy_kcal"]["now"]["lower_bound"]
+    assert "alcohol" not in rows  # optional rows with nothing in them are left out
+    keys = {s["key"] for s in derived.series_out(der, np.arange(2), t, _uniform(8))}
+    assert {"taste:sour", "nut:lactose", "nut:energy_kcal"} <= keys
+    assert "taste:umami" not in keys  # no free amino acids: below a tenth of the threshold
+    ms = derived.taste_milestones(PROFILES["kefir"])
+    assert [m.key for m in ms] == ["taste_tangy", "taste_sour"] and ms[0].lens == "taste"
