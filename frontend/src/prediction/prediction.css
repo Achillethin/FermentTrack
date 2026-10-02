@@ -18,6 +18,7 @@
   --viz-phase-wash: rgba(168, 156, 138, 0.08); /* every other sourdough phase */
   --viz-crosshair: #dcd3c5;
   --viz-ref: #fab219; /* status "warning" step: 4.6 food-safety reference */
+  --viz-ref-neutral: #8a7f6f; /* slate-500: an orientation line, not a warning */
   --viz-obs: #f6f2ec; /* measured points wear ink, not a series hue */
   --viz-misfit: #fab219; /* warning ring: a reading the calibrated model cannot explain */
   --viz-s1: #3987e5; /* blue */

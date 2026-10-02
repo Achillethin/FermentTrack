@@ -17,7 +17,7 @@ export function shortLabel(s) {
   return base;
 }
 
-function useWidth(ref) {
+export function useWidth(ref) {
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -426,19 +426,20 @@ export default function ForecastChart({
                 />
               ))}
 
-              {/* reference lines (e.g. pH 4.6) */}
+              {/* reference lines: pH 4.6 (safety, amber); tone "neutral" for orientation
+                  lines (detection threshold, 0.5 % ABV) that are not warnings */}
               {refLines.map((r) =>
                 r.value >= yInfo.domain[0] && r.value <= yInfo.domain[1] ? (
                   <line
-                    key={`r-${r.value}`}
+                    key={`r-${r.value}-${r.label}`}
                     x1={margin.left}
                     x2={margin.left + innerW}
                     y1={y(r.value)}
                     y2={y(r.value)}
-                    style={{ stroke: "var(--viz-ref)" }}
+                    style={{ stroke: r.tone === "neutral" ? "var(--viz-ref-neutral)" : "var(--viz-ref)" }}
                     strokeOpacity={0.85}
                     strokeWidth={1.25}
-                    strokeDasharray="5 4"
+                    strokeDasharray={r.tone === "neutral" ? "2 3" : "5 4"}
                   />
                 ) : null
               )}
@@ -471,7 +472,7 @@ export default function ForecastChart({
             {refLines.map((r) =>
               r.value >= yInfo.domain[0] && r.value <= yInfo.domain[1] ? (
                 <text
-                  key={`rl-${r.value}`}
+                  key={`rl-${r.value}-${r.label}`}
                   x={margin.left + innerW - 4}
                   y={y(r.value) - 5}
                   textAnchor="end"
