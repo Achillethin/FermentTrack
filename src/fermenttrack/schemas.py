@@ -431,7 +431,8 @@ class PredictionSeriesOut(BaseModel):
     label: str
     unit: str  # "" | "g/kg" | "log CFU/g" | "SG" | "°Bx" | "%"
     group: Literal[
-        "ph", "density", "substrates", "products", "growth", "population", "rise", "acidity"
+        "ph", "density", "substrates", "products", "growth", "population", "rise", "acidity",
+        "nutrition", "taste",
     ]
     t_h: list[float]
     p05: list[float]
@@ -467,6 +468,7 @@ class PredictionMilestoneOut(BaseModel):
     threshold: MilestoneThresholdOut
     t_h: MilestoneTimesOut  # hours from batch start; null = not reached by the horizon
     probability: float  # weighted share of the ensemble reaching it within the horizon
+    lens: Literal["process", "taste", "nutrition"] = "process"  # forecast-panel lens
 
 
 class ReferenceLineOut(BaseModel):
@@ -498,6 +500,41 @@ class PredictionInitialOut(BaseModel):
     values: dict[str, float]
 
 
+class NutritionCellOut(BaseModel):
+    p05: float
+    p50: float
+    p95: float
+    lower_bound: bool  # "≥": some ingredient has no data for it
+
+
+class NutritionRowOut(BaseModel):
+    key: str
+    label: str
+    unit: str
+    start: NutritionCellOut | None  # None: unknown (no ingredient reports it)
+    now: NutritionCellOut | None
+    end: NutritionCellOut | None
+
+
+class TastePhasesOut(BaseModel):
+    vocabulary: list[str]  # ordered, mildest first
+    t_h: list[float]
+    prob: dict[str, list[float]]  # phase -> weighted share of members in it, per t_h
+
+
+class SensoryOut(BaseModel):
+    # Taste and nutrition derived from the same ensemble (spec 2026-10-02); model estimates.
+    derived_version: str
+    validated: bool
+    disclaimer: str
+    now_h: float
+    end_h: float
+    taste_phases: TastePhasesOut | None
+    nutrition_label: list[NutritionRowOut]
+    noticeable: dict[str, dict[str, float]]  # "now"/"end" -> taste -> P(above threshold)
+    assumptions: list[str]
+
+
 class PredictionOut(BaseModel):
     model: PredictionModelOut
     fermentation_type: str
@@ -519,6 +556,7 @@ class PredictionOut(BaseModel):
     # sourdough plans: the phases (levain, bulk, proof) and the plan's derived figures
     phases: list["PhaseOut"] = []
     summary: dict[str, Any] | None = None
+    sensory: SensoryOut | None = None  # taste and nutrition; absent if they failed
 
 
 # ── Sourdough ────────────────────────────────────────────────────────────

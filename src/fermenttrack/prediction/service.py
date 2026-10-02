@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import threading
 from collections import OrderedDict
@@ -18,6 +19,7 @@ from typing import Any
 import numpy as np
 
 from fermenttrack.composition import to_grams
+from fermenttrack.prediction import derived
 from fermenttrack.prediction.engine import PI, SimulationError, Trajectories, simulate
 from fermenttrack.prediction.inference import (
     MIN_ESS,
@@ -40,6 +42,8 @@ from fermenttrack.prediction.profiles import (
     Milestone,
     profile_for,
 )
+
+logger = logging.getLogger(__name__)
 
 MODEL_VERSION = "kinetic-v1"
 N_MEMBERS = 160  # prior draws per inference round
@@ -189,6 +193,8 @@ class _Initial:
     starter_logged: bool
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # recipe nutrients the ferment does not change, for the nutrition label
+    carried: derived.Carried = field(default_factory=lambda: derived.UNKNOWN)
 
 
 def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _Initial:
@@ -197,6 +203,10 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
     unmapped: list[str] = []
     unquantified: list[str] = []
     starch_estimated: list[str] = []
+    # nutrients the ferment does not change, for the label (FDC names: "fiber")
+    carried = {"fat": 0.0, "fiber": 0.0, "sodium": 0.0, "carbohydrate": 0.0}
+    reported: set[str] = set()  # at least one ingredient reports it
+    partial: set[str] = set()  # ... and some mapped ingredient does not (a lower bound)
 
     def add(k: str, g: float) -> None:
         pools[k] = pools.get(k, 0.0) + g
@@ -212,6 +222,8 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
             starter += grams
         if item.name == "Salt" or n.get("sodium", 0.0) >= 30.0:
             salt += grams
+            carried["sodium"] += n.get("sodium", 39.3) * grams / 100.0  # NaCl is 39.3 % Na
+            reported.add("sodium")
             continue
         if not n:
             unmapped.append(item.name)
@@ -219,6 +231,12 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
             continue
         mapped += grams
         f = grams / 100.0
+        for nk in carried:
+            if nk in n:
+                carried[nk] += n[nk] * f
+                reported.add(nk)
+            else:
+                partial.add(nk)
         water += n.get("water", 0.0) * f
         known = 0.0
         for src, dst in (
@@ -287,10 +305,30 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
             starter_logged=False,
             warnings=warnings,
             notes=notes,
+            # the typical recipe (per kg) knows its salt and nothing else carried
+            carried=derived.Carried(sodium=salt_g * 0.393 if salt_g else None),
         )
     else:
         kg = total / 1000.0
         pools0 = {k: v / kg for k, v in pools.items()}
+
+        def per_kg(nk: str) -> float | None:
+            return carried[nk] / kg if nk in reported else None
+
+        tracked = sum(pools0.get(k, 0.0) for k in (*SUGAR_KEYS, "starch"))
+        carb, fibre = per_kg("carbohydrate"), per_kg("fiber")
+        label = {"fat": "fat", "fiber": "fibre", "sodium": "salt", "carbohydrate": "carbohydrate"}
+        lower = {label[k] for k in partial}
+        if unmapped or unquantified:  # mass without data: every carried row is "at least"
+            lower |= set(label.values())
+        init_carried = derived.Carried(
+            fat=per_kg("fat"),
+            fibre=fibre,
+            sodium=per_kg("sodium"),
+            # what the model does not track: inaccessible starch, oligosaccharides, ...
+            other_carbohydrate=None if carb is None else max(carb - (fibre or 0.0) - tracked, 0.0),
+            lower=frozenset(lower),
+        )
         if coverage < 0.8 and unmapped:
             warnings.append(
                 f"Only {round(coverage * 100)} % of the recipe mass has USDA reference data "
@@ -310,6 +348,7 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
             starter_logged=starter > 0,
             warnings=warnings,
             notes=notes,
+            carried=init_carried,
         )
         if init.salt_wps > 26.4:
             warnings.append(
@@ -674,6 +713,7 @@ def _milestone(
         "key": ms.key,
         "label": f"{ms.title} ({ms.note})",
         "title": ms.title,
+        "lens": ms.lens,
         "note": ms.note,
         "threshold": {"series": ms.series, "value": ms.threshold, "kind": ms.kind},
         "t_h": {"p05": fmt(float(q[0])), "p50": fmt(float(q[1])), "p95": fmt(float(q[2]))},
@@ -958,6 +998,14 @@ def _forecast(
     values = _series_values(tr, spec, z, want_density)
     if keep is not None:  # member_values
         keep.update(t=t_eval, values=values, weights=weights)
+    der: derived.Derived | None = None
+    try:
+        der = derived.evaluate(
+            tr.pools, tr.ph, profile, init.carried, seed=seed + 1,
+            co2_escapes=profile.co2_escapes,
+        )  # fmt: skip
+    except Exception:  # the derived layer must never break a forecast
+        logger.exception("derived layer failed for a %s batch", profile.type)
     t_grid = t_eval[grid_idx]
     series: list[dict[str, Any]] = []
     for key, v in values.items():
@@ -993,11 +1041,14 @@ def _forecast(
         drop.add("protein")
     series = [s for s in series if s["key"] not in drop]
     series_keys = {s["key"] for s in series}
+    if der is not None:
+        series += derived.series_out(der, grid_idx, t_grid, weights)
 
-    window = {k: v[:, :in_window] for k, v in values.items()}
+    every = {**values, **(der.values if der is not None else {})}
+    window = {k: v[:, :in_window] for k, v in every.items()}
     milestones = [
         m
-        for ms in profile.milestones
+        for ms in (*profile.milestones, *derived.taste_milestones(profile))
         if (m := _milestone(ms, t_eval[:in_window], window, weights)) is not None
     ]
     misfits = _check_fit(obs, tr, z, weights, t_eval)
@@ -1053,6 +1104,8 @@ def _forecast(
             "This batch is marked finished: \"now\" is when it ended, and the curves after "
             "that show how it would have continued."
         )
+    if der is None:
+        warnings.append(derived.FAILED_WARNING)
 
     n_used = len(obs.used)
     counts: dict[str, int] = {}
@@ -1148,5 +1201,10 @@ def _forecast(
         "assumptions": assumptions,
         "warnings": warnings,
         "disclaimer": DISCLAIMER,
+        "sensory": (
+            derived.sensory_block(der, t_eval, weights, grid_idx, inputs.now_h, in_window - 1)
+            if der is not None
+            else None
+        ),
     }
     return result
