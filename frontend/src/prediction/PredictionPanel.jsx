@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ForecastChart from "./ForecastChart.jsx";
 import Milestones from "./Milestones.jsx";
 import ModelDetails, { Warnings } from "./ModelDetails.jsx";
+import Nutrition from "./Nutrition.jsx";
+import TasteAroma from "./TasteAroma.jsx";
 import WhatIfControls, { horizonLabel } from "./WhatIfControls.jsx";
 import { axisUnit, describeMilestone, duration, parseApiDate, TEMP_SOURCE_TEXT, timeLabel } from "./format.js";
+import { fmtNum, jarSummary, LENSES, lensOf, likelihood, phaseColor } from "./sensory.js";
 import { formatC } from "./temperature.js";
 import "./prediction.css";
 
@@ -17,9 +20,16 @@ const CANON = {
   substrates: ["sugars_total", "sucrose", "hexoses", "glucose", "fructose", "lactose", "maltose", "starch", "protein"],
   products: ["lactic_acid", "acetic_acid", "ethanol", "gluconic_acid", "co2", "soluble_protein", "amino_acids"],
   growth: ["mycelium", "amylase", "protease", "peptidase", "fish_enzyme"],
+  nutrition: ["nut:energy_kcal", "nut:sugars", "nut:lactose", "nut:organic_acids", "nut:free_amino_acids", "nut:alcohol"],
+  taste: ["taste:sour", "taste:sweet", "taste:umami", "taste:alcohol"],
 };
 
-const GROUP_ORDER = ["rise", "ph", "density", "acidity", "growth", "substrates", "products", "population"];
+const GROUP_ORDER = [
+  "rise", "ph", "density", "acidity", "growth", "substrates", "products", "population", "nutrition", "taste",
+];
+
+// Groups shown in the Taste & aroma and Nutrition lenses, not in Process.
+const SENSORY_GROUPS = new Set(["nutrition", "taste"]);
 
 // Readings a user can log that the model calibrates on.
 const MEASURABLE = { ph: "pH", gravity: "gravity", brix: "Brix", rise: "rise", tta: "TTA" };
@@ -57,6 +67,12 @@ function chartMeta(group, unit) {
         subtitle: "% of a fully grown koji (fish enzymes: of fresh whole fish)",
         tab: "Enzymes",
       };
+    case "taste":
+      return { title: "Taste", subtitle: "× detection threshold in water · log scale", logScale: true };
+    case "nutrition":
+      if (unit === "% ABV") return { title: "Alcohol", subtitle: "% ABV" };
+      if (unit === "kcal/100 g") return { title: "Energy", subtitle: "kcal per 100 g" };
+      return { title: "Sugars, acids, amino acids", subtitle: "g per 100 g" };
     default:
       return { title: group, subtitle: unit, tab: group };
   }
@@ -195,6 +211,95 @@ function Tabs({ charts, selected, onSelect, idBase }) {
   );
 }
 
+// Process · Taste & aroma · Nutrition: one forecast, three readings of it (pill tabs,
+// so they read as a different level from the chart tabs inside Process).
+function LensSwitch({ lens, onSelect }) {
+  const refs = useRef([]);
+  function onKeyDown(e, i) {
+    let j = null;
+    if (e.key === "ArrowRight") j = (i + 1) % LENSES.length;
+    if (e.key === "ArrowLeft") j = (i - 1 + LENSES.length) % LENSES.length;
+    if (e.key === "Home") j = 0;
+    if (e.key === "End") j = LENSES.length - 1;
+    if (j != null) {
+      e.preventDefault();
+      onSelect(LENSES[j].id);
+      refs.current[j]?.focus();
+    }
+  }
+  return (
+    <div role="tablist" aria-label="Forecast view" className="flex w-full rounded-lg bg-slate-950/60 p-1 sm:inline-flex sm:w-auto">
+      {LENSES.map((l, i) => {
+        const on = l.id === lens;
+        return (
+          <button
+            key={l.id}
+            ref={(el) => (refs.current[i] = el)}
+            type="button"
+            role="tab"
+            id={`ft-lens-tab-${l.id}`}
+            aria-selected={on}
+            aria-controls="ft-lens-panel"
+            tabIndex={on ? 0 : -1}
+            onClick={() => onSelect(l.id)}
+            onKeyDown={(e) => onKeyDown(e, i)}
+            className={`min-h-[40px] flex-1 rounded-md px-3 text-[13px] sm:flex-none sm:text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+              on ? "bg-slate-700 font-medium text-slate-50" : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            {l.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// "In the jar": the taste phase, noticeable tastes and three label rows, now and at
+// the end of the window. Text stays in slate ink; the swatch alone carries the phase hue.
+function JarCard({ sensory, timeUnit }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 sm:p-4">
+      <p className="text-sm font-medium text-slate-300">In the jar · model estimate</p>
+      <dl className="mt-2 space-y-2">
+        {[
+          ["now", "Now"],
+          ["end", "End of window"],
+        ].map(([which, label]) => {
+          const j = jarSummary(sensory, which);
+          const facts = [
+            j.sugars && `${fmtNum(j.sugars.p50, "g")} g sugar`,
+            j.alcohol && `${fmtNum(j.alcohol.p50, "% ABV")} % ABV`,
+            j.energy && `${j.energy.lower_bound ? "≥ " : ""}${fmtNum(j.energy.p50, "kcal")} kcal`,
+          ].filter(Boolean);
+          return (
+            <div key={which} className="sm:flex sm:gap-3">
+              <dt className="text-xs text-slate-400 sm:w-32 sm:shrink-0 sm:pt-0.5">
+                {label} · {timeLabel(j.t_h, timeUnit)}
+              </dt>
+              <dd className="flex flex-wrap items-center gap-x-2 text-sm text-slate-100">
+                {j.phase && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-2.5 w-2.5 rounded-sm"
+                      style={{ background: phaseColor(j.phase.k, j.phase.n) }}
+                    />
+                    <span className="font-medium">{j.phase.name}</span>
+                    <span className="text-slate-400">({likelihood(j.phase.p)})</span>
+                  </span>
+                )}
+                {j.tastes.length > 0 && <span className="text-slate-300">may be noticeable: {j.tastes.join(" · ")}</span>}
+                {facts.length > 0 && <span className="text-slate-400">{facts.join(" · ")} per 100 g</span>}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
+  );
+}
+
 /**
  * Fermentation forecast for a loaded batch: milestones headline, what-if
  * temperature, forecast window, one chart per series group, model details.
@@ -212,6 +317,7 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
   const [hover, setHover] = useState({ index: null, source: null });
   const [announce, setAnnounce] = useState("");
   const [tab, setTab] = useState(null);
+  const [lens, setLens] = useState("process");
   const [reloadToken, setReloadToken] = useState(0);
   const seqRef = useRef(0);
   const debounceRef = useRef(null);
@@ -304,19 +410,25 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
   }, []);
 
   const charts = useMemo(() => groupCharts(data, slotsRef.current), [data]);
+  const processCharts = useMemo(() => charts.filter((c) => !SENSORY_GROUPS.has(c.group)), [charts]);
 
   // Always visible: rise, pH and density (what you can measure). Without a pH chart
-  // (koji), the chart holding the first milestone's series takes its place.
+  // (koji), the chart holding the first process milestone's series takes its place.
   const primaryIds = useMemo(() => {
-    const ids = new Set(charts.filter((c) => ["rise", "ph", "density"].includes(c.group)).map((c) => c.id));
-    if (!charts.some((c) => c.group === "ph") && charts.length) {
-      const key = (data?.milestones || []).map((m) => m.threshold?.series).find(Boolean);
-      ids.add((charts.find((c) => c.series.some((x) => x.key === key)) || charts[0]).id);
+    const ids = new Set(processCharts.filter((c) => ["rise", "ph", "density"].includes(c.group)).map((c) => c.id));
+    if (!processCharts.some((c) => c.group === "ph") && processCharts.length) {
+      const key = (data?.milestones || [])
+        .filter((m) => lensOf(m) === "process")
+        .map((m) => m.threshold?.series)
+        .find(Boolean);
+      ids.add((processCharts.find((c) => c.series.some((x) => x.key === key)) || processCharts[0]).id);
     }
     return ids;
-  }, [charts, data]);
-  const primary = charts.filter((c) => primaryIds.has(c.id));
-  const secondary = charts.filter((c) => !primaryIds.has(c.id));
+  }, [processCharts, data]);
+  const primary = processCharts.filter((c) => primaryIds.has(c.id));
+  const secondary = processCharts.filter((c) => !primaryIds.has(c.id));
+  // Older API responses (or a failed derived layer) have no sensory block: Process only.
+  const activeLens = data?.sensory ? lens : "process";
   const selectedTab = secondary.find((c) => c.id === tab)?.id ?? secondary[0]?.id;
 
   const shell = (children) => (
@@ -392,7 +504,7 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
     return mine.length ? mine : NO_REF_LINES;
   };
 
-  const renderChart = (c) => {
+  const renderChart = (c, refs = chartRefs(c)) => {
     const lastObs = [...c.observations].sort((a, b) => b.t_h - a.t_h)[0];
     return (
       <ForecastChart
@@ -406,7 +518,7 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
         unit={c.unit}
         series={c.series}
         observations={c.observations}
-        refLines={chartRefs(c)}
+        refLines={refs}
         phases={data.phases || []}
         nowH={data.now_h}
         horizonH={data.horizon_h}
@@ -498,7 +610,13 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
             {horizonLabel(data.horizon_h)}). Pick a longer window below to see the model up to now.
           </p>
         )}
-        <Milestones data={data} whatIf={isWhatIf ? formatC(temp.forecast_c) : null} exploratory={exploratory} />
+        {data.sensory && <JarCard sensory={data.sensory} timeUnit={timeUnit} />}
+        {data.sensory && <LensSwitch lens={activeLens} onSelect={setLens} />}
+        <Milestones
+          data={{ ...data, milestones: (data.milestones || []).filter((m) => lensOf(m) === activeLens) }}
+          whatIf={isWhatIf ? formatC(temp.forecast_c) : null}
+          exploratory={exploratory}
+        />
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 sm:p-4">
@@ -522,28 +640,56 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
         </p>
       </div>
 
-      {charts.length === 0 ? (
-        <p className="text-sm text-slate-400">The model returned no curves for this batch.</p>
-      ) : (
-        <div className={`space-y-5 transition-opacity duration-300 ${loading ? "opacity-50" : ""}`}>
-          <EncodingKey hasUnused={hasUnused} />
-          {primary.map(renderChart)}
-          {secondary.length > 1 && (
-            <div>
-              <Tabs charts={secondary} selected={selectedTab} onSelect={setTab} idBase="ft-more" />
-              <div
-                role="tabpanel"
-                id="ft-more-panel"
-                aria-labelledby={`ft-more-tab-${secondary.findIndex((c) => c.id === selectedTab)}`}
-                className="pt-3"
-              >
-                {renderChart(secondary.find((c) => c.id === selectedTab))}
-              </div>
-            </div>
-          )}
-          {secondary.length === 1 && renderChart(secondary[0])}
-        </div>
-      )}
+      <div
+        role={data.sensory ? "tabpanel" : undefined}
+        id={data.sensory ? "ft-lens-panel" : undefined}
+        aria-labelledby={data.sensory ? `ft-lens-tab-${activeLens}` : undefined}
+        className={`space-y-5 transition-opacity duration-300 ${loading ? "opacity-50" : ""}`}
+      >
+        {activeLens === "process" &&
+          (processCharts.length === 0 ? (
+            <p className="text-sm text-slate-400">The model returned no curves for this batch.</p>
+          ) : (
+            <>
+              <EncodingKey hasUnused={hasUnused} />
+              {primary.map((c) => renderChart(c))}
+              {secondary.length > 1 && (
+                <div>
+                  <Tabs charts={secondary} selected={selectedTab} onSelect={setTab} idBase="ft-more" />
+                  <div
+                    role="tabpanel"
+                    id="ft-more-panel"
+                    aria-labelledby={`ft-more-tab-${secondary.findIndex((c) => c.id === selectedTab)}`}
+                    className="pt-3"
+                  >
+                    {renderChart(secondary.find((c) => c.id === selectedTab))}
+                  </div>
+                </div>
+              )}
+              {secondary.length === 1 && renderChart(secondary[0])}
+            </>
+          ))}
+        {activeLens === "taste" && (
+          <>
+            <EncodingKey hasUnused={false} />
+            <TasteAroma
+              data={data}
+              charts={charts.filter((c) => c.group === "taste")}
+              renderChart={renderChart}
+              hoverIndex={hover.index}
+              onHover={onHover}
+              timeUnit={timeUnit}
+            />
+          </>
+        )}
+        {activeLens === "nutrition" && (
+          <Nutrition
+            sensory={data.sensory}
+            charts={charts.filter((c) => c.group === "nutrition")}
+            renderChart={renderChart}
+          />
+        )}
+      </div>
 
       <ModelDetails data={data} />
       <p className="text-[11px] text-slate-400">

@@ -235,7 +235,10 @@ function Results({ data, startMs, pro, kind, busy }) {
     );
   }
 
-  const shown = charts.filter((ch) => pro || ch.group === "rise" || ch.group === "ph");
+  // taste and nutrition live in the batch forecast's lenses, not in the planner
+  const shown = charts.filter(
+    (ch) => (pro || ch.group === "rise" || ch.group === "ph") && ch.group !== "taste" && ch.group !== "nutrition"
+  );
   const startIso = new Date(startMs).toISOString();
   const timeUnit = axisUnit(horizonH);
 
