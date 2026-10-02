@@ -82,14 +82,24 @@ export function decimalsFor(unit, span = 10) {
   return 1;
 }
 
+export const THRESHOLD_UNIT = "× threshold";
+
+// A log10 activity (concentration / detection threshold) as "×250".
+export function timesThreshold(log10v) {
+  const x = 10 ** log10v;
+  if (x >= 10) return `×${Math.round(x)}`;
+  if (x >= 1) return `×${x.toFixed(1)}`;
+  return `×${x.toFixed(2)}`;
+}
+
 export function fmtValue(v, unit, span) {
   if (v == null || Number.isNaN(v)) return "–";
+  if (unit === THRESHOLD_UNIT) return timesThreshold(v);
   return v.toFixed(decimalsFor(unit, span));
 }
 
 export function unitSuffix(unit) {
-  if (!unit) return "";
-  if (unit === "SG") return "";
+  if (!unit || unit === "SG" || unit === THRESHOLD_UNIT) return "";
   return ` ${unit}`;
 }
 
