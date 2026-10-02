@@ -16,7 +16,7 @@ def test_thresholds_are_positive_log_priors() -> None:
 
 def test_sucrose_threshold_is_the_panel_recognition_median() -> None:
     # Höhl et al. 2014: 3.7 log10 µmol/L = 5.01 mmol/L x 342.3 g/mol = 1.72 g/L
-    assert C.SWEET_THRESHOLD.median == pytest.approx(10**3.7 * 1e-6 * 342.3 * 1000, rel=0.01)
+    assert C.SWEET_THRESHOLD.median == pytest.approx(10**3.7 * 1e-6 * 342.3, rel=0.01)
     # 90 % of the panel within 10^(±1.645 x 0.5) of the median
     assert C.SWEET_THRESHOLD.hi / C.SWEET_THRESHOLD.median == pytest.approx(
         10 ** (1.6448536 * 0.5), rel=1e-3
