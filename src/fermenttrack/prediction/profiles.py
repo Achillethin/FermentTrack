@@ -37,6 +37,32 @@ class Milestone:
     # of_initial_fraction: the series reached `threshold` x the t=0 value of `ref`
     # (amino acids = 30 % of the starting protein).
     ref: str | None = None
+    # which lens of the forecast panel lists it (spec 2026-10-02 § 6)
+    lens: Literal["process", "taste", "nutrition"] = "process"
+
+
+@dataclass(frozen=True)
+class Boundary:
+    """One step up a taste ladder: a derived metric (prediction/derived.py) crosses an
+    uncertain threshold. Thresholds are est.: nobody has measured "balanced" for you."""
+
+    metric: Literal["sugar_acid", "acetic", "acidity_pct", "umami"]
+    kind: Literal["above", "below"]
+    threshold: Prior
+
+
+@dataclass(frozen=True)
+class TasteSpec:
+    """Ordered taste phases. A member is in phase k while boundaries 1..k all hold."""
+
+    phases: tuple[str, ...]
+    boundaries: tuple[Boundary, ...]
+    notes: tuple[str, ...]  # why each phase after the first matters (its milestone note)
+    glutamate: str = "soy"  # compounds.GLUTAMATE_SHARE key: the protein source
+
+    def __post_init__(self) -> None:
+        if not len(self.phases) == len(self.boundaries) + 1 == len(self.notes) + 1:
+            raise ValueError("a taste ladder needs one boundary and one note per step")
 
 
 @dataclass(frozen=True)
@@ -79,6 +105,9 @@ class FermentProfile:
     confidence_note: str | None = None  # why an exploratory forecast is only a sketch
     sources: tuple[str, ...] = ()  # trajectory data the defaults were checked against
     notes: tuple[str, ...] = ()
+    # Taste phases for the Taste lens (None: no ladder, e.g. koji, an ingredient)
+    taste: TasteSpec | None = None
+    co2_escapes: bool = True  # False: a dough keeps its gas (per-100 g needs no CO2 loss)
 
 
 def _ph_below(value: float, note: str) -> Milestone:
@@ -92,6 +121,46 @@ _SUGARS_90 = Milestone(
     "sugars_90pct_used", "90 % of the sugars fermented", "most of the sweetness gone",
     "sugars_total", "consumed_fraction", 0.9,
 )  # fmt: skip
+
+
+def _acid_ladder(
+    phases: tuple[str, str, str], tangy: Prior, sour: Prior, notes: tuple[str, str],
+    glutamate: str = "soy",
+) -> TasteSpec:  # fmt: skip
+    return TasteSpec(
+        phases,
+        (Boundary("acidity_pct", "above", tangy), Boundary("acidity_pct", "above", sour)),
+        notes,
+        glutamate,
+    )
+
+
+_ABV_05 = Milestone(
+    "abv_over_0_5", "Alcohol over 0.5 % ABV",
+    "a common legal line for “non-alcoholic” (US kombucha, TTB); limits vary by country",
+    "nut:alcohol", "above", 0.5, lens="nutrition",
+)  # fmt: skip
+_LACTOSE_HALF = Milestone(
+    "lactose_half", "Half the lactose fermented",
+    "for lactose-sensitive drinkers; not a lactose-free claim",
+    "nut:lactose", "consumed_fraction", 0.5, lens="nutrition",
+)  # fmt: skip
+_LACTO_LADDER = _acid_ladder(
+    ("fresh", "tangy", "sour"), _r(0.15, 0.3, 0.6), _r(0.6, 1.0, 1.5),
+    ("lactic acid clearly present", "fully soured: sauerkraut finishes at 1.5-2.3 % acidity"),
+)  # fmt: skip
+
+
+def _umami_ladder(notes: tuple[str, str], glutamate: str) -> TasteSpec:
+    return TasteSpec(
+        ("mild", "savoury", "deep savoury"),
+        (
+            Boundary("umami", "above", _r(1.5, 3.0, 6.0)),
+            Boundary("umami", "above", _r(15.0, 30.0, 60.0)),
+        ),
+        notes,
+        glutamate,
+    )
 
 
 _ENZYME_FERMENT_NOTE = (
@@ -124,6 +193,19 @@ PROFILES: dict[str, FermentProfile] = {
     for p in [
         FermentProfile(
             type="kombucha",
+            taste=TasteSpec(
+                ("sweet", "balanced", "tart", "vinegary"),
+                (
+                    Boundary("sugar_acid", "below", _r(12.0, 25.0, 50.0)),
+                    Boundary("sugar_acid", "below", _r(4.0, 8.0, 16.0)),
+                    Boundary("acetic", "above", _r(4.0, 8.0, 15.0)),
+                ),
+                (
+                    "sweetness and acidity roughly level: a common point to bottle",
+                    "the acids lead and little sweetness is left",
+                    "acetic acid dominates: heading for vinegar",
+                ),
+            ),
             temp_c=24.0,
             temp_range=(20.0, 28.0),
             horizon_h=21 * 24,
@@ -160,6 +242,7 @@ PROFILES: dict[str, FermentProfile] = {
                     "sugars_50pct_used", "Half the sugar fermented", "sweet-tart balance",
                     "sugars_total", "consumed_fraction", 0.5,
                 ),  # fmt: skip
+                _ABV_05,
             ),
             show_density=True,
             sources=(
@@ -176,6 +259,11 @@ PROFILES: dict[str, FermentProfile] = {
         ),
         FermentProfile(
             type="sourdough",
+            taste=_acid_ladder(
+                ("mild", "tangy", "sharp"), _r(0.2, 0.3, 0.5), _r(0.5, 0.7, 1.0),
+                ("a noticeable sour note", "a sharp, sour dough"), "cereal",
+            ),
+            co2_escapes=False,
             temp_c=26.0,
             temp_range=(22.0, 30.0),
             horizon_h=24.0,
@@ -244,6 +332,12 @@ PROFILES: dict[str, FermentProfile] = {
         ),
         FermentProfile(
             type="cheese",
+            taste=TasteSpec(
+                ("sweet milk", "fresh tang"),
+                (Boundary("acidity_pct", "above", _r(0.1, 0.2, 0.35)),),
+                ("the curd's lactic tang",),
+                "milk",
+            ),
             temp_c=30.0,
             temp_range=(28.0, 32.0),
             horizon_h=24.0,
@@ -266,6 +360,10 @@ PROFILES: dict[str, FermentProfile] = {
         ),
         FermentProfile(
             type="kefir",
+            taste=_acid_ladder(
+                ("milky", "tangy", "sour"), _r(0.25, 0.4, 0.6), _r(0.6, 0.8, 1.0),
+                ("a fresh tang", "typical finished kefir: 0.8-1 % lactic acid"), "milk",
+            ),
             temp_c=22.0,
             temp_range=(18.0, 25.0),
             horizon_h=48.0,
@@ -285,6 +383,8 @@ PROFILES: dict[str, FermentProfile] = {
             milestones=(
                 _PH_46,
                 _ph_below(4.3, "tangy, typical ready kefir (4.2-4.6)"),
+                _ABV_05,
+                _LACTOSE_HALF,
             ),
             sources=("Irigoyen et al. 2005 Food Chem 90:613", "Garrote et al. 1998"),
             notes=(
@@ -294,6 +394,7 @@ PROFILES: dict[str, FermentProfile] = {
         ),
         FermentProfile(
             type="lacto_ferment",
+            taste=_LACTO_LADDER,
             temp_c=20.0,
             temp_range=(16.0, 24.0),
             horizon_h=28 * 24,
@@ -321,6 +422,9 @@ PROFILES: dict[str, FermentProfile] = {
         ),
         FermentProfile(
             type="miso",
+            taste=_umami_ladder(
+                ("free glutamate clearly savoury", "the deep umami of an aged miso"), "soy"
+            ),
             temp_c=25.0,
             temp_range=(15.0, 30.0),
             horizon_h=180 * 24,
@@ -360,6 +464,7 @@ PROFILES: dict[str, FermentProfile] = {
         ),
         FermentProfile(
             type="garum",
+            taste=_umami_ladder(("savoury", "the deep umami of a mature fish sauce"), "fish"),
             temp_c=30.0,
             temp_range=(20.0, 60.0),
             horizon_h=180 * 24,
@@ -392,6 +497,17 @@ PROFILES: dict[str, FermentProfile] = {
         ),
         FermentProfile(
             type="vinegar",
+            taste=TasteSpec(
+                ("boozy", "sharp", "vinegar"),
+                (
+                    Boundary("acetic", "above", _r(5.0, 10.0, 20.0)),
+                    Boundary("acetic", "above", _t(35.0, 40.0, 45.0)),
+                ),
+                (
+                    "acetic acid now leads the ethanol",
+                    "about 4 % acetic acid, the usual minimum for vinegar",
+                ),
+            ),
             temp_c=27.0,
             temp_range=(24.0, 30.0),
             horizon_h=60 * 24,
@@ -433,6 +549,7 @@ PROFILES: dict[str, FermentProfile] = {
 # moderately buffered lactic ferment at room temperature.
 GENERIC_PROFILE = FermentProfile(
     type="generic",
+    taste=_LACTO_LADDER,
     temp_c=22.0,
     temp_range=(18.0, 26.0),
     horizon_h=14 * 24,
