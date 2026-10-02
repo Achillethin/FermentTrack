@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 
-from fermenttrack.prediction import population
+from fermenttrack.prediction import derived, population
 from fermenttrack.prediction.engine import PI, SimulationError, Trajectories, simulate
 from fermenttrack.prediction.inference import (
     MIN_ESS,
@@ -28,12 +29,14 @@ from fermenttrack.prediction.inference import (
 )
 from fermenttrack.prediction.inference import run as run_inference
 from fermenttrack.prediction.priors import FloatArray, Prior
+from fermenttrack.prediction.profiles import profile_for
 from fermenttrack.prediction.service import (
     DISCLAIMER,
     MAX_OBS_PER_KEY,
     PredictionUnavailable,
     _first_crossing,
     _LRU,
+    _milestone as _service_milestone,
     _organism_out,
     _OrganismPlan,
     _resample,
@@ -54,6 +57,8 @@ from fermenttrack.prediction.sourdough import (
     plan_to_dict,
     stack_params,
 )
+
+logger = logging.getLogger(__name__)
 
 MODEL_VERSION = "sourdough-v1"
 N_MEMBERS = 160
@@ -405,6 +410,22 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str, keep: dict[str, Any] | No
         ))  # fmt: skip
 
     series = _series(tr, full, gi, t_eval[gi], w)
+    sd_profile = profile_for("sourdough")
+    der: derived.Derived | None = None
+    try:  # a dough keeps its gas, and a plan logs no recipe composition
+        der = derived.evaluate(
+            tr.pools, tr.ph, sd_profile, derived.UNKNOWN, seed=seed + 1, co2_escapes=False
+        )
+    except Exception:  # never break a bake forecast on the derived layer
+        logger.exception("derived layer failed for a sourdough plan")
+        warnings.append(derived.FAILED_WARNING)
+    if der is not None:
+        series += derived.series_out(der, gi, t_eval[gi], w)
+        milestones += [
+            m
+            for ms in derived.taste_milestones(sd_profile)
+            if (m := _service_milestone(ms, t_eval, der.values, w)) is not None
+        ]
     fits = _check_fit(obs, tr, t_eval, w)
     for s in shown:
         if s["used"]:
@@ -496,6 +517,11 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str, keep: dict[str, Any] | No
         "disclaimer": SD_DISCLAIMER,
         "phases": phases,
         "summary": compiled.summary,
+        "sensory": (
+            derived.sensory_block(der, t_eval, w, gi, inputs.now_h, len(t_eval) - 1)
+            if der is not None
+            else None
+        ),
     }
 
 

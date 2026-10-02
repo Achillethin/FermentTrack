@@ -223,3 +223,11 @@ def test_a_non_leavening_sour_needs_yeast_in_the_dough() -> None:
                    "peak is slower than vigorous home starters (1:1:1 at ~25 °C: 4-8 h)")
 def test_home_starter_median_peak_matches_baker_timing() -> None:
     assert _ms(_run(_levain("home_starter", 1, 25.6)), "levain_peak")["p50"] <= 8.0
+
+
+def test_a_plan_gets_taste_and_nutrition() -> None:
+    out = _run(_levain("levain_liquide", 3, 26))
+    assert out["sensory"]["taste_phases"]["vocabulary"] == ["mild", "tangy", "sharp"]
+    assert any(s["key"] == "taste:sour" for s in out["series"])
+    carb = next(r for r in out["sensory"]["nutrition_label"] if r["key"] == "carbohydrate")
+    assert carb["start"]["lower_bound"]  # a plan logs no recipe composition
