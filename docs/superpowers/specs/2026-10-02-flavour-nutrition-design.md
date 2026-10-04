@@ -1,8 +1,16 @@
 # Taste, Aroma and Nutrition Over the Fermentation — Design
 
 **Date:** 2026-10-02
-**Status:** APPROVED in chat section by section (2026-10-02); written spec awaiting owner review
+**Status:** APPROVED (2026-10-02). Increment A (nutrition, taste, lenses) IMPLEMENTED on `feat/taste-nutrition` — plan `docs/superpowers/plans/2026-10-02-taste-nutrition-increment-a.md`; increment B (aroma) pending curation.
 **Builds on:** `2026-09-24-fermentation-prediction-design.md` (kinetic ensemble, AMIS, `PredictionOut`), `2026-09-28-sourdough-engine-design.md` (multi-phase bake path, TTA, FQ, `simulate(keep_states=True)`), `2026-09-23-ingredient-nutrients-design.md` (composition, lower-bound semantics), `2026-09-23-fermentation-biochemistry-design.md` (KEGG compound identity), `2026-09-25-frontend-design-system-pass.md` and `frontend/src/prediction/prediction.css` (chart tokens, dataviz method).
+
+## Implementation notes (increment A, 2026-10-02)
+
+- **Thresholds as panel distributions.** Taste thresholds are recognition thresholds in water with their between-person spread (Höhl et al. 2014, n = 70), so "P(above threshold)" reads as the share of people who would notice it in water. Sour uses the protonated-acid + H⁺ measure of Johanningsmeier et al. 2005.
+- **Phase ramp** lives in `sensory.js` (`PHASE_HEX`, validated `--ordinal --mode dark --surface #191612`) rather than CSS tokens: blending a transition needs the hex values. A neutral reference-line tone (`--viz-ref-neutral`) keeps the amber `--viz-ref` for the pH 4.6 line.
+- **Energy invariant** (§ 9) is tested in monosaccharide equivalents (3.75 kcal/g) on the raw solver states: on the EU label basis hydrolysis alone adds kcal (starch → glucose +11 % mass), and the zero-clipped display pools hide an RK23 overshoot at substrate exhaustion (vinegar: up to ~1–2 % extra acetic acid after the ethanol runs out). The overshoot is a pre-existing engine artifact, left for a separate engine change (an event at depletion or a step cap).
+- **Sourdough planner** filters the taste/nutrition groups out of its Pro charts; the lenses are a batch-forecast feature.
+- **Moved to increment B:** the dashed "plausible" tier in `ForecastChart` (it only exists with aroma compounds).
 
 ## Problem and goals
 

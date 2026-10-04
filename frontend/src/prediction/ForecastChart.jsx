@@ -473,9 +473,10 @@ export default function ForecastChart({
               r.value >= yInfo.domain[0] && r.value <= yInfo.domain[1] ? (
                 <text
                   key={`rl-${r.value}-${r.label}`}
-                  x={margin.left + innerW - 4}
+                  // neutral lines label on the left: the right edge holds the series' end labels
+                  x={r.tone === "neutral" ? margin.left + 4 : margin.left + innerW - 4}
                   y={y(r.value) - 5}
-                  textAnchor="end"
+                  textAnchor={r.tone === "neutral" ? "start" : "end"}
                   style={{ ...HALO, fill: "var(--viz-text-secondary)", fontSize: 11 }}
                 >
                   {r.label}

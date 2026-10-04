@@ -159,3 +159,13 @@ def test_label_rows_and_series() -> None:
     assert "taste:umami" not in keys  # no free amino acids: below a tenth of the threshold
     ms = derived.taste_milestones(PROFILES["kefir"])
     assert [m.key for m in ms] == ["taste_tangy", "taste_sour"] and ms[0].lens == "taste"
+
+
+def test_energy_curve_keeps_a_decimal() -> None:
+    """Whole kcal turn a slow decline into a staircase on the chart."""
+    pools = _pools(2, 4)
+    pools[:, :, PI["sucrose"]] = [70.0, 66.3]
+    der = derived.evaluate(pools, np.full((4, 2), 4.0), PROFILES["kombucha"], derived.UNKNOWN, 5)
+    out = derived.series_out(der, np.arange(2), np.array([0.0, 24.0]), _uniform(4))
+    energy = next(s for s in out if s["key"] == "nut:energy_kcal")
+    assert energy["p50"] == [28.0, 26.5]

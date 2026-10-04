@@ -243,7 +243,7 @@ function LensSwitch({ lens, onSelect }) {
             tabIndex={on ? 0 : -1}
             onClick={() => onSelect(l.id)}
             onKeyDown={(e) => onKeyDown(e, i)}
-            className={`min-h-[40px] flex-1 rounded-md px-3 text-[13px] sm:flex-none sm:text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+            className={`min-h-[40px] flex-1 whitespace-nowrap rounded-md px-2 text-[13px] sm:flex-none sm:px-3 sm:text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
               on ? "bg-slate-700 font-medium text-slate-50" : "text-slate-400 hover:text-slate-200"
             }`}
           >

@@ -9,7 +9,7 @@ function Cell({ cell, unit, start }) {
   return (
     <td className="px-2 py-1.5 text-right align-top">
       <span className="font-medium text-slate-100">{value}</span>
-      {change && <span className="ml-1 text-[11px] text-slate-400">{change}</span>}
+      {change && <span className="ml-1 hidden text-[11px] text-slate-400 sm:inline">{change}</span>}
       {range && <span className="block text-[11px] text-slate-400">{range}</span>}
     </td>
   );

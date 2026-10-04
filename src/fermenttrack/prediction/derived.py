@@ -259,7 +259,7 @@ def series_out(
         q = weighted_quantiles(v[:, idx], w, (0.05, 0.5, 0.95))
         if key in _SHOW_IF and float(np.max(q[2])) < _SHOW_IF[key]:
             continue
-        digits = 0 if key == "nut:energy_kcal" else 2
+        digits = 1 if key == "nut:energy_kcal" else 2  # whole kcal would draw a staircase
         out.append(
             {
                 "key": key, "label": label, "unit": unit, "group": group,
