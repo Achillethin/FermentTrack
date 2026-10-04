@@ -11,6 +11,7 @@
 - **Energy invariant** (§ 9) is tested in monosaccharide equivalents (3.75 kcal/g) on the raw solver states: on the EU label basis hydrolysis alone adds kcal (starch → glucose +11 % mass), and the zero-clipped display pools hide an RK23 overshoot at substrate exhaustion (vinegar: up to ~1–2 % extra acetic acid after the ethanol runs out). The overshoot is a pre-existing engine artifact, left for a separate engine change (an event at depletion or a step cap).
 - **Sourdough planner** filters the taste/nutrition groups out of its Pro charts; the lenses are a batch-forecast feature.
 - **Moved to increment B:** the dashed "plausible" tier in `ForecastChart` (it only exists with aroma compounds).
+- **Measured cost** (dev core, prior-only forecasts, 160 members × 161 points): the derived layer takes 21–25 ms of 200–420 ms forecasts (6–11 %), mostly the weighted-quantile sorts; series that cannot pass their show-threshold skip the sort. Cached with the forecast; a what-if pays it again on 128 members.
 
 ## Problem and goals
 

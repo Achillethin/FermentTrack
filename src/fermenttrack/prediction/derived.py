@@ -204,7 +204,9 @@ def evaluate(
     protonated = np.sum(mol * h / (h + _ACID_KA), axis=2)
     glu_mm = p("amino_acids") * d["glu"] / C.GLUTAMATE_MW * 1000.0 / left
     activity = {
-        "sour": np.asarray((protonated + h[..., 0]) * 1000.0 / left / d["sour"]),
+        # acids are per kg of starting batch (rescale by the mass left); [H+] is read off
+        # the jar as it is
+        "sour": np.asarray((protonated / left + h[..., 0]) * 1000.0 / d["sour"]),
         "sweet": np.asarray(sweet_raw / left / d["sweet"]),
         "umami": np.asarray(glu_mm / d["umami"]),
         "alcohol": np.asarray(rows["alcohol"] / d["alcohol"]),
@@ -256,8 +258,11 @@ def series_out(
         v = der.values.get(key)
         if v is None:
             continue
+        floor = _SHOW_IF.get(key)
+        if floor is not None and float(np.max(v[:, idx])) < floor:
+            continue  # no member reaches it, so neither does the 95th percentile: skip the sort
         q = weighted_quantiles(v[:, idx], w, (0.05, 0.5, 0.95))
-        if key in _SHOW_IF and float(np.max(q[2])) < _SHOW_IF[key]:
+        if floor is not None and float(np.max(q[2])) < floor:
             continue
         digits = 1 if key == "nut:energy_kcal" else 2  # whole kcal would draw a staircase
         out.append(

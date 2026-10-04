@@ -169,3 +169,13 @@ def test_energy_curve_keeps_a_decimal() -> None:
     out = derived.series_out(der, np.arange(2), np.array([0.0, 24.0]), _uniform(4))
     energy = next(s for s in out if s["key"] == "nut:energy_kcal")
     assert energy["p50"] == [28.0, 26.5]
+
+
+def test_free_h_is_already_a_concentration() -> None:
+    """Escaped CO2 concentrates what stays in the jar, but [H+] comes from the pH reading
+    of the jar as it is: it must not be rescaled by the mass loss."""
+    pools = _pools(2)
+    pools[0, 1, PI["co2"]] = 100.0  # 10 % of the mass gone
+    der = derived.evaluate(pools, np.full((1, 2), 3.0), PROFILES["kombucha"], derived.UNKNOWN, 6)
+    sour = der.activity["sour"][0]
+    assert sour[1] == pytest.approx(sour[0])
