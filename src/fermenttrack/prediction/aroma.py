@@ -9,6 +9,7 @@ aroma_data.py; design: docs/superpowers/specs/2026-10-05-aroma-curation.md.
 
 from __future__ import annotations
 
+import zlib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -69,17 +70,21 @@ def neutral_fraction(ph: FloatArray, kind: str, pka: float | None) -> FloatArray
     return np.ones_like(ph)
 
 
+def _stream(seed: int, key: str) -> np.random.Generator:
+    """One stream per parameter: a parameter added later never moves another one's draws."""
+    return np.random.default_rng([seed, zlib.crc32(key.encode())])
+
+
 def draws(n: int, seed: int) -> Draws:
-    """Template parameters, thresholds, ingredient pools and the shared matrix factor per
-    member: nothing observes them yet, so prior draws are their posterior (spec 2026-10-02
-    § 1). Each value is (N, 1)."""
+    """Template parameters, thresholds, ingredient pools, strain flags and the shared matrix
+    factor per member: nothing observes them yet, so prior draws are their posterior (spec
+    2026-10-02 § 1). Each value is (N, 1)."""
     priors = dict(A.PARAMS)
     priors.update({f"thr:{k}": c.threshold for k, c in A.COMPOUNDS.items() if c.threshold})
     priors.update({f"ing:{i}:{k}": p for i, e in A.AROMA_INGREDIENTS.items() for k, p in e.items()})
-    z = np.random.default_rng(seed).standard_normal((n, len(priors)))
     out = {}
-    for j, (k, p) in enumerate(priors.items()):
-        v = np.asarray(p.value(z[:, j]))
+    for k, p in priors.items():
+        v = np.asarray(p.value(_stream(seed, k).standard_normal(n)))
         # Split-normal tails can cross 0 (lin rates) or 1 (shares, either scale). Shares
         # stop at 0.95 so that s / (1 - s) stays finite in the templates.
         if k.startswith(("share_", "excr_", "itc_fraction")):
@@ -87,6 +92,8 @@ def draws(n: int, seed: int) -> Draws:
         elif p.scale == "lin":
             v = np.maximum(v, 0.0)
         out[k] = v[:, None]
+    for k, prob in A.FLAGS.items():  # Bernoulli per member
+        out[k] = (_stream(seed, k).uniform(size=n) < prob).astype(float)[:, None]
     return out
 
 
@@ -273,6 +280,10 @@ SMCSO_REF = 5700.0  # µmol/kg: a cabbage-only batch at § 6.1's median; est. (B
 METHIONAL_SHARE = 0.2  # of converted methionine not ending as methionol; est. (B1)
 
 
+def _is_sc(name: str) -> bool:
+    return "cerevisiae" in name  # "Saccharomyces cerevisiae", "Baker's yeast (S. cerevisiae)"
+
+
 def _is_km(name: str) -> bool:
     return name.startswith("Kluyveromyces")
 
@@ -364,7 +375,7 @@ def concentrations(
 
     # 2. T1, yeast Ehrlich (§ 5.1); Q10 reference 23 °C (middle of Godillot's series)
     def m_yeast(name: str) -> FloatArray | float:
-        return 1.0 if name.startswith("Saccharomyces") else d["mult_nonsacch"]
+        return 1.0 if _is_sc(name) else d["mult_nonsacch"]
 
     def m_pe(name: str) -> FloatArray | float:
         return d["mult_km_pe"] if _is_km(name) else m_yeast(name)
@@ -549,7 +560,8 @@ def concentrations(
         tr.conc[key] = burst + ferm
 
     # 11. T8 vegetables (§ 5.8): reduction by LAB and yeast, brine loss, residual release
-    red = d["kmax_lipid_reduction"] / 24.0 * _gate(ctx, REDUCERS_LIPID)
+    k_lip = d["kmax_lipid_reduction"] / 24.0 * q("q10_default", 30.0)  # Q10: est. (B2)
+    red = k_lip * _gate(ctx, REDUCERS_LIPID)
     brine = ctx.ferment == "lacto_ferment"
     for key in ("hexanal", "nonanal", "e2_nonenal"):
         tr.loss(key, red)
@@ -626,7 +638,7 @@ def evaluate(
 ) -> AromaResult:  # fmt: skip
     """Aroma for every member at every time: concentrations, odour activities and series
     sums (every active compound with a threshold counts: owner decision 2026-10-06)."""
-    if profile.type not in A.B1_TYPES or tr.y is None:
+    if profile.type not in A.AROMA_TYPES or tr.y is None:
         return _empty(f"Aroma for {profile.type.replace('_', ' ')} arrives in a later increment.",
                       no_data)  # fmt: skip
     ctx = build_context(params, tr, profile, shares, co2_escapes)

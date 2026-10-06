@@ -143,9 +143,11 @@ PARAMS: dict[str, Prior] = {
     "dms_per_dmds": Prior(0.3, 0.05, 1.0),  # mol/mol; est. (03:S9)
     "mesh_oxidation": Prior(5.0, 1.0, 20.0),  # 1/d; est. (03:S10)
     # T8 vegetables (§ 5.8, § 5.9)
-    # 05:Engels22; rate est. Calibrated 2026-10-06 (0.3 -> 0.06): curation tests 22, 24
-    # (kimchi hexanal stays within x/÷3 of t0; cucumber hexanal 4-114 µg/kg at d21)
-    "kmax_lipid_reduction": Prior(0.06, 0.05, 1.5),
+    # 1/d at 30 °C with q10_default (est. (B2)); 05:Engels22, rate est. Median = the 02:K1
+    # kombucha check (0.17/d at 30 °C), which with the Q10 also keeps kimchi hexanal within
+    # x/÷3 of t0 at 15 °C (test 22) and cucumber hexanal in 4-114 µg/kg (test 24). B1 had
+    # 0.06 without a Q10 (the § 10.3 kimchi/kombucha conflict).
+    "kmax_lipid_reduction": Prior(0.17, 0.05, 1.5),
     "brine_aldehyde_loss": Prior(0.9, 0.5, 2.0),  # 1/d; 03:S13, derived
     "hexenol_release": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
     "hexenol_loss": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
@@ -257,7 +259,13 @@ DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
     "lacto_ferment": {"Cabbage": 0.98},  # no recipe logged: a 2 % dry-salted sauerkraut
 }
 
-B1_TYPES = frozenset({"lacto_ferment"})
+AROMA_TYPES = frozenset({"lacto_ferment"})  # ferment types with aroma templates
+
+# Per-member strain flags (Bernoulli): the chance that the member's strain has the trait
+FLAGS: dict[str, float] = {
+    "pof_yeast": 0.5,  # Pof+ S. cerevisiae decarboxylates ferulic acid; 05:Coghe04, share est.
+    "pad_lp": 0.12,  # padA+ L. plantarum: 6 of 50 kimchi isolates (05:Rosimin15)
+}
 
 _CAL, _REP = "calibrated", "reported"
 # type -> compound -> (tier, anchor, sources) (§ 4)

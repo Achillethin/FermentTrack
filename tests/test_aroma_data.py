@@ -13,8 +13,8 @@ def test_catalogue_loads_all_85() -> None:
     assert bdo.threshold is None and bdo.conc_only
 
 
-def test_every_b1_evidence_cell_is_a_known_compound() -> None:
-    for t in A.B1_TYPES:
+def test_every_evidence_cell_is_a_known_compound() -> None:
+    for t in A.AROMA_TYPES:
         for key, (tier, _anchor, sources) in A.EVIDENCE[t].items():
             assert key in A.COMPOUNDS, key
             assert tier in ("calibrated", "reported", "plausible", "engine"), key

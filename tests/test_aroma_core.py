@@ -73,3 +73,25 @@ def test_odour_activity_divides_by_threshold_and_matrix() -> None:
     conc = np.full((5, 3), 100.0)
     oav = aroma.odour_activity(conc, "hexanal", np.ones((5, 3)), d)
     assert np.allclose(oav, 100.0 / (d["thr:hexanal"] * d["matrix"]))
+
+
+def test_adding_a_parameter_keeps_the_other_draws(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fermenttrack.prediction.priors import Prior
+
+    before = aroma.draws(50, 3)
+    monkeypatch.setitem(A.PARAMS, "zz_new", Prior(1.0, 0.5, 2.0))
+    after = aroma.draws(50, 3)
+    assert all(np.array_equal(before[k], after[k]) for k in before)
+
+
+def test_flags_are_bernoulli_per_member() -> None:
+    d = aroma.draws(4000, 0)
+    for k, p in A.FLAGS.items():
+        assert set(np.unique(d[k])) <= {0.0, 1.0}
+        assert abs(float(d[k].mean()) - p) < 0.03, k
+
+
+def test_bakers_yeast_is_s_cerevisiae() -> None:
+    assert aroma._is_sc("Baker's yeast (S. cerevisiae)")
+    assert aroma._is_sc("Saccharomyces cerevisiae")
+    assert not aroma._is_sc("Kazachstania humilis")
