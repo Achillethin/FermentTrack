@@ -1002,8 +1002,8 @@ def _forecast(
             [(r.name, to_grams(r.quantity, r.unit), r.role) for r in inputs.recipe], profile.type
         )
         ar = aroma.evaluate(
-            spec.params(z[:, : spec.dim]), tr, profile, shares, no_data, seed + 2,
-            profile.co2_escapes, notes,
+            [aroma.Segment(spec.params(z[:, : spec.dim]), tr, shares)], profile, no_data,
+            seed + 2, profile.co2_escapes, notes,
         )  # fmt: skip
     except Exception:  # aroma must never break a forecast, nor taste and nutrition
         logger.exception("aroma layer failed for a %s batch", profile.type)

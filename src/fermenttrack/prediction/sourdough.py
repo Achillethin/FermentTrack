@@ -386,12 +386,14 @@ class _Mass:
     gluten: float = 0.0  # flour-weighted
     amylase: float = 0.0
     pools: dict[str, float] = field(default_factory=dict)
+    flours: dict[str, float] = field(default_factory=dict)  # grams per flour key (aroma)
 
     def add_flour(self, grams: float, b: Blend) -> None:
         for key, share in b:
             f, g = FLOURS[key], grams * share
             self.total += g
             self.flour += g
+            self.flours[key] = self.flours.get(key, 0.0) + g
             self.water += g * f.water_pct / 100.0
             self.ash += g * f.ash_pct / 100.0
             self.gluten += g * f.gluten
@@ -428,6 +430,18 @@ class Phase:
     salt_wps: float
     x_add: dict[str, float]  # organism -> log10 CFU/g added at the start (baker's yeast)
     continues: bool = False  # same matrix as the previous phase (proof after bulk)
+    flour_fresh: dict[str, float] = field(default_factory=dict)  # flour key -> mass share
+
+
+def catalogue_flours(ph: Phase) -> dict[str, float]:
+    """The phase's fresh flour as catalogue ingredients (seed_data names), mass shares."""
+    out: dict[str, float] = {}
+    for key, share in ph.flour_fresh.items():
+        f = FLOURS[key]
+        name = "Rye flour" if f.grain == "rye" else (
+            "Whole wheat flour" if f.ash_pct >= 1.1 else "White wheat flour")  # fmt: skip
+        out[name] = out.get(name, 0.0) + share
+    return out
 
 
 def _phase_from(key: str, label: str, m: _Mass, temp: float, hours: float | None,
@@ -448,6 +462,7 @@ def _phase_from(key: str, label: str, m: _Mass, temp: float, hours: float | None
         hydration_pct=100.0 * m.added_water / m.flour if m.flour else 100.0,
         salt_wps=100.0 * m.salt / (m.salt + m.water) if m.salt else 0.0,
         x_add=x_add,
+        flour_fresh={k: v / m.total for k, v in m.flours.items()},
     )
 
 
@@ -545,6 +560,7 @@ def compile_plan(plan: Plan, extra_organisms: tuple[str, ...] = ()) -> Compiled:
         m.amylase += fresh.amylase
         m.salt = dg.salt_g
         m.pools = fresh.pools
+        m.flours = fresh.flours
         x_add: dict[str, float] = {}
         if dg.yeast_g > 0:
             x_add[BAKERS_YEAST] = _yeast_log_cfu(dg.yeast_g, dg.yeast, m.total)
@@ -569,6 +585,7 @@ def compile_plan(plan: Plan, extra_organisms: tuple[str, ...] = ()) -> Compiled:
             dataclasses.replace(
                 prev, key="proof", label=label, temperature_c=plan.proof.temperature_c,
                 hours=plan.proof.hours, carry=1.0, pools_fresh={}, x_add={}, continues=True,
+                flour_fresh={},
             )
         )  # fmt: skip
     return Compiled(style, plan, names, phases, inoculum, summary)

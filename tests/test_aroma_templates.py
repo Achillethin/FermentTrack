@@ -23,7 +23,8 @@ def _run(
     p, t = _setup(ferment, n, organisms)
     tr = engine.simulate(p, t, keep_states=True)
     prof = PROFILES[ferment]
-    ctx = aroma.build_context(p, tr, prof, shares or {"Cabbage": 0.98}, prof.co2_escapes)
+    seg = aroma.Segment(p, tr, shares or {"Cabbage": 0.98})
+    ctx = aroma.build_context(seg, prof, prof.co2_escapes)
     d = aroma.draws(n, 7)
     conc, routes = aroma.concentrations(ctx, d)
     return ctx, conc, routes, d

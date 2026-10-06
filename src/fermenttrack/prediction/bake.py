@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from fermenttrack.prediction import derived, population
+from fermenttrack.prediction import aroma, derived, population
 from fermenttrack.prediction.engine import PI, SimulationError, Trajectories, simulate
 from fermenttrack.prediction.inference import (
     MIN_ESS,
@@ -52,6 +52,7 @@ from fermenttrack.prediction.sourdough import (
     PhaseTrace,
     Plan,
     SourdoughModel,
+    catalogue_flours,
     compile_plan,
     levain_rise,
     plan_to_dict,
@@ -411,10 +412,17 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str, keep: dict[str, Any] | No
 
     series = _series(tr, full, gi, t_eval[gi], w)
     sd_profile = profile_for("sourdough")
+    ar: aroma.AromaResult | None = None
+    try:  # aroma must never break a bake forecast, nor taste and nutrition
+        segs = _aroma_segments(full, chain.traces, z)
+        ar = aroma.evaluate(segs, sd_profile, [], seed + 2, co2_escapes=False)
+    except Exception:
+        logger.exception("aroma layer failed for a sourdough plan")
     der: derived.Derived | None = None
     try:  # a dough keeps its gas, and a plan logs no recipe composition
         der = derived.evaluate(
-            tr.pools, tr.ph, sd_profile, derived.UNKNOWN, seed=seed + 1, co2_escapes=False
+            tr.pools, tr.ph, sd_profile, derived.UNKNOWN, seed=seed + 1, co2_escapes=False,
+            aroma=ar,
         )
     except Exception:  # never break a bake forecast on the derived layer
         logger.exception("derived layer failed for a sourdough plan")
@@ -523,6 +531,23 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str, keep: dict[str, Any] | No
             else None
         ),
     }
+
+
+def _aroma_segments(
+    model: SourdoughModel, traces: list[PhaseTrace], z: FloatArray
+) -> list[aroma.Segment]:
+    """One aroma segment per phase trace: its parameters and clock, the carried share and
+    the phase's fresh flour. ponytail: a trace is cut just before the next mix, so the state
+    carried into it is its last point (<= FINE_DT early); keep the boundary point if a
+    fast-changing tracer ever needs it."""
+    return [
+        aroma.Segment(
+            model.phase_params(k, z),
+            Trajectories(t_h=x.t, pools=x.pools, biomass_g=x.biomass, ph=x.ph, y=x.y),
+            catalogue_flours(model.phases[k]), x.start, model.phases[k].carry,
+        )  # fmt: skip
+        for k, x in enumerate(traces)
+    ]
 
 
 def _known_starts(compiled: Compiled, inputs: BakeInputs) -> list[float]:

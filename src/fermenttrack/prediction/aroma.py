@@ -193,16 +193,29 @@ class Context:
     co2_escapes: bool
 
 
-def build_context(
-    params: EnsembleParams, tr: Trajectories, profile: FermentProfile,
-    shares: dict[str, float], co2_escapes: bool,
-) -> Context:  # fmt: skip
+@dataclass
+class Segment:
+    """One solve: an ordinary batch, or one phase of a chained process (sourdough levain ->
+    dough -> proof). Its parameters run on its own clock (t_h - start: temperature,
+    diagnostics); `carry` is the mass share of the previous segment's end state in this
+    mix and `shares` the fresh ingredients (mass shares of this mix)."""
+
+    params: EnsembleParams
+    tr: Trajectories  # with raw states (simulate(..., keep_states=True))
+    shares: dict[str, float]
+    start: float = 0.0
+    carry: float = 0.0
+
+
+def build_context(seg: Segment, profile: FermentProfile, co2_escapes: bool) -> Context:
+    params, tr = seg.params, seg.tr
     if tr.y is None:
         raise ValueError("aroma needs raw states (simulate(..., keep_states=True))")
-    diag = engine.diagnose(params, tr.t_h, tr.y, stride=2)  # see test_engine_diagnostics
+    clock = np.asarray(tr.t_h, dtype=float) - seg.start
+    diag = engine.diagnose(params, clock, tr.y, stride=2)  # see test_engine_diagnostics
     orgs = params.organisms
     temp = np.stack(
-        [np.broadcast_to(params.temperature(float(ti)), (params.n,)) for ti in tr.t_h], axis=1
+        [np.broadcast_to(params.temperature(float(ti)), (params.n,)) for ti in clock], axis=1
     )
     return Context(
         t=np.asarray(tr.t_h, dtype=float), pools=tr.pools, ph=tr.ph, temp=temp,
@@ -212,7 +225,7 @@ def build_context(
         biomass=tr.biomass_g, x_max=[o.x_max_g[:, None] for o in orgs],
         names=[o.kin.name for o in orgs], classes=[organism_class(o.kin) for o in orgs],
         products=[frozenset(k for ch in o.kin.channels for k in ch.products) for o in orgs],
-        shares=dict(shares), ferment=profile.type, co2_escapes=co2_escapes,
+        shares=dict(seg.shares), ferment=profile.type, co2_escapes=co2_escapes,
     )  # fmt: skip
 
 
@@ -351,12 +364,18 @@ class _Tracers:
 
 
 def concentrations(
-    ctx: Context, d: Draws
+    ctx: Context, d: Draws, inherit: dict[str, FloatArray] | None = None
 ) -> tuple[dict[str, FloatArray], dict[str, list[Route]]]:
     """µg/kg (N, T) of every compound the batch can make, and where each one comes from.
-    Keys starting with "_" are internal (tests only)."""
+    `inherit`: (N,) values carried in from a previous segment (compounds, and the internal
+    states of _STATES). Keys starting with "_" are internal."""
     tr = _Tracers(ctx, d)
     temp, mw = ctx.temp, A.MW
+    for key, v in (inherit or {}).items():  # routes: the earlier segment's are merged
+        if key.startswith("_"):
+            tr.inherit[key] = v
+        elif np.any(v > 0.0):
+            tr.c0[key] = v
 
     def q(key: str, ref: float) -> FloatArray:
         return np.asarray(d[key] ** ((temp - ref) / 10.0))
@@ -687,19 +706,56 @@ def _empty(note: str, no_data: list[str]) -> AromaResult:
                                                    "ingredients": no_data})  # fmt: skip
 
 
+_STATES = ("_acetolactate", "_ferulic_bound", "_ferulic_free")  # carried across a mix
+
+
+def chain(
+    segments: list[Segment], profile: FermentProfile, d: Draws, co2_escapes: bool
+) -> tuple[dict[str, FloatArray], dict[str, list[Route]], FloatArray, Context]:
+    """Concentrations and routes over consecutive solves, on their concatenated time axis,
+    with that axis' pH and the last segment's context. Each segment starts from carry x the
+    previous end plus its fresh ingredients (the engine's own mixing rule,
+    sourdough.SourdoughModel._mix)."""
+    parts: list[dict[str, FloatArray]] = []
+    phs: list[FloatArray] = []
+    routes: dict[str, list[Route]] = {}
+    inherit: dict[str, FloatArray] = {}
+    ctx: Context | None = None
+    for seg in segments:
+        ctx = build_context(seg, profile, co2_escapes)
+        conc, r = concentrations(ctx, d, {k: seg.carry * v for k, v in inherit.items()})
+        for k, rs in r.items():
+            for x in rs:
+                if x not in routes.setdefault(k, []):
+                    routes[k].append(x)
+        parts.append(conc)
+        phs.append(ctx.ph)
+        inherit = {k: v[:, -1] for k, v in conc.items() if k in _STATES or (
+            k in A.COMPOUNDS and "engine" not in A.COMPOUNDS[k].templates)}  # fmt: skip
+    assert ctx is not None, "no segments"
+    if len(parts) == 1:
+        return parts[0], routes, phs[0], ctx
+    keys = list(dict.fromkeys(k for part in parts for k in part))
+    out = {
+        k: np.concatenate(
+            [part.get(k, np.zeros_like(ph)) for part, ph in zip(parts, phs, strict=True)], axis=1
+        )
+        for k in keys
+    }
+    return out, routes, np.concatenate(phs, axis=1), ctx
+
+
 def evaluate(
-    params: EnsembleParams, tr: Trajectories, profile: FermentProfile,
-    shares: dict[str, float], no_data: list[str], seed: int, co2_escapes: bool,
-    notes: list[str] | None = None,
+    segments: list[Segment], profile: FermentProfile, no_data: list[str], seed: int,
+    co2_escapes: bool, notes: list[str] | None = None,
 ) -> AromaResult:  # fmt: skip
     """Aroma for every member at every time: concentrations, odour activities and series
     sums (every active compound with a threshold counts: owner decision 2026-10-06)."""
-    if profile.type not in A.AROMA_TYPES or tr.y is None:
+    if profile.type not in A.AROMA_TYPES or any(s.tr.y is None for s in segments):
         return _empty(f"Aroma for {profile.type.replace('_', ' ')} arrives in a later increment.",
                       no_data)  # fmt: skip
-    ctx = build_context(params, tr, profile, shares, co2_escapes)
-    d = draws(params.n, seed)
-    conc, routes = concentrations(ctx, d)
+    d = draws(segments[0].params.n, seed)
+    conc, routes, ph, ctx = chain(segments, profile, d, co2_escapes)
     evidence = A.EVIDENCE.get(profile.type, {})
     made = [k for k in conc if not k.startswith("_")]
     oav: dict[str, FloatArray] = {}
@@ -708,7 +764,7 @@ def evaluate(
         c = A.COMPOUNDS[key]
         if c.status != "active" or c.threshold is None:
             continue
-        oav[key] = odour_activity(conc[key], key, neutral_fraction(ctx.ph, c.ph_kind, c.pka), d)
+        oav[key] = odour_activity(conc[key], key, neutral_fraction(ph, c.ph_kind, c.pka), d)
         for s in c.series:
             members.setdefault(s, []).append(key)
     series = {
