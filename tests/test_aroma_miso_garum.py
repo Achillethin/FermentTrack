@@ -235,7 +235,8 @@ def test_46_long_barley_miso_rises(key: str) -> None:
     "grow in the mash and no non-growth source exists (the spec expects this to fail)"))
 def test_46_octenol_rises() -> None:
     c = _run("Pearl barley", 28.0, 365)
-    assert c("octen3ol", 365 * D) > c("octen3ol", 90 * D)
+    # beyond the <= 2 % that escaping CO2 concentrates every compound (one mass basis, B5)
+    assert c("octen3ol", 365 * D) > 1.05 * c("octen3ol", 90 * D)
 
 
 def _x47(reason: str) -> pytest.MarkDecorator:

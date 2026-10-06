@@ -384,8 +384,11 @@ def concentrations(
     ctx: Context, d: Draws, inherit: dict[str, FloatArray] | None = None
 ) -> tuple[dict[str, FloatArray], dict[str, list[Route]]]:
     """µg/kg (N, T) of every compound the batch can make, and where each one comes from.
+    Mass basis: tracers integrate as amounts per kg of starting batch, like the engine's
+    pools; every compound is divided by the mass left in the jar once, at the end, so the
+    result is per kg of what is there (internal "_" states stay per kg of starting batch).
     `inherit`: (N,) values carried in from a previous segment (compounds, and the internal
-    states of _STATES). Keys starting with "_" are internal."""
+    states of _STATES), per kg of this segment's starting mix."""
     tr = _Tracers(ctx, d)
     temp, mw = ctx.temp, A.MW
     for key, v in (inherit or {}).items():  # routes: the earlier segment's are merged
@@ -451,7 +454,7 @@ def concentrations(
             tr.organisms(ald, makers, EHRLICH)
         if acid and tr.add(acid, alc[a] * s_acid / (1.0 - s_acid) * mw[acid] / mw[a]):
             tr.organisms(acid, makers, EHRLICH)
-    aa = ctx.pools[:, :, PI["amino_acids"]] * 1e6 / ctx.left  # µg/kg free amino acids
+    aa = ctx.pools[:, :, PI["amino_acids"]] * 1e6  # µg free amino acids per kg start
     met = d["kmax_met_yeast"] / 24.0 * _gate(ctx, YEAST) * aa * d["share_met"]
     if tr.add("methionol", met * d["share_methionol"] * mw["methionol"] / mw["methionine"]):
         tr.organisms("methionol", YEAST, EHRLICH)
@@ -574,7 +577,7 @@ def concentrations(
     # 6. T5 chemistry (§ 5.5): hydrolysis of every ester, esterification of acetic and
     # lactic acid (forward = k_hyd·K/55.5·[neutral acid]·[EtOH], mol/kg)
     ph = ctx.ph
-    etoh = ctx.pools[:, :, PI["ethanol"]] / 46.07 / ctx.left
+    etoh = ctx.pools[:, :, PI["ethanol"]] / 46.07 / ctx.left  # mol/kg of the current mass
     for key, kh in _KHYD.items():
         rate = d[kh] * 1e-9 * 3600.0 * 10.0 ** (d["khyd_n"] * (3.58 - ph)) * q("khyd_q10", 21.0)
         tr.loss(key, rate)
@@ -582,7 +585,9 @@ def concentrations(
             pool, m_acid, pka = _ESTERIFIED[key]
             acid_m = ctx.pools[:, :, PI[pool]] / m_acid / ctx.left
             acid_m = acid_m * neutral_fraction(ph, "acid", pka)
-            if tr.add(key, rate * d["ester_k"] / 55.5 * acid_m * etoh * mw[key] * 1e6):
+            # second order: current molar concentrations, the rate back per kg of start
+            fwd = rate * d["ester_k"] / 55.5 * acid_m * etoh * mw[key] * 1e6 * ctx.left
+            if tr.add(key, fwd):
                 tr.route(key, ("chemistry", "acid + ethanol", "esterification"))
         if key in tr.src or key in tr.c0:
             tr.solve(key)
@@ -782,7 +787,7 @@ def concentrations(
 
     # 12. engine pools (§ 3 `engine`)
     for key, pool in (("acetic", "acetic_acid"), ("ethanol", "ethanol")):
-        v = ctx.pools[:, :, PI[pool]] * 1e6 / ctx.left
+        v = ctx.pools[:, :, PI[pool]] * 1e6
         if np.any(v > 0.0):
             tr.conc[key] = v
             for j, name in enumerate(ctx.names):
@@ -791,7 +796,9 @@ def concentrations(
 
     # a template whose producers are absent leaves an all-zero, routeless tracer: not made
     made_here = {
-        k: v for k, v in tr.conc.items() if k.startswith("_") or k in tr.routes or np.any(v > 0.0)
+        k: v if k.startswith("_") else v / ctx.left  # per kg of what is in the jar
+        for k, v in tr.conc.items()
+        if k.startswith("_") or k in tr.routes or np.any(v > 0.0)
     }
     return made_here, {k: r for k, r in tr.routes.items() if k in made_here}
 
@@ -854,8 +861,10 @@ def chain(
                     routes[k].append(x)
         parts.append(conc)
         phs.append(ctx.ph)
-        inherit = {k: v[:, -1] for k, v in conc.items() if k in _STATES or (
-            k in A.COMPOUNDS and "engine" not in A.COMPOUNDS[k].templates)}  # fmt: skip
+        left_end = ctx.left[:, -1]  # carried per kg of the mass at the mix
+        inherit = {k: v[:, -1] / left_end for k, v in conc.items() if k in _STATES}
+        inherit.update({k: v[:, -1] for k, v in conc.items() if k in A.COMPOUNDS
+                        and "engine" not in A.COMPOUNDS[k].templates})  # fmt: skip
     assert ctx is not None, "no segments"
     if len(parts) == 1:
         return parts[0], routes, phs[0], ctx

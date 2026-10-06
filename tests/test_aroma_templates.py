@@ -252,3 +252,11 @@ def test_garum_fish_lipids_rise() -> None:
 def test_fish_lipids_need_fish() -> None:
     _, c, _, _ = _run({"Soybeans": 0.5}, ["Tetragenococcus halophilus"], ferment="garum")
     assert np.allclose(c.get("z4_heptenal", 0.0), 0.0)
+
+
+def test_conserved_tracer_concentrates_as_co2_escapes() -> None:
+    ctx, _, _, d = _run({"Cucumber": 0.98}, ["Leuconostoc mesenteroides"])
+    zero = np.zeros_like(d["loss_linalool"])
+    c, _ = aroma.concentrations(ctx, {**d, "loss_linalool": zero, "kaw_eta": zero})
+    assert np.any(ctx.left[:, -1] < 0.999)  # heterofermentative: CO2 leaves the jar
+    assert np.allclose(c["linalool"], c["linalool"][:, :1] / ctx.left)
