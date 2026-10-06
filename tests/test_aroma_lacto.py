@@ -32,22 +32,31 @@ def _recipe(veg: str, veg_g: float, salt_g: float) -> tuple[RecipeIn, ...]:
             RecipeIn("Salt", salt_g, "g", _per_100g("Salt"), "additive"))  # fmt: skip
 
 
-def _medians(
-    veg: str, salt_g: float, temp: float, days: float, organisms: list[str] | None = None
-) -> At:
-    """Weighted median of each compound (µg/kg) at a day, prior-only forecast (§ 7)."""
+def medians(
+    ferment: str, temp: float, hours: float, recipe: tuple[RecipeIn, ...] = (),
+    organisms: list[str] | None = None,
+) -> At:  # fmt: skip
+    """Weighted median of each compound (µg/kg) at an hour, prior-only forecast (§ 7)."""
     service.clear_caches()
-    inputs = _inputs("lacto_ferment", temp, _recipe(veg, 1000.0 - salt_g, salt_g), organisms)
-    t, values, w = service.member_values(inputs, days * D)
+    t, values, w = service.member_values(_inputs(ferment, temp, recipe, organisms), hours)
 
-    def at(key: str, day: float) -> float:
+    def at(key: str, h: float) -> float:
         rows = values.get(f"conc:{key}")
         if rows is None:
             return 0.0
-        col = np.array([np.interp(day * D, t, row) for row in rows])
+        col = np.array([np.interp(h, t, row) for row in rows])
         return float(weighted_quantiles(col, w, (0.5,))[0])
 
     return at
+
+
+def _medians(
+    veg: str, salt_g: float, temp: float, days: float, organisms: list[str] | None = None
+) -> At:
+    """Lacto-ferment medians by day."""
+    at = medians("lacto_ferment", temp, days * D, _recipe(veg, 1000.0 - salt_g, salt_g),
+                 organisms)  # fmt: skip
+    return lambda key, day: at(key, day * D)
 
 
 def _peak_day(at: At, key: str, days: range) -> int:
