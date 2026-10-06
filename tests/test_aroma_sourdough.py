@@ -7,12 +7,16 @@ from typing import Any
 import numpy as np
 import pytest
 
-from fermenttrack.prediction import aroma, bake
+from fermenttrack.prediction import aroma, bake, service
 from fermenttrack.prediction.bake import BakeInputs, forecast
+from fermenttrack.prediction.inference import weighted_quantiles
 from fermenttrack.prediction.priors import FloatArray
 from fermenttrack.prediction.profiles import PROFILES
+from fermenttrack.prediction.service import RecipeIn
 from fermenttrack.prediction.sourdough import Compiled, SourdoughModel, compile_plan, plan_from_dict
 from fermenttrack.schemas import SensoryOut
+from tests.test_aroma_lacto import At, _per_100g
+from tests.test_prediction_sensory import _inputs
 
 SD = PROFILES["sourdough"]
 
@@ -81,3 +85,79 @@ def test_a_bake_survives_an_aroma_failure(monkeypatch: pytest.MonkeyPatch) -> No
     d = _plan(proof=None)
     s = forecast(plan_from_dict(d), BakeInputs(plan=d, now_h=1.0))["sensory"]
     assert s["nutrition_label"] and s["aroma_series"] == [] and s["compounds"] == []
+
+
+# ── curation § 7, tests 14-15 (prior-only forecasts, weighted medians) ──
+
+
+def _medians(
+    temp: float, hours: float, recipe: tuple[RecipeIn, ...] = (),
+    organisms: list[str] | None = None,
+) -> At:  # fmt: skip
+    service.clear_caches()
+    t, values, w = service.member_values(_inputs("sourdough", temp, recipe, organisms), hours)
+
+    def at(key: str, h: float) -> float:
+        rows = values.get(f"conc:{key}")
+        if rows is None:
+            return 0.0
+        col = np.array([np.interp(h, t, row) for row in rows])
+        return float(weighted_quantiles(col, w, (0.5,))[0])
+
+    return at
+
+
+def test_14_flour_to_levain_directions() -> None:
+    # levain at 26 °C for 24 h, profile organisms and typical recipe (02:S1, 02:S2)
+    c = _medians(26.0, 24.0)
+    for key in ("methylbutanal_3", "methylbutanol_3", "diacetyl"):
+        assert c(key, 24.0) > c(key, 0.0), key
+    for key in ("hexanal", "e2_nonenal"):
+        assert c(key, 24.0) < c(key, 0.0), key
+
+
+def _dough() -> tuple[RecipeIn, ...]:
+    # wheat sourdough at 1:1 flour:water (DY 200): est. (B2), 02:S3's dough yield not opened
+    return (RecipeIn("White wheat flour", 500.0, "g", _per_100g("White wheat flour"), "base"),
+            RecipeIn("Water", 500.0, "g", _per_100g("Water"), "base"))  # fmt: skip
+
+
+@pytest.fixture(scope="module", params=["Lactobacillus brevis", "Lactobacillus plantarum"])
+def cool(request: pytest.FixtureRequest) -> At:
+    # 15 °C, 120 h, S. cerevisiae x L. brevis or L. plantarum (02:S3)
+    return _medians(15.0, 120.0, _dough(), ["Saccharomyces cerevisiae", request.param])
+
+
+def test_15_calibrated_end_points(cool: At) -> None:
+    assert 274.0 <= cool("methylbutanol_3", 120.0) <= 38_500.0
+    assert 33.0 <= cool("hexanal", 120.0) <= 1_100.0
+
+
+@pytest.mark.parametrize("key,lo,hi", [
+    ("methylbutanol_2", 42.0, 6_100.0), ("methylpropanol_2", 56.0, 10_700.0),
+    ("ethyl_acetate", 450.0, 171_000.0), ("ethyl_hexanoate", 1.4, 1_800.0),
+    ("ethyl_octanoate", 0.23, 182.0),
+])  # fmt: skip
+def test_15_reported_end_points(cool: At, key: str, lo: float, hi: float) -> None:
+    assert lo <= cool(key, 120.0) <= hi
+
+
+@pytest.mark.parametrize("key,hi", [
+    pytest.param("isoamyl_acetate", 20.0, marks=pytest.mark.xfail(strict=True, reason=(
+        "§ 5.2 isoamyl acetate : isoamyl alcohol 0.0062-0.015 mol/mol (05:Godillot23, wine) "
+        "gives ~65 µg/kg; 02:S3's dough has nd-6.73 against 823-12 838 µg/kg alcohol "
+        "(mass ratio <= 0.008), and the model has no dough esterase or ester loss"))),
+    ("ethyl_butanoate", 21.0), ("ethyl_decanoate", 11.0),
+    ("ethyl_2methylbutanoate", 1.8), ("ethyl_2methylpropanoate", 5.2),
+    ("phenylethanol_2", 209_000.0),
+])  # fmt: skip
+def test_15_upper_bounds(cool: At, key: str, hi: float) -> None:
+    assert cool(key, 120.0) <= hi
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "§ 5.1: the sourdough engine has no free amino-acid pool (flour proteases are not "
+    "modelled), so yeast forms no methional from methionine, and aldehyde reduction "
+    "(kmax_ald_reduction >= 0.5/d) removes the flour's methional within days"))
+def test_15_methional_lower_bound(cool: At) -> None:
+    assert cool("methional", 120.0) >= 10.0

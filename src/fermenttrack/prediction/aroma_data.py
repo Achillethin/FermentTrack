@@ -128,7 +128,10 @@ PARAMS: dict[str, Prior] = {
     "kmax_diacetyl_red": Prior(2.0, 0.5, 10.0),
     "kmax_diacetyl_red_lc": Prior(0.05, 0.005, 0.3),  # 1/d, Lactococcus; est. (03:S30)
     # T10 hydroxycinnamic acids (§ 5.10, § 6.1)
-    "share_ferulic_free": Prior(0.03, 0.01, 0.10),  # 05:Boudaoud21, derived-est.
+    # free share of flour ferulic acid: 05:Boudaoud21 § 3.2.2 (PMC8116856), free = 0.5 % of
+    # total in wheat bran, "does not exceed 0.5-1 % in cereals"; range est. (B2). § 6.1's
+    # 0.03 divided bran free acid by sourdough total acid (two matrices).
+    "share_ferulic_free": Prior(0.005, 0.003, 0.01),
     "kmax_ferulic_release": Prior(0.5, 0.1, 2.0),  # 1/d, yeast; rate est. (05:Coghe04)
     "kmax_ferulic_decarb": Prior(1.0, 0.2, 5.0),  # 1/d; 05:Coghe04, 05:Rosimin15, rate est.
     "share_vinyl": _lin(0.3, 0.05, 0.8),  # of L. plantarum's conversion; 05:Rogozinska21
