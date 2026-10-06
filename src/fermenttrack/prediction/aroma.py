@@ -241,6 +241,16 @@ def _gate(ctx: Context, cls: Iterable[str], name: str = "") -> FloatArray:
     return out
 
 
+def _growth(ctx: Context, cls: Iterable[str]) -> FloatArray:
+    """Σ growth_j (g biomass/kg/h) over organisms of these classes (N, T)."""
+    cls = set(cls)
+    out = np.zeros_like(ctx.ph)
+    for j, c in enumerate(ctx.classes):
+        if c in cls:
+            out = out + ctx.growth[j]
+    return out
+
+
 def _flux(
     ctx: Context, cls: Iterable[str], mult: Callable[[str], FloatArray | float] | None = None
 ) -> FloatArray:
@@ -522,6 +532,26 @@ def concentrations(
     for key, ex in (("hexanoic", 1.0), ("octanoic", d["excr_c8"]), ("decanoic", d["excr_c10"])):
         if tr.add(key, 1000.0 * d["b_mcfa"] * ex * fy):
             tr.organisms(key, YEAST, ESTERS)
+
+    # 5b. A. oryzae a-terms (§ 5.8, § 5.2): C8 compounds and methyl ketones per g mycelium
+    # made; mould acetate esters, hydrolysed by fungal esterase as growth stops (gate X/x_max)
+    g_mould = _growth(ctx, {"mould"})  # g/kg/h
+    if np.any(g_mould > 0.0):
+        octenol = 1000.0 * d["a_octenol"] * g_mould
+        for key, s in (
+            ("octen3ol", np.ones_like(octenol)), ("octanone_3", d["split_octanone"]),
+            ("octanol_3", d["split_octanol"]), ("octen3one", d["split_octenone"]),
+        ):  # fmt: skip
+            if tr.add(key, s * octenol * mw[key] / mw["octen3ol"]):
+                tr.organisms(key, {"mould"}, "lipid oxidation (lipoxygenase)")
+        for key in ("heptanone_2", "nonanone_2"):
+            if tr.add(key, 1000.0 * d["a_methylketone"] * g_mould):
+                tr.organisms(key, {"mould"}, "fatty-acid β-oxidation")
+        for key in ("ethyl_acetate", "isoamyl_acetate"):
+            if tr.add(key, 1000.0 * d["a_mould_acetates"] * g_mould):
+                tr.organisms(key, {"mould"}, ESTERS)
+    for key in ("ethyl_acetate", "isoamyl_acetate"):
+        tr.loss(key, d["kmax_fungal_esterase"] / 24.0 * _gate(ctx, {"mould"}))
 
     # 6. T5 chemistry (§ 5.5): hydrolysis of every ester, esterification of acetic and
     # lactic acid (forward = k_hyd·K/55.5·[neutral acid]·[EtOH], mol/kg)

@@ -169,6 +169,14 @@ PARAMS: dict[str, Prior] = {
     "hexenol_release": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
     "hexenol_loss": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
     "loss_linalool": Prior(0.05, 0.01, 0.2),  # 1/d at 30 °C; est. (02:K1)
+    # A. oryzae a-terms (§ 5.8, § 5.2), a in mg per g mycelium made
+    "a_octenol": Prior(0.02, 0.002, 0.2),  # 1-octen-3-ol; est. (05:Guneser17 order)
+    "split_octanone": Prior(0.4, 0.1, 1.0),  # mol/mol of 1-octen-3-ol; est. (05:Miyamoto14)
+    "split_octanol": Prior(0.2, 0.05, 0.6),  # est.
+    "split_octenone": Prior(0.05, 0.01, 0.2),  # est.
+    "a_methylketone": Prior(0.005, 0.0005, 0.05),  # each of 2-heptanone, 2-nonanone; est.
+    "a_mould_acetates": Prior(0.01, 0.001, 0.1),  # ethyl, isoamyl acetate; est. (02:J1)
+    "kmax_fungal_esterase": Prior(0.5, 0.1, 2.0),  # 1/d, as growth stops; est.
     # Acetic acid bacteria (§ 5.1, § 5.3, § 5.4, D11), k_max 1/d
     "kmax_aab_fusel": Prior(0.1, 0.02, 0.5),  # 02:K2, 02:V3, derived (with the fusel acid)
     "kmax_aab_pe": _lin(0.005, 0.0, 0.02),  # 2-phenylethanol, a poor substrate; 02:V1, V3, V4
@@ -241,7 +249,8 @@ MW: dict[str, float] = {  # g/mol
     "acetoin": 88.11, "butanediol_23": 90.12, "allyl_itc": 99.15, "allyl_cyanide": 67.09,
     "butenyl_itc": 113.18, "methanethiol": 48.11, "dms": 62.13, "dmds": 94.20,
     "dmts": 126.26, "diacetyl": 86.09, "pentanedione_23": 100.12, "vinylguaiacol_4": 150.17,
-    "ferulic": 194.18,
+    "ferulic": 194.18, "octen3ol": 128.21, "octanone_3": 128.21, "octanol_3": 130.23,
+    "octen3one": 126.20, "heptanone_2": 114.19, "nonanone_2": 142.24,
 }  # fmt: skip
 
 PRECURSOR_LABEL: dict[str, str] = {
@@ -321,6 +330,9 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
     },
     "White wheat flour": _FLOUR, "Whole wheat flour": _FLOUR, "Rye flour": _FLOUR,
     "Red wine": _WINE, "White wine": _WINE, "Hard cider": _WINE,
+    # cooked rice, per kg of logged rice (assumed steamed; est. (B3)): hexanal 53.2-71.6 µg/kg
+    # (Lai 2026 Foods 15:356 Table 1, PMC12840958; IS semi), geometric mid, x/÷3 for semi
+    "White rice": {"hexanal": Prior(62.0, 21.0, 190.0)},
 }  # fmt: skip
 
 DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
@@ -329,9 +341,10 @@ DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
     "sourdough": {"White wheat flour": 0.54},
     # derived (B3): 55 g/kg ethanol / 103 g/kg in white wine (FDC); only the ethanol counts
     "vinegar": {"White wine": 0.53},
+    "koji": {"White rice": 1.0},  # steamed rice is the whole bed
 }
 
-AROMA_TYPES = frozenset({"lacto_ferment", "sourdough", "vinegar"})  # with aroma templates
+AROMA_TYPES = frozenset({"lacto_ferment", "sourdough", "vinegar", "koji"})  # with templates
 # Open vessels: ferment type -> its surface-loss parameter (§ 5.12); closed jars and dough: 0
 K_SURF: dict[str, str] = {"vinegar": "k_surf_vinegar", "koji": "k_surf_koji"}
 
@@ -467,6 +480,37 @@ EVIDENCE: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {
         "acetic": ("engine", "abs", ("forecast",)),
         "ethanol": ("engine", "abs", ("forecast",)),
     },
+    "koji": {  # § 4.4 (exploratory type; time courses on bran, end points on rice)
+        "octen3ol": (_CAL, "shape", ("02:J1", "02:J3")),
+        "octanone_3": (_CAL, "shape", ("02:J1",)),
+        "octanol_3": (_CAL, "shape", ("02:J1",)),
+        "heptanone_2": (_CAL, "shape", ("02:J1", "02:J2")),
+        "nonanone_2": (_CAL, "shape", ("02:J1", "02:J2")),
+        "ethyl_acetate": (_CAL, "shape", ("02:J1",)),
+        "isoamyl_acetate": (_CAL, "shape", ("02:J1",)),
+        "hexanal": (_CAL, "shape", ("02:J1", "02:J4", "02:J2")),
+        **{k: (_REP, "presence", ("02:J2", "02:J4")) for k in (
+            "methylbutanol_3", "methylpropanol_2", "methylbutanol_2",
+        )},  # fmt: skip
+        **{k: (_REP, "presence", ("02:J2",)) for k in (
+            "methylbutanal_3", "methylbutanal_2", "methylpropanal_2", "phenylacetaldehyde",
+            "methional", "ethyl_2methylpropanoate", "ethyl_2methylbutanoate", "ethyl_hexanoate",
+            "ethyl_octanoate",
+        )},  # fmt: skip
+        **{k: (_REP, "presence", ("02:J1", "02:J2")) for k in (
+            "methylbutanoic_3", "methylpropanoic_2", "methylbutanoic_2", "nonanal",
+            "pentylfuran_2", "vinylguaiacol_4",
+        )},  # fmt: skip
+        **{k: (_REP, "presence", ("02:J1", "02:J2", "02:J4")) for k in (
+            "acetaldehyde", "diacetyl", "acetoin", "pentanedione_23", "butanediol_23",
+        )},  # fmt: skip
+        "ethylguaiacol_4": (_REP, "presence", ("02:J1",)),
+        **{k: ("plausible", "", ()) for k in (
+            "octen3one", "phenylethanol_2", "methionol", "ethyl_decanoate", "isobutyl_acetate",
+            "ethyl_butanoate", "phenylethyl_acetate", "hexanoic", "octanoic", "decanoic",
+            "e2_nonenal", "z3_hexenal", "z3_hexenol", "z4_heptenal", "acetylpyrroline_2",
+        )},  # fmt: skip
+    },
 }
 
 # type -> compound -> why it computes zero there (the † cells of § 4 and plausible
@@ -485,5 +529,12 @@ PENDING: dict[str, dict[str, str]] = {
             "linalool", "damascenone", "hexanal", "nonanal", "octen3one", "citronellol",
         )},  # fmt: skip
         "vinylguaiacol_4": "the base fruit's ferulic acid is not curated yet",
+    },
+    "koji": {
+        **{k: f"the rice's {COMPOUNDS[k].name} is not curated yet" for k in (
+            "nonanal", "pentylfuran_2", "e2_nonenal", "z3_hexenal", "z3_hexenol", "z4_heptenal",
+            "acetylpyrroline_2",
+        )},  # fmt: skip
+        "vinylguaiacol_4": "the rice's ferulic acid is not curated yet",
     },
 }

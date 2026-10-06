@@ -185,3 +185,19 @@ def test_surface_loss_only_in_open_vessels() -> None:
                            ("sourdough", False)):  # fmt: skip
         assert (ferment in A.K_SURF) == open_, ferment
     assert np.all(d["k_surf_vinegar"] > 0.0) and np.all(d["k_surf_koji"] > 0.0)
+
+
+def test_koji_volatiles_follow_mycelium_growth() -> None:
+    _, c, routes, _ = _run({"White rice": 1.0}, ["Aspergillus oryzae"], ferment="koji")
+    for k in ("octen3ol", "octanone_3", "octanol_3", "heptanone_2", "nonanone_2"):
+        assert np.all(c[k][:, -1] > c[k][:, 0]), k
+        assert any(r[1] == "Aspergillus oryzae" for r in routes[k]), k
+    assert ("ingredient", "White rice", "carried in") in routes["hexanal"]
+
+
+def test_no_growth_no_mould_volatiles() -> None:
+    ctx, _, _, d = _run({"White rice": 1.0}, ["Aspergillus oryzae"], ferment="koji")
+    ctx.growth = [np.zeros_like(g) for g in ctx.growth]
+    c, _ = aroma.concentrations(ctx, d)
+    for k in ("octen3ol", "heptanone_2", "ethyl_acetate"):
+        assert np.allclose(c.get(k, 0.0), 0.0), k

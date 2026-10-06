@@ -50,7 +50,8 @@ def test_flour_pools_follow_the_new_threshold_medians() -> None:
 
 
 def test_new_types_have_aroma_data() -> None:
-    for t, default in (("sourdough", "White wheat flour"), ("vinegar", "White wine")):
+    for t, default in (("sourdough", "White wheat flour"), ("vinegar", "White wine"),
+                       ("koji", "White rice")):
         assert t in A.AROMA_TYPES and t in A.EVIDENCE, t
         assert set(A.DEFAULT_INGREDIENTS[t]) == {default}, t
     for t, cells in A.PENDING.items():
