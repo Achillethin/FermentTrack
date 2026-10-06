@@ -42,10 +42,13 @@ def test_catalogue_counts_and_rules() -> None:
             lo, med, hi = float(r["thr_lo"]), float(r["thr_median"]), float(r["thr_hi"])
             assert lo <= med / 3 * 1.0001 and hi >= med * 3 * 0.9999, r["key"]
         else:
-            assert r["basis"] == "none" and (r["status"] != "active" or r["conc_only"] == "1"), r["key"]
+            assert r["basis"] == "none", r["key"]
+            assert r["status"] != "active" or r["conc_only"] == "1", r["key"]
 
 
-@pytest.mark.parametrize("key,median", [("ionone_beta", 0.021), ("acetic", 5600.0), ("dmts", 0.0099)])
+@pytest.mark.parametrize(
+    "key,median", [("ionone_beta", 0.021), ("acetic", 5600.0), ("dmts", 0.0099)]
+)
 def test_latest_reliable_determination_is_the_median(key: str, median: float) -> None:
     rows = {r["key"]: r for r in _rows()}
     assert float(rows[key]["thr_median"]) == pytest.approx(median)

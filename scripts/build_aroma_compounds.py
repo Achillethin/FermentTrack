@@ -47,14 +47,15 @@ def parse_compound_table(spec_text: str) -> list[dict[str, str]]:
         if ph.startswith(("acid", "base")):
             ph_kind, pka = ph.split()[0], re.findall(_NUM, ph)[0]
         s = re.sub(r"\*", "", status)
-        kind = "drop" if s.startswith("drop") else "inactive" if s.startswith("inactive") else "active"
+        kind = next((k for k in ("drop", "inactive") if s.startswith(k)), "active")
+        tpl = ";".join(re.findall(r"T\d+", template)) or ("engine" if "engine" in template else "")
         out.append({
             "key": key, "name": name, "pubchem": _id(idp[0]), "chebi": _id(idp[1]),
             "kegg": _id(idp[2]), "descriptor": descriptor,
             "series": ";".join(x.strip() for x in series.split(",") if x.strip()),
             "thr_median": nums[0] if nums else "", "thr_lo": nums[1] if nums else "",
             "thr_hi": nums[2] if nums else "", "basis": b, "ph_kind": ph_kind, "pka": pka,
-            "templates": ";".join(re.findall(r"T\d+", template)) or ("engine" if "engine" in template else ""),
+            "templates": tpl,
             "status": kind, "conc_only": "1" if "conc-only" in s else "0",
             "p0_pending": "1" if "P0 pending" in s else "0",
         })  # fmt: skip
