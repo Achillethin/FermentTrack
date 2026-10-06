@@ -121,7 +121,7 @@ def test_forecast_survives_a_derived_failure(monkeypatch: pytest.MonkeyPatch) ->
     assert bad["sensory"] is None and derived.FAILED_WARNING in bad["warnings"]
 
     def kinetic(b: dict[str, Any]) -> list[Any]:
-        return [s for s in b["series"] if s["group"] not in ("taste", "nutrition")]
+        return [s for s in b["series"] if s["group"] not in ("taste", "nutrition", "aroma")]
 
     assert kinetic(bad) == kinetic(good)  # the solve is unchanged by the derived layer
     assert np.isfinite(bad["series"][0]["p50"][-1])
