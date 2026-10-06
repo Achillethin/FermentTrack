@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from fermenttrack.prediction import aroma, engine
+from fermenttrack.prediction import aroma_data as A
 from fermenttrack.prediction.aroma import Context, Draws, Route
 from fermenttrack.prediction.priors import FloatArray
 from fermenttrack.prediction.profiles import PROFILES
@@ -16,11 +17,13 @@ Run = tuple[Context, dict[str, FloatArray], dict[str, list[Route]], Draws]
 
 
 def _run(
-    shares: dict[str, float] | None = None, organisms: list[str] | None = None, n: int = 16
-) -> Run:
-    p, t = _setup("lacto_ferment", n, organisms)
+    shares: dict[str, float] | None = None, organisms: list[str] | None = None, n: int = 16,
+    ferment: str = "lacto_ferment",
+) -> Run:  # fmt: skip
+    p, t = _setup(ferment, n, organisms)
     tr = engine.simulate(p, t, keep_states=True)
-    ctx = aroma.build_context(p, tr, LACTO, shares or {"Cabbage": 0.98}, LACTO.co2_escapes)
+    prof = PROFILES[ferment]
+    ctx = aroma.build_context(p, tr, prof, shares or {"Cabbage": 0.98}, prof.co2_escapes)
     d = aroma.draws(n, 7)
     conc, routes = aroma.concentrations(ctx, d)
     return ctx, conc, routes, d
@@ -111,3 +114,37 @@ def test_a_reduced_aldehyde_is_not_called_carried_in() -> None:
     pe = routes["phenylethanol_2"]
     assert ("ingredient", "Napa cabbage (salted)", "carried in") not in pe
     assert any("phenylacetaldehyde" in r[2] for r in pe if r[0] == "ingredient")
+
+
+SOUR = ["Saccharomyces cerevisiae", "Lactobacillus sanfranciscensis"]
+
+
+def test_flour_brings_aldehydes_and_ferulic_acid() -> None:
+    _, c, routes, _ = _run({"White wheat flour": 0.54}, SOUR, ferment="sourdough")
+    for k in ("hexanal", "e2_nonenal", "methional"):
+        assert c[k][:, -1].mean() < c[k][:, 0].mean(), k  # microbes reduce them
+    assert ("ingredient", "White wheat flour", "carried in") in routes["hexanal"]
+    assert ("ingredient", "White wheat flour", "ferulic acid") in routes["vinylguaiacol_4"]
+
+
+def test_ferulic_acid_mass_balance() -> None:
+    _, c, _, d = _run({"White wheat flour": 0.54}, SOUR, ferment="sourdough")
+    total = 0.54 * d["ing:White wheat flour:@ferulic"][:, 0] * 1000.0  # µmol/kg
+    left = c["_ferulic_bound"] + c["_ferulic_free"]
+    made = c.get("vinylguaiacol_4", 0.0) / A.MW["vinylguaiacol_4"]
+    assert np.all(left + made <= total[:, None] * 1.0001)
+    assert np.all(np.diff(c["_ferulic_bound"], axis=1) <= 1e-9)
+
+
+def test_no_pof_no_vinylguaiacol() -> None:
+    ctx, _, _, d = _run({"White wheat flour": 0.54}, SOUR, ferment="sourdough")
+    d = {**d, "pof_yeast": np.zeros_like(d["pof_yeast"]), "pad_lp": np.zeros_like(d["pad_lp"])}
+    c, _ = aroma.concentrations(ctx, d)
+    assert np.allclose(c.get("vinylguaiacol_4", 0.0), 0.0)
+
+
+def test_sugar_route_goes_through_acetolactate() -> None:
+    _, c, routes, _ = _run()  # cabbage, LAB
+    assert np.all(c["diacetyl"][:, -1] > 0.0) and np.all(c["pentanedione_23"][:, -1] > 0.0)
+    assert np.all(c["_acetolactate"] >= 0.0) and np.any(c["_acetolactate"] > 0.0)
+    assert any(r[0] == "organism" for r in routes["diacetyl"])

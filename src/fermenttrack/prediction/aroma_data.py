@@ -119,6 +119,20 @@ PARAMS: dict[str, Prior] = {
     # T4, sugar route only (§ 5.4; lacto has no citrate pool, § 6.1)
     "b_acetoin_lab": Prior(2.0, 0.2, 23.0),  # 03:S31: 0.002 g/g sugar
     "kmax_acetoin_bdo": Prior(0.2, 0.02, 1.0),  # est. (03:S19 storage check)
+    # T4 sugar route through α-acetolactate (§ 5.4, D3)
+    "al_decay": Prior(0.10, 0.05, 0.20),  # 1/h at 30 °C; 03:S30 Fig. 1, derived
+    "al_q10": Prior(2.0, 1.5, 3.0),  # est. (05:E3)
+    "share_al_ox": _lin(0.05, 0.02, 0.20),  # 03:S30, derived lower bound; hi est.
+    "pd_per_diacetyl": Prior(0.3, 0.05, 1.0),  # mol/mol; est. (02:J2)
+    # 1/d; yeast and Leuconostoc (03:S27, 03:S19; rate est.), lactobacilli alike: est. (B2)
+    "kmax_diacetyl_red": Prior(2.0, 0.5, 10.0),
+    "kmax_diacetyl_red_lc": Prior(0.05, 0.005, 0.3),  # 1/d, Lactococcus; est. (03:S30)
+    # T10 hydroxycinnamic acids (§ 5.10, § 6.1)
+    "share_ferulic_free": Prior(0.03, 0.01, 0.10),  # 05:Boudaoud21, derived-est.
+    "kmax_ferulic_release": Prior(0.5, 0.1, 2.0),  # 1/d, yeast; rate est. (05:Coghe04)
+    "kmax_ferulic_decarb": Prior(1.0, 0.2, 5.0),  # 1/d; 05:Coghe04, 05:Rosimin15, rate est.
+    "share_vinyl": _lin(0.3, 0.05, 0.8),  # of L. plantarum's conversion; 05:Rogozinska21
+    "loss_4vg": Prior(0.01, 0.002, 0.05),  # 1/d; est.
     # T5 chemical esterification and hydrolysis (§ 5.5), k_hyd in 1e-9 /s at pH 3.58, ~21 °C
     "khyd_iaac": _x15(32.6),  # 05:RameyOugh80 Table IV
     "khyd_ibac": _x15(40.0),
@@ -215,7 +229,8 @@ MW: dict[str, float] = {  # g/mol
     "leucine": 131.17, "isoleucine": 131.17, "valine": 117.15, "phenylalanine": 165.19,
     "acetoin": 88.11, "butanediol_23": 90.12, "allyl_itc": 99.15, "allyl_cyanide": 67.09,
     "butenyl_itc": 113.18, "methanethiol": 48.11, "dms": 62.13, "dmds": 94.20,
-    "dmts": 126.26,
+    "dmts": 126.26, "diacetyl": 86.09, "pentanedione_23": 100.12, "vinylguaiacol_4": 150.17,
+    "ferulic": 194.18,
 }  # fmt: skip
 
 PRECURSOR_LABEL: dict[str, str] = {
@@ -223,11 +238,25 @@ PRECURSOR_LABEL: dict[str, str] = {
     "@gluconapin": "gluconapin (a glucosinolate)",
     "@smcso": "S-methylcysteine sulfoxide",
     "@hexenol_residual": "green-leaf volatile precursors",
+    "@ferulic": "ferulic acid",
 }
 
 # Ingredient -> initial compound (µg/kg of ingredient) or "@" precursor (µmol/g fresh
 # weight; @hexenol_residual in µg/kg). Names as in seed_data; the napa cabbage and the
 # cucumber are stand-ins until the catalogue has those ingredients (§ 6.1, § 6.2).
+# Flour (§ 6.2), re-derived (B2) with the 2026-10-06 threshold medians: the spec's priors
+# were OAV > 100 in rye flour (02:S2) x the old medians (hexanal 3.4, (E)-2-nonenal 0.22,
+# methional 0.29); each prior is scaled by new/old median (2.4/3.4, 0.69/0.22, 0.43/0.29).
+# Ferulic acid: 0.30 (0.18-0.52) mg/g DM (05:Boudaoud21 Table 3) x flour dry matter 0.87
+# (sourdough.FLOURS, 13 % water) / 194.18 g/mol, in µmol/g flour: derived (B2). One pool
+# for every flour: no opened source separates white, whole-wheat and rye flour (est.).
+_FLOUR: dict[str, Prior] = {
+    "hexanal": Prior(353.0, 106.0, 1412.0),
+    "e2_nonenal": Prior(125.0, 63.0, 470.0),
+    "methional": Prior(74.0, 43.0, 445.0),
+    "@ferulic": Prior(1.34, 0.81, 2.33),
+}
+
 AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
     "Cabbage": {  # white cabbage, raw, shredded and dry-salted at t0
         # 03:S10 Table 1, napa raw as stand-in (§ 6.2)
@@ -253,13 +282,16 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
     "Cucumber": {  # fresh (03:S13 Table 2; § 4.5)
         "hexanal": _x3(29.0), "linalool": _x3(4.6), "e2_nonenal": Prior(5.0, 1.0, 25.0),
     },
+    "White wheat flour": _FLOUR, "Whole wheat flour": _FLOUR, "Rye flour": _FLOUR,
 }  # fmt: skip
 
 DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
     "lacto_ferment": {"Cabbage": 0.98},  # no recipe logged: a 2 % dry-salted sauerkraut
+    # derived (B2): the profile's typical levain has 370 g/kg starch = 536 g T65 flour (69 %)
+    "sourdough": {"White wheat flour": 0.54},
 }
 
-AROMA_TYPES = frozenset({"lacto_ferment"})  # ferment types with aroma templates
+AROMA_TYPES = frozenset({"lacto_ferment", "sourdough"})  # ferment types with aroma templates
 
 # Per-member strain flags (Bernoulli): the chance that the member's strain has the trait
 FLAGS: dict[str, float] = {
@@ -304,5 +336,65 @@ EVIDENCE: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {
         "vinylguaiacol_4": ("plausible", "", ()),
         "acetic": ("engine", "abs", ("forecast",)),
         "ethanol": ("engine", "abs", ("forecast",)),
+    },
+    "sourdough": {  # § 4.3 (dough before baking)
+        "methylbutanal_3": (_CAL, "shape", ("02:S1", "02:S2")),
+        "methylbutanal_2": (_CAL, "shape", ("02:S2",)),
+        "methylbutanol_3": (_CAL, "abs", ("02:S2", "02:S3")),
+        "diacetyl": (_CAL, "shape", ("02:S2",)),
+        "hexanal": (_CAL, "abs", ("02:S1", "02:S3")),
+        "e2_nonenal": (_CAL, "shape", ("02:S1",)),
+        "methional": (_REP, "abs", ("02:S2",)),
+        "methylbutanol_2": (_REP, "abs", ("02:S3",)),
+        "methylpropanol_2": (_REP, "abs", ("02:S3", "02:S4")),
+        "phenylethanol_2": (_REP, "abs", ("02:S3",)),
+        "ethyl_acetate": (_REP, "abs", ("02:S3", "02:S4", "02:S6", "02:S9")),
+        "isoamyl_acetate": (_REP, "abs", ("02:S3",)),
+        "ethyl_butanoate": (_REP, "abs", ("02:S3",)),
+        "ethyl_decanoate": (_REP, "abs", ("02:S3",)),
+        "ethyl_hexanoate": (_REP, "abs", ("02:S3",)),
+        "ethyl_octanoate": (_REP, "abs", ("02:S3",)),
+        "ethyl_2methylbutanoate": (_REP, "abs", ("02:S3",)),
+        "ethyl_2methylpropanoate": (_REP, "abs", ("02:S3",)),
+        "methionol": (_REP, "presence", ("02:S5",)),
+        "methylpropanoic_2": (_REP, "presence", ("02:S5",)),
+        "methylbutanoic_2": (_REP, "presence", ("02:S5",)),
+        "phenylethyl_acetate": (_REP, "presence", ("02:S5",)),
+        "isobutyl_acetate": (_REP, "presence", ("02:S5",)),
+        "ethyl_lactate": (_REP, "presence", ("02:S5",)),
+        "acetaldehyde": (_REP, "presence", ("02:S5",)),
+        "methylbutanoic_3": (_REP, "presence", ("02:S2", "02:S7")),
+        "hexanoic": (_REP, "presence", ("02:S4", "02:S5")),
+        "octanoic": (_REP, "presence", ("02:S4", "02:S5")),
+        "acetoin": (_REP, "presence", ("02:S4", "02:S5")),
+        "nonanal": (_REP, "presence", ("02:S5",)),
+        "pentylfuran_2": (_REP, "presence", ("02:S5",)),
+        "octen3ol": (_REP, "presence", ("02:S5",)),
+        "octanol_3": (_REP, "presence", ("02:S5",)),
+        "limonene": (_REP, "presence", ("02:S5",)),
+        "heptanone_2": (_REP, "presence", ("02:S5",)),
+        "butanoic": (_REP, "presence", ("02:S5",)),
+        "octen3one": (_REP, "presence", ("02:S1", "02:S2")),
+        "sotolon": (_REP, "presence", ("02:S1", "02:S2")),
+        **{k: ("plausible", "", ()) for k in (
+            "methylpropanal_2", "phenylacetaldehyde", "decanoic", "pentanedione_23",
+            "butanediol_23", "z3_hexenal", "z3_hexenol", "z4_heptenal", "octanone_3",
+            "vinylguaiacol_4", "vinylphenol_4",
+        )},  # fmt: skip
+        "acetic": ("engine", "abs", ("forecast",)),
+        "ethanol": ("engine", "abs", ("forecast",)),
+    },
+}
+
+# type -> compound -> why it computes zero there (the † cells of § 4 and plausible
+# compounds whose only route is an uncurated ingredient precursor)
+_FLOUR_PENDING = (
+    "nonanal", "pentylfuran_2", "octen3ol", "octanol_3", "limonene", "heptanone_2", "butanoic",
+    "octen3one", "sotolon", "z3_hexenal", "z3_hexenol", "z4_heptenal", "octanone_3",
+)  # fmt: skip
+PENDING: dict[str, dict[str, str]] = {
+    "sourdough": {
+        **{k: f"the flour's {COMPOUNDS[k].name} is not curated yet" for k in _FLOUR_PENDING},
+        "vinylphenol_4": "the flour's p-coumaric acid is not curated yet",
     },
 }

@@ -39,3 +39,18 @@ def test_every_compound_has_an_air_water_partition() -> None:
     for key, c in A.COMPOUNDS.items():
         if c.status == "active":
             assert key in A.KAW or A.KAW_CLASS.get(key) in A.KAW, key
+
+
+def test_flour_pools_follow_the_new_threshold_medians() -> None:
+    # § 6.2 re-derived (B2): OAV > 100 in rye flour (02:S2) x the 2026-10-06 medians
+    flour = A.AROMA_INGREDIENTS["Rye flour"]
+    for key in ("hexanal", "e2_nonenal", "methional"):
+        thr = A.COMPOUNDS[key].threshold
+        assert thr is not None and flour[key].hi >= 100 * thr.median, key
+
+
+def test_sourdough_has_aroma_data() -> None:
+    assert "sourdough" in A.AROMA_TYPES and "sourdough" in A.EVIDENCE
+    assert set(A.DEFAULT_INGREDIENTS["sourdough"]) == {"White wheat flour"}
+    for t, cells in A.PENDING.items():
+        assert set(cells) <= set(A.COMPOUNDS), t

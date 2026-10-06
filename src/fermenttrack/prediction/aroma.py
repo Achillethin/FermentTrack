@@ -216,12 +216,13 @@ def build_context(
     )  # fmt: skip
 
 
-def _gate(ctx: Context, cls: Iterable[str]) -> FloatArray:
-    """Σ X_j / x_max_j over organisms of these classes: the k_max multiplier (N, T)."""
+def _gate(ctx: Context, cls: Iterable[str], name: str = "") -> FloatArray:
+    """Σ X_j / x_max_j over organisms of these classes (whose name contains `name`): the
+    k_max multiplier (N, T)."""
     cls = set(cls)
     out = np.zeros_like(ctx.ph)
     for j, c in enumerate(ctx.classes):
-        if c in cls:
+        if c in cls and name in ctx.names[j]:
             out = out + ctx.biomass[:, :, j] / ctx.x_max[j]
     return out
 
@@ -299,17 +300,23 @@ class _Tracers:
         self.c0: dict[str, FloatArray] = {}
         self.conc: dict[str, FloatArray] = {}
         self.routes: dict[str, list[Route]] = {}
+        self.inherit: dict[str, FloatArray] = {}  # internal states carried into a mix
+
+    def start(self, key: str) -> FloatArray:
+        """(N,) initial value of an internal state: carried in, else 0."""
+        return self.inherit.get(key, self.zero[:, 0])
 
     def route(self, key: str, r: Route) -> None:
         lst = self.routes.setdefault(key, [])
         if r not in lst:
             lst.append(r)
 
-    def organisms(self, key: str, cls: Iterable[str], via: str) -> None:
-        """Route `key` to every organism of these classes that ferments anything."""
+    def organisms(self, key: str, cls: Iterable[str], via: str, only: str = "") -> None:
+        """Route `key` to every organism of these classes (named like `only`) that ferments
+        anything."""
         cls = set(cls)
         for j, (name, c) in enumerate(zip(self.ctx.names, self.ctx.classes, strict=True)):
-            if c in cls and float(np.max(self.ctx.flux[j])) > 0.0:
+            if c in cls and only in name and float(np.max(self.ctx.flux[j])) > 0.0:
                 self.route(key, ("organism", name, via))
 
     def add(self, key: str, arr: FloatArray | float) -> bool:
@@ -502,9 +509,32 @@ def concentrations(
         tr.organisms("acetaldehyde", LAB, "pyruvate overflow")
     tr.loss("acetaldehyde", d["kmax_acetaldehyde_yeast"] / 24.0 * _gate(ctx, YEAST))
 
-    # 8. T4, sugar route (§ 5.4): acetoin, reduced to 2,3-butanediol
-    if tr.add("acetoin", 1000.0 * d["b_acetoin_lab"] * f_lab):
-        tr.organisms("acetoin", LAB, "sugar → acetoin")
+    # 8. T4 sugar route (§ 5.4, D3): LAB pyruvate -> α-acetolactate, which decays to
+    # diacetyl (oxidative share) or acetoin; diacetyl and 2,3-pentanedione are reduced by
+    # yeast and LAB (Lactococcus slowly), acetoin to 2,3-butanediol
+    al_made = 1000.0 * d["b_acetoin_lab"] * f_lab / mw["acetoin"]  # µmol/kg/h
+    al0 = tr.start("_acetolactate")
+    if np.any(al_made > 0.0) or np.any(al0 > 0.0):
+        k_al = d["al_decay"] * q("al_q10", 30.0)
+        al = integrate(ctx.t, al_made, k_al, al0)
+        tr.conc["_acetolactate"] = al
+        ox = d["share_al_ox"]
+        for key, part, via in (
+            ("diacetyl", ox, "sugar → α-acetolactate"),
+            ("pentanedione_23", ox * d["pd_per_diacetyl"], "sugar → α-acetolactate"),
+            ("acetoin", 1.0 - ox, "sugar → acetoin"),
+        ):
+            if tr.add(key, part * k_al * al * mw[key]):
+                tr.organisms(key, LAB, via)
+    k_dr = (d["kmax_diacetyl_red"] / 24.0 * _gate(ctx, YEAST | {"lab", "lab_hetero"})
+            + d["kmax_diacetyl_red_lc"] / 24.0 * _gate(ctx, {"lactococcus"}))  # fmt: skip
+    for key in ("diacetyl", "pentanedione_23"):
+        tr.loss(key, k_dr)
+    if "diacetyl" in tr.src or "diacetyl" in tr.c0:
+        dia = tr.solve("diacetyl")
+        if tr.add("acetoin", k_dr * dia * mw["acetoin"] / mw["diacetyl"]):
+            for r in tr.routes.get("diacetyl", []):
+                tr.route("acetoin", r)
     k_bdo = d["kmax_acetoin_bdo"] / 24.0 * _gate(ctx, YEAST | LAB)
     tr.loss("acetoin", k_bdo)
     if "acetoin" in tr.src or "acetoin" in tr.c0:
@@ -575,6 +605,32 @@ def concentrations(
         if tr.add("z3_hexenol", r_rel * residual):
             from_precursor("z3_hexenol", "@hexenol_residual")
     tr.loss("linalool", d["loss_linalool"] / 24.0 * q("q10_default", 30.0))
+
+    # 12. T10 (§ 5.10): bound ferulic acid released by yeast feruloyl esterase; free
+    # ferulic acid decarboxylated to 4-vinylguaiacol by Pof+ yeast, or converted by padA+
+    # L. plantarum (a share to 4-vinylguaiacol, the rest reduced to odourless
+    # dihydroferulic acid). µmol/kg; 1 mol of ferulic acid gives 1 mol of 4-vinylguaiacol.
+    fer = pre.get("@ferulic", tr.zero[:, 0])
+    free_share = d["share_ferulic_free"][:, 0]
+    b0 = tr.start("_ferulic_bound") + fer * (1.0 - free_share)
+    f0 = tr.start("_ferulic_free") + fer * free_share
+    if np.any(b0 + f0 > 0.0):
+        r_rel = d["kmax_ferulic_release"] / 24.0 * _gate(ctx, YEAST)
+        bound = integrate(ctx.t, tr.zero, r_rel, b0)
+        k_dec = d["kmax_ferulic_decarb"] / 24.0
+        r_y = d["pof_yeast"] * k_dec * _gate(ctx, YEAST)
+        r_lp = d["pad_lp"] * k_dec * _gate(ctx, LAB, "plantarum")
+        free = integrate(ctx.t, r_rel * bound, r_y + r_lp, f0)
+        tr.conc["_ferulic_bound"], tr.conc["_ferulic_free"] = bound, free
+        vg = (r_y + d["share_vinyl"] * r_lp) * free * mw["vinylguaiacol_4"]
+        if tr.add("vinylguaiacol_4", vg):
+            from_precursor("vinylguaiacol_4", "@ferulic")
+            how = "decarboxylates ferulic acid"
+            if np.any(d["pof_yeast"] > 0.0):
+                tr.organisms("vinylguaiacol_4", YEAST, how)
+            if np.any(d["pad_lp"] > 0.0):
+                tr.organisms("vinylguaiacol_4", LAB, how, "plantarum")
+        tr.loss("vinylguaiacol_4", d["loss_4vg"] / 24.0)
 
     # everything not solved above (carried in, or a source without its own step)
     for key in [*tr.c0, *tr.src]:
@@ -668,7 +724,8 @@ def evaluate(
             continue
         why = (
             "no organism in the model makes it yet" if c.status == "inactive"
-            else _LATER.get(key, "no route in this recipe")
+            else A.PENDING.get(profile.type, {}).get(key)
+            or _LATER.get(key, "no route in this recipe")
         )  # fmt: skip
         gaps.setdefault(why, []).append(c.name)
     return AromaResult(
