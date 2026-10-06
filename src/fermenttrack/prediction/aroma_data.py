@@ -143,7 +143,9 @@ PARAMS: dict[str, Prior] = {
     "dms_per_dmds": Prior(0.3, 0.05, 1.0),  # mol/mol; est. (03:S9)
     "mesh_oxidation": Prior(5.0, 1.0, 20.0),  # 1/d; est. (03:S10)
     # T8 vegetables (§ 5.8, § 5.9)
-    "kmax_lipid_reduction": Prior(0.3, 0.05, 1.5),  # 05:Engels22; rate est.
+    # 05:Engels22; rate est. Calibrated 2026-10-06 (0.3 -> 0.06): curation tests 22, 24
+    # (kimchi hexanal stays within x/÷3 of t0; cucumber hexanal 4-114 µg/kg at d21)
+    "kmax_lipid_reduction": Prior(0.06, 0.05, 1.5),
     "brine_aldehyde_loss": Prior(0.9, 0.5, 2.0),  # 1/d; 03:S13, derived
     "hexenol_release": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
     "hexenol_loss": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
