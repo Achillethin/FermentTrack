@@ -949,6 +949,27 @@ B3 (plan `docs/superpowers/plans/2026-10-06-aroma-b3.md`):
   - No median was moved: none of the moves inside the ranges made a failing target pass.
 - **Timing** (uncached, interleaved medians of 5, aroma on/off): vinegar 60 d 0.81 vs 0.25 s (+0.56 s); koji 72 h 0.51 vs 0.16 s (+0.35 s); lacto-ferment 28 d +0.67 s in the same session.
 
+### 10.6 Implementation notes (B4 miso and garum, 2026-10-06)
+
+B4 (plan `docs/superpowers/plans/2026-10-06-aroma-b4.md`):
+
+- **Strecker (§ 5.11)** applies wherever the engine has free amino acids: aldehyde source `strecker_rate` × 10⁻⁶ × free amino acids × the § 5.1 share, Q10 `q10_strecker` (25 °C); the aldehydes oxidise to their acids at `strecker_oxidation` (route "aldehyde oxidation").
+- **HEMF (D13):** a precursor (HEMF-equivalent µg/kg) forms at `hemf_formation` × (koji amylase activity / its start value) × soybean share / 0.45. Normalising by the start keeps the yield nearly independent of the koji amount, as in `04:M9`'s koji-ratio series (peaks 15 500–18 000 for ratios 5–20). *Z. rouxii* converts it (`kmax_hemf_conversion` × its X/x_max) only while pH < 5.6 (`04:M10`). Precursor decay uses `q10_default`, HEMF loss `q10_hemf`. `hemf_formation` is **7 300 (730–73 000) µg/kg/d, est. (B4)**: its median gives `04:M9`'s 17 000 µg/kg peak at 30 °C; range ×/÷ 10.
+- **The pH gate and the engine (ruling):** without LAB the engine's mash stays at pH 6.2 (koji acids are not modelled), so `04:M9`'s yeast-only base case never opens the gate. Test 38 as written is a strict xfail; the same clauses run on the default consortium (with *T. halophilus*), whose pH falls 6.2 → 5.4 by 60 d as real misos do (5.84 → 5.2, `04:M10`). If `04:M9`'s mash really stayed above pH 5.6, the gate is what is wrong.
+- **Other miso terms:** furaneol forms zero-order in barley mashes (× barley share / 0.44; rice miso: trace, `04:M2`); norfuraneol is taken up by *Z. rouxii*; maltol is lost first-order; pyrazines are carried in. Pools per kg of logged ingredient (est. (B4) conversions of § 6.2's mash values by the default shares 0.45 soybean / 0.44 grain): soybean maltol 2 980 (990–30 000), furaneol 30 (10–300), norfuraneol 24 400 (11 900–50 000); barley maltol 64 000 (7 700–134 000), 2,5-dimethylpyrazine and trimethylpyrazine 40 (13–400) each. App. values are lower bounds, so hi allows ×10 for recovery. The koji carries 1-octen-3-ol into the mash: 40 (13–230) µg/kg (`04:M10` 20–76 app.), routed as the ingredient "Koji" (no catalogue row yet). Default miso: soybean 0.45 + rice 0.44.
+- **Garum:** five fish-lipid sources (hexanal, nonanal, 2-pentylfuran, (Z)-4-heptenal, 1-octen-3-ol), each 1 (0.1–10) µg per kg **of fish** per day at 25 °C (per kg of fish: est. (B4)), with the 0.005 1/d loss of § 5.8. Default garum: anchovies 0.69 (derived (B4): 140 g/kg protein ÷ 20.4 %).
+- **Trimethylamine invariant** restored at ×2 of 440 µg/kg as written in § 7: strict xfail, because the 2026-10-06 median (1.2 µg/kg) gives 954 µg/kg at pH 6.9 (×2.17); D5's check used 0.87 µg/kg. The ×3 version stays live.
+- **§ 7 tests (exploratory types):** 23 cells pass: HEMF magnitude and 75 d/peak, no HEMF without yeast, 35 °C fall and 25 °C late peak, the chemical loss at 30 and 20 °C, furaneol vs temperature and at 30 °C, maltol, the 25 °C ≥ 30 °C 3-methylbutanol peak and its ≥ 5 700 floor, four `04:M3` esters rising, garum 3-methylbutanoic and 2-methylpropanoic acid, nonanal's early rise and the first-7-month rises. 31 cells are strict xfails, each with its reason in `tests/test_aroma_miso_garum.py`; the structural gaps behind them:
+  - no-LAB pH (above); HEMF peaks at ~63 d (30 °C) and ~47 d (35 °C) because the gate opens late;
+  - a closed miso jar has no loss for fusel alcohols, so they never fall after their peak;
+  - § 5.1's first-order aminotransferase route (`kmax_at_nonyeast` 0.005–0.5 1/d) on 30–50 g/kg free amino acids makes ~3.9 g/kg 3-methylbutanol and ~460 mg/kg 3-methylbutanoic acid, ×25–150 above `04:M1`; the methionine route likewise (methionol ~8 g/kg). Even the range ends stay ×10 high: the prior needs a re-derivation (per-g-amino-acid yields like the Strecker rate) before miso magnitudes can be calibrated;
+  - aldehyde reduction (0.5–10 1/d) outpaces Strecker formation after the first month, so the `04:M3` aldehydes fall;
+  - the LAB sugar route alone gives ~18 mg/kg C4 (acetoin 5 µg/kg, 2,3-butanediol 18 mg/kg vs 240 mg/kg in `04:M1`): miso needs a yeast C4 route;
+  - norfuraneol: the profile's *Z. rouxii* starts at ~10^2.5/g, below `04:M1`'s added yeast (d8/d0 0.39 even at 0.45/d);
+  - garum: no fish-lipolysis template (fatty acids), *T. halophilus* does not grow in a 25 % salt garum (no reduction to 2-phenylethanol), no yeast (ethyl octanoate), and zero-order sources never fall (phenylacetaldehyde, nonanal, hexanal);
+  - 1-octen-3-ol in a year-long miso (as § 10.2 expected).
+- **Timing** (uncached, interleaved medians of 5): miso 180 d 1.58 vs 0.67 s (+0.91 s); garum 48 months 0.73 vs 0.22 s (+0.51 s); lacto-ferment 28 d +0.61 s in the same session.
+
 ## 11. Implications for the increment-B plan
 
 ### 11.1 What to build
@@ -969,8 +990,8 @@ B3 (plan `docs/superpowers/plans/2026-10-06-aroma-b3.md`):
 - **B1 (done):** infrastructure, the generic T1/T2/T3/T5/T12 templates, the lacto T4-sugar/T6/T7/T8 templates, the ingredient precursor map with per-compound routes (ingredient, organism, chemistry), and the palette, strip and drill-down UI.
 - **B2 (done, § 10.4):** sourdough: flour pools, T10, the α-acetolactate sugar route, chained bake phases; tests 14–15 (two strict xfails).
 - **B3 (done, § 10.5):** vinegar and koji: open-surface loss, the AAB sink, the wine/cider base, *A. oryzae* a-terms; tests 11–13, 16–18 (five strict-xfail cells).
+- **B4 (done, § 10.6):** miso and garum: Strecker, HEMF, furanones, maltol, pyrazines, koji carry-over, fish lipids; tests 38–51 (23 cells pass, 31 strict xfails with the structural gaps listed).
 - **Next, in order:**
-  - B4 miso + garum (4, 9);
   - B5 kombucha + kefir and the T4 citrate chain (2, 3);
   - an ingredient pass that curates P0 precursors and adds aroma-relevant catalogue ingredients for the recipe builder.
 
