@@ -895,6 +895,27 @@ The first 14 rows are the ones `01` flagged; the rest are additional > 10× span
 - **Miso 1-octen-3-ol** keeps rising for a year (`04:M3`) while the model's mould does not grow in the mash: a non-growth source is missing (test 46 expected to fail).
 - **Table-D key odorants** (D16) need a threshold pass before they can join: kombucha α-farnesene (`02:K1` Tables 1 and 2 disagree), α-terpineol, linalool oxides, benzaldehyde, ethyl phenylacetate, methyl acetate, ethyl propanoate, propyl acetate, dodecanoic acid; vinegar ethyl propanoate, propanoic acid, 1,1-diethoxyethane, ethyl 3-methylbutanoate, ethyl phenylacetate, acetoin acetate, hydroxyacetone, guaiacol, vanillin; sourdough (E,E)-2,4-decadienal, vanillin, 1-hexanol, (E)-2-hexenal, isoamyl lactate, γ-decalactone; koji 3-octen-2-one, 2-methyl-3-buten-2-ol, 2-undecanone, 1-heptanol; sauerkraut MMTSO₂, MMTSO, hydrogen sulfide, carbon disulfide; kimchi dimethyl tetrasulfide, allyl methyl trisulfide, methyl (methylthio)methyl disulfide, diallyl trisulfide, 3-phenylpropanenitrile, 2-phenylethyl ITC, (E,Z)-2,6-nonadienal, (E,E)-2,4-decadienal; cucumber (E,Z)-2,6-nonadienal, (E)-2-heptenal, octanal; kefir γ-dodecalactone, 2-undecanone, acetone, 2-butanone, 2,3-hexanedione; cheese pentanoic and phenylacetic acid, γ-dodecalactone; miso 2-furanmethanethiol, (Z)-1,5-octadien-3-one, trans-4,5-epoxy-(E)-2-decenal, syringol, ethyl phenylacetate; garum 2-ethylpyridine, indole, (E,E)-2,4-heptadienal, benzaldehyde, 2-ethylfuran, ethyl heptanoate, 1-heptanol, octanal, decanal.
 
+### 10.3 Implementation notes (B1, 2026-10-06)
+
+B1 (plan `docs/superpowers/plans/2026-10-06-aroma-b1.md`) built the infrastructure, the generic templates, the lacto-ferment templates, the ingredient precursor map and the UI. What changed against this document, and what the § 7 tests found:
+
+- **Thresholds (owner decision):** § 3 medians re-set to the latest reliable determination. DMTS keeps CZ D 0.0099: the LSB 2020 row (0.099) is exactly ×10, a probable slip. § 6.2's flour pools were derived as OAV > 100 × the *old* medians (hexanal 3.4, (E)-2-nonenal 0.22, methional 0.29). Re-derive them with the new medians (2.4, 0.69, 0.43) in the sourdough increment.
+- **Series sums (owner decision):** every active compound with a threshold counts (§ 1 rewritten); 3-butenyl ITC is no longer drill-down only.
+- **Calibrated median moves:** `kmax_lipid_reduction` 0.3 → 0.06 (range 0.05–1.5) for tests 22 and 24: kimchi hexanal stays within ×/÷ 3 of t0, and cucumber hexanal is ~9 µg/kg at d21. This conflicts with the kombucha check (hexanal 9.07 → 1.93 over 9 d, 0.17 d⁻¹, `02:K1`), to be resolved when kombucha arrives.
+- **Strict-xfail gaps (lacto, § 7):**
+  - 19: first-order glucosinolate release from t0 peaks 3-butenyl ITC at d2–3 even at the range ends of `gsl_release` and `itc_loss`. `03:S10`'s d7 peak needs ~0.1 d⁻¹ at 15 °C, below § 5.6's 0.3 d⁻¹ floor (which comes from 20 °C data), or a delayed release.
+  - 20 (late DMTS plateau) and 21 (LAB ester peak d5–9): the engine's 15 °C kimchi ferments slowly (pH 6.2 → 4.3 and only 11 of 30 g/kg sugar used by d15), so sugar-driven tracers keep rising. The esters also lack an in-ferment loss faster than hydrolysis (t½ ~250 d) or CO₂ stripping (~2 %).
+  - 23: the lacto engine has no free amino-acid pool for vegetables, so methional cannot rise. LAB aldehyde reduction (≥ 0.5 d⁻¹) removes the carried-in phenylacetaldehyde with nothing forming it.
+  - 25 (AITC only): `itc_loss` (kimchi-derived) empties allyl ITC in weeks, while 9-month sauerkraut keeps 55–85 µg/kg (`03:S1`). The sulfide end points of test 25 pass.
+- **Values added as `est. (B1)`:**
+  - white-cabbage gluconapin 0.09 (0.01–0.68) µmol/g FW (§ 6.1 DM value × dry matter 0.09, 0.05–0.17);
+  - napa gluconapin 0.34 (0.013–5.9) µmol/g FW (total GSL × share × dry matter);
+  - a napa (Z)-3-hexenol residual pool (the raw-cabbage 1 490 ×/÷ 3) released at `hexenol_release`;
+  - `SMCSO_REF` 5 700 µmol/kg (the T7 fermentation pool scales with the batch's SMCSO);
+  - methional share 0.2 of the methionine not ending as methionol;
+  - K_aw stand-ins: ITCs and nitriles → allyl ITC, dropped disulfides → DMDS.
+- **Recipe stand-ins in the tests:** napa cabbage and cucumber borrow the Cabbage row's nutrients (no catalogue rows yet), and the cucumber brine's 53 mM acetic acid cannot be logged.
+
 ## 11. Implications for the increment-B plan
 
 ### 11.1 What to build
@@ -911,7 +932,16 @@ The first 14 rows are the ones `01` flagged; the rest are additional > 10× span
 
 ### 11.2 Order
 
-Templates by data quality, highest-evidence ferments first; each step ends with its § 7 tests green.
+**Re-ordered by the owner on 2026-10-06:** the targets are lacto-ferment, miso, sourdough, vinegar, koji and garum, and the aroma view previews what a batch can smell of as groundwork for building recipes from ingredients.
+- **B1 (done):** infrastructure, the generic T1/T2/T3/T5/T12 templates, the lacto T4-sugar/T6/T7/T8 templates, the ingredient precursor map with per-compound routes (ingredient, organism, chemistry), and the palette, strip and drill-down UI.
+- **Next, in order:**
+  - B2 sourdough (steps 6 below);
+  - B3 vinegar + koji (7, 8);
+  - B4 miso + garum (4, 9);
+  - B5 kombucha + kefir and the T4 citrate chain (2, 3);
+  - an ingredient pass that curates P0 precursors and adds aroma-relevant catalogue ingredients for the recipe builder.
+
+The original order, by data quality (each step ends with its § 7 tests green):
 
 1. **Infrastructure:** diagnostics hook; tracer integrator against analytic and `solve_ivp` solutions; OAV with D5 and the matrix factor; **T12** volatility (measured Henry constants, `05:Sander23`), since every compound needs it.
 2. **T1 Ehrlich, T2 esters, T3 acetaldehyde, T5 chemistry, T9 terpenes → kombucha** (tests 1–10: 3 absolute windows, 19 calibrated cells) **and kefir** (tests 26–33: 2 absolute windows, 22 calibrated cells). Measured yields (`05:Godillot23`, `05:Rollero17`, `05:RameyOugh80`).
