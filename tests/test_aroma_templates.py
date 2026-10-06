@@ -260,3 +260,42 @@ def test_conserved_tracer_concentrates_as_co2_escapes() -> None:
     c, _ = aroma.concentrations(ctx, {**d, "loss_linalool": zero, "kaw_eta": zero})
     assert np.any(ctx.left[:, -1] < 0.999)  # heterofermentative: CO2 leaves the jar
     assert np.allclose(c["linalool"], c["linalool"][:, :1] / ctx.left)
+
+
+CHEESE = ["Lactococcus lactis"]
+
+
+def _cheese(share: float) -> tuple[dict[str, FloatArray], Draws]:
+    ctx, _, _, d = _run({"Milk": 1.0}, CHEESE, ferment="cheese", temp=30.0)
+    d = {**d, "share_cit_lc": np.full_like(d["share_cit_lc"], share)}
+    c, _ = aroma.concentrations(ctx, d)
+    return c, d
+
+
+def test_citrate_feeds_acetolactate_within_its_mass_balance() -> None:
+    c, d = _cheese(1.0)
+    p0 = d["ing:Milk:@citrate"][:, 0] * 1000.0  # µmol/kg
+    assert np.all(np.diff(c["_citrate"], axis=1) <= 1e-9)
+    assert np.all(c["_citrate"][:, -1] < p0)
+    c4 = (c["diacetyl"] / A.MW["diacetyl"] + c["acetoin"] / A.MW["acetoin"]
+          + c.get("butanediol_23", 0.0) / A.MW["butanediol_23"] + c["_acetolactate"])  # fmt: skip
+    assert np.all(c4[:, -1] > 0.0)
+
+
+def test_no_citrate_active_cells_no_citrate_c4() -> None:  # curation test 36
+    c, d = _cheese(0.0)
+    p0 = d["ing:Milk:@citrate"][:, 0] * 1000.0
+    assert np.allclose(c["_citrate"], p0[:, None])
+
+
+def test_leuconostoc_waits_for_sugar_to_fall() -> None:
+    ctx, c, _, _ = _run({"Milk": 1.0}, ["Leuconostoc mesenteroides"], ferment="kefir")
+    sweet = ctx.pools[:, :, engine.PI["hexoses"]] > A.LEUC_SUGAR_GATE
+    used = np.diff(c["_citrate"], axis=1) < -1e-9
+    assert not np.any(used & sweet[:, 1:] & sweet[:, :-1])
+
+
+def test_milk_lactones_grow_from_their_fat_bound_precursor() -> None:
+    _, c, routes, _ = _run({"Milk": 0.97}, None, ferment="kefir")
+    assert np.all(c["decalactone_delta"][:, -1] > c["decalactone_delta"][:, 0])
+    assert ("ingredient", "Milk", "milk fat (lactone precursors)") in routes["decalactone_delta"]

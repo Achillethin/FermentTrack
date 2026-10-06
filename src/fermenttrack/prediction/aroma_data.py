@@ -127,6 +127,14 @@ PARAMS: dict[str, Prior] = {
     # 1/d; yeast and Leuconostoc (03:S27, 03:S19; rate est.), lactobacilli alike: est. (B2)
     "kmax_diacetyl_red": Prior(2.0, 0.5, 10.0),
     "kmax_diacetyl_red_lc": Prior(0.05, 0.005, 0.3),  # 1/d, Lactococcus; est. (03:S30)
+    # T4 citrate (§ 5.4, D3, D4)
+    "share_cit_lc": _lin(0.5, 0.1, 1.0),  # citrate-active share of Lactococcus; est.
+    "kmax_citrate": Prior(12.0, 5.0, 36.0),  # 1/d at 30 °C, cit+ LAB; 03:S30, derived order
+    "share_c4_lc": _lin(0.4, 0.3, 0.5),  # C4 share of citrate pyruvate, Lactococcus; 05:Verhue91
+    "share_c4_leuc": _lin(0.7, 0.3, 1.0),  # same, Leuconostoc; 05:Cogan81 (hi); median est.
+    # Milk fat lactones (§ 5.8): fat-bound precursor = x times the free lactone, released
+    "lactone_precursor_x": Prior(5.0, 1.0, 20.0),  # est. (03:S23 shape)
+    "lactone_release": Prior(0.7, 0.1, 2.4),  # 1/d; est. (03:S23 shape)
     # T10 hydroxycinnamic acids (§ 5.10, § 6.1)
     # free share of flour ferulic acid: 05:Boudaoud21 § 3.2.2 (PMC8116856), free = 0.5 % of
     # total in wheat bran, "does not exceed 0.5-1 % in cereals"; range est. (B2). § 6.1's
@@ -282,6 +290,7 @@ PRECURSOR_LABEL: dict[str, str] = {
     "@smcso": "S-methylcysteine sulfoxide",
     "@hexenol_residual": "green-leaf volatile precursors",
     "@ferulic": "ferulic acid",
+    "@citrate": "citrate",
 }
 
 # Ingredient -> initial compound (µg/kg of ingredient) or "@" precursor (µmol/g fresh
@@ -372,6 +381,16 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
         "dimethylpyrazine_25": Prior(40.0, 13.0, 400.0),
         "trimethylpyrazine": Prior(40.0, 13.0, 400.0),
     },
+    # whole milk, pasteurised (§ 6.2; 03:S34 Table 2, external standard; each x/÷2) and its
+    # citrate (D4: 9.0 (6.3-11.7) mmol/kg, 05:Grelet16, 05:Chen24)
+    "Milk": {
+        "hexanal": Prior(51.3, 25.65, 102.6), "diacetyl": Prior(9.7, 4.85, 19.4),
+        "butanoic": Prior(1_094.0, 547.0, 2_188.0), "octanoic": Prior(1_037.0, 518.5, 2_074.0),
+        "decanoic": Prior(380.0, 190.0, 760.0),
+        "decalactone_delta": Prior(138.0, 69.0, 276.0),
+        "dodecalactone_delta": Prior(844.0, 422.0, 1_688.0),
+        "@citrate": Prior(9.0, 6.3, 11.7, "lin"),
+    },
     # fish: no initial pools curated; its lipids oxidise (FISH_LIPID sources, § 5.8)
     "Anchovies": {}, "Mackerel": {}, "Fish": {},
 }  # fmt: skip
@@ -383,6 +402,10 @@ SOY = frozenset({"Soybeans"})
 SOY_REF = 0.45
 BARLEY_REF = 0.44
 HEMF_PH = 5.6  # Z. rouxii converts the precursor only below this pH (04:M10)
+# Citrate uptake (§ 5.4): cardinal pH (optimum 5.5-6.0, 05:Starrenburg91; ends est. (B5)), and
+# Leuconostoc takes up citrate only once the hexoses fall below 10 mM (05:Cogan81)
+CITRATE_PH = (4.0, 5.75, 8.0)
+LEUC_SUGAR_GATE = 1.8  # g/kg hexoses
 # Compounds the koji carries into a mash, per kg (route: ingredient "Koji"):
 # 04:M10 20-76 µg/kg (app.), geometric midpoint, x/÷3 below, x3 above the max: est. (B4)
 KOJI_CARRY: dict[str, dict[str, Prior]] = {"miso": {"octen3ol": Prior(40.0, 13.0, 230.0)}}
@@ -397,9 +420,13 @@ DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
     "miso": {"Soybeans": 0.45, "White rice": 0.44},  # est. (B4): koji ratio 10, 11 % salt
     # derived (B4): typical recipe 140 g/kg protein / 20.4 % anchovy protein (FDC)
     "garum": {"Anchovies": 0.69},
+    "kefir": {"Milk": 0.97},  # 3 % grains (profile note: 2-5 %); est. (B5)
+    "cheese": {"Milk": 1.0},
 }
 
-AROMA_TYPES = frozenset({"lacto_ferment", "sourdough", "vinegar", "koji", "miso", "garum"})
+AROMA_TYPES = frozenset({
+    "lacto_ferment", "sourdough", "vinegar", "koji", "miso", "garum", "kefir", "cheese",
+})  # fmt: skip
 # Open vessels: ferment type -> its surface-loss parameter (§ 5.12); closed jars and dough: 0
 K_SURF: dict[str, str] = {"vinegar": "k_surf_vinegar", "koji": "k_surf_koji"}
 
@@ -637,6 +664,57 @@ EVIDENCE: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {
         "acetic": ("engine", "abs", ("forecast",)),
         "ethanol": ("engine", "abs", ("forecast",)),
     },
+    "kefir": {  # § 4.6
+        "acetaldehyde": (_CAL, "abs", ("03:S19", "03:S20", "03:S18", "03:S26")),
+        "diacetyl": (_CAL, "shape", ("03:S21", "03:S18", "03:S19", "03:S22")),
+        "pentanedione_23": (_CAL, "shape", ("03:S21",)),
+        "acetoin": (_CAL, "abs", ("03:S19", "03:S22", "03:S25")),
+        **{k: (_CAL, "shape", ("03:S21", "03:S18")) for k in (
+            "ethyl_acetate", "ethyl_butanoate", "ethyl_hexanoate", "isoamyl_acetate",
+        )},  # fmt: skip
+        **{k: (_CAL, "semi", ("03:S23",)) for k in (
+            "ethyl_octanoate", "ethyl_decanoate", "octanoic", "decanoic", "nonanone_2",
+            "decalactone_delta", "dodecalactone_delta",
+        )},  # fmt: skip
+        "hexanoic": (_CAL, "semi", ("03:S23", "03:S21")),
+        "phenylethanol_2": (_CAL, "semi", ("03:S23", "03:S21")),
+        **{k: (_CAL, "shape", ("03:S21",)) for k in (
+            "methylbutanol_3", "methylbutanol_2", "methylpropanol_2", "methylbutanal_3",
+            "methylbutanal_2",
+        )},  # fmt: skip
+        "hexanal": (_REP, "abs", ("03:S34", "03:S21", "03:S22")),
+        "butanoic": (_REP, "presence", ("03:S22",)),
+        "heptanone_2": (_REP, "presence", ("03:S23",)),
+        "butanediol_23": (_REP, "presence", ("03:S21",)),
+        "nonanal": (_REP, "presence", ("03:S21",)),
+        **{k: ("plausible", "", ()) for k in (
+            "dms", "methional", "methionol", "methylpropanal_2", "phenylacetaldehyde",
+            "isobutyl_acetate", "phenylethyl_acetate", "ethyl_2methylbutanoate",
+            "ethyl_2methylpropanoate", "ethyl_lactate", "methylbutanoic_3", "methylbutanoic_2",
+            "methylpropanoic_2",
+        )},  # fmt: skip
+        "acetic": ("engine", "abs", ("forecast",)),
+        "ethanol": ("engine", "abs", ("forecast",)),
+    },
+    "cheese": {  # § 4.7 (curd and acidification stage, per kg of milk)
+        "diacetyl": (_CAL, "shape", ("03:S30", "03:S27", "03:S28")),
+        "acetoin": (_CAL, "shape", ("03:S30", "03:S28")),
+        "acetaldehyde": (_REP, "presence", ("03:S27",)),
+        **{k: (_REP, "abs", ("03:S34", "03:S32")) for k in (
+            "butanoic", "octanoic", "decanoic", "decalactone_delta", "dodecalactone_delta",
+        )},  # fmt: skip
+        "hexanal": (_REP, "abs", ("03:S34",)),
+        **{k: (_REP, "presence", ("03:S32",)) for k in (
+            "hexanoic", "ethyl_butanoate", "ethyl_hexanoate", "methylbutanal_3",
+            "methylbutanol_3", "phenylethanol_2", "methylbutanoic_3", "methylbutanoic_2",
+            "methylpropanoic_2",
+        )},  # fmt: skip
+        **{k: ("plausible", "", ()) for k in (
+            "butanediol_23", "pentanedione_23", "dms", "heptanone_2", "nonanone_2",
+        )},  # fmt: skip
+        "acetic": ("engine", "abs", ("forecast",)),
+        "ethanol": ("engine", "abs", ("forecast",)),
+    },
 }
 
 # type -> compound -> why it computes zero there (the † cells of § 4 and plausible
@@ -674,6 +752,16 @@ PENDING: dict[str, dict[str, str]] = {
         "vinylphenol_4": "soy hydroxycinnamic acids are not curated yet",
         "sotolon": "the soybean's sotolon is not curated yet",
         "acetylpyrroline_2": "the rice's 2-acetyl-1-pyrroline is not curated yet",
+    },
+    "kefir": {
+        "heptanone_2": "UHT milk (2-heptanone) is not a catalogue ingredient yet",
+        "nonanone_2": "UHT milk (2-nonanone) is not a catalogue ingredient yet",
+        "dms": "the milk's dimethyl sulfide is not curated yet",
+    },
+    "cheese": {
+        "heptanone_2": "UHT milk (2-heptanone) is not a catalogue ingredient yet",
+        "nonanone_2": "UHT milk (2-nonanone) is not a catalogue ingredient yet",
+        "dms": "the milk's dimethyl sulfide is not curated yet",
     },
     "garum": {
         **{k: "fish lipolysis is not modelled yet" for k in (

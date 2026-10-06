@@ -403,6 +403,8 @@ def concentrations(
     # 1. ingredient pools (§ 6): compounds carried in, and precursors
     pre: dict[str, FloatArray] = {}
     pre_from: dict[str, list[str]] = {}
+    ing_c0: dict[str, FloatArray] = {}  # the ingredients' own share of tr.c0 (not inherited)
+    carried_from: dict[str, list[str]] = {}
     # an alcoholic base's pools follow the batch's starting ethanol (§ 6.2), shared by mass
     bases = sum(f for n, f in ctx.shares.items() if n in A.ALCOHOL_BASES)
     per_base = ctx.pools[:, 0, PI["ethanol"]] / A.BASE_ETHANOL / max(bases, 1e-9)
@@ -416,6 +418,8 @@ def concentrations(
                 pre_from.setdefault(key, []).append(name)
             else:
                 tr.c0[key] = tr.c0.get(key, 0.0) + v
+                ing_c0[key] = ing_c0.get(key, 0.0) + v
+                carried_from.setdefault(key, []).append(name)
                 via = A.PRECURSOR_LABEL.get(_CARRIED_VIA.get(key, ""), "carried in")
                 tr.route(key, ("ingredient", name, via))
 
@@ -610,20 +614,45 @@ def concentrations(
     # 8. T4 sugar route (§ 5.4, D3): LAB pyruvate -> α-acetolactate, which decays to
     # diacetyl (oxidative share) or acetoin; diacetyl and 2,3-pentanedione are reduced by
     # yeast and LAB (Lactococcus slowly), acetoin to 2,3-butanediol
-    al_made = 1000.0 * d["b_acetoin_lab"] * f_lab / mw["acetoin"]  # µmol/kg/h
+    # 8a. T4 citrate (§ 5.4, D3, D4): taken up by citrate-active Lactococcus and, once the
+    # hexoses fall below 1.8 g/kg, by Leuconostoc; citrate -> pyruvate (1:1), half of the C4
+    # share of that pyruvate -> α-acetolactate (µmol/kg)
+    cit0 = tr.start("_citrate") + pre.get("@citrate", tr.zero[:, 0])
+    al_cit = tr.zero
+    if np.any(cit0 > 0.0):
+        k_c = d["kmax_citrate"] / 24.0 * q("q10_default", 30.0) * engine.cpm(
+            ctx.ph, *(np.full_like(ctx.ph, v) for v in A.CITRATE_PH)
+        )
+        g_lc = d["share_cit_lc"] * _gate(ctx, {"lactococcus"})
+        sugar_ok = ctx.pools[:, :, PI["hexoses"]] <= A.LEUC_SUGAR_GATE
+        g_le = _gate(ctx, LAB, "Leuconostoc") * sugar_ok
+        cit = integrate(ctx.t, tr.zero, k_c * (g_lc + g_le), cit0)
+        tr.conc["_citrate"] = cit
+        al_cit = 0.5 * k_c * cit * (g_lc * d["share_c4_lc"] + g_le * d["share_c4_leuc"])
+
+    # 8. T4 α-acetolactate (§ 5.4, D3): from LAB sugar (no citrate) and from citrate; it
+    # decays to diacetyl (oxidative share) or acetoin; diacetyl and 2,3-pentanedione are
+    # reduced by yeast and LAB (Lactococcus slowly), acetoin to 2,3-butanediol
+    al_sugar = 1000.0 * d["b_acetoin_lab"] * f_lab / mw["acetoin"]  # µmol/kg/h
     al0 = tr.start("_acetolactate")
-    if np.any(al_made > 0.0) or np.any(al0 > 0.0):
+    if np.any(al_sugar > 0.0) or np.any(al_cit > 0.0) or np.any(al0 > 0.0):
         k_al = d["al_decay"] * q("al_q10", 30.0)
-        al = integrate(ctx.t, al_made, k_al, al0)
+        al = integrate(ctx.t, al_sugar + al_cit, k_al, al0)
         tr.conc["_acetolactate"] = al
         ox = d["share_al_ox"]
         for key, part, via in (
-            ("diacetyl", ox, "sugar → α-acetolactate"),
-            ("pentanedione_23", ox * d["pd_per_diacetyl"], "sugar → α-acetolactate"),
-            ("acetoin", 1.0 - ox, "sugar → acetoin"),
+            ("diacetyl", ox, "α-acetolactate"),
+            ("pentanedione_23", ox * d["pd_per_diacetyl"], "α-acetolactate"),
+            ("acetoin", 1.0 - ox, "α-acetolactate"),
         ):
             if tr.add(key, part * k_al * al * mw[key]):
-                tr.organisms(key, LAB, via)
+                if np.any(al_sugar > 0.0):
+                    tr.organisms(key, LAB, f"sugar → {via}")
+                if np.any(al_cit > 0.0):
+                    from_precursor(key, "@citrate")
+                    if np.any(d["share_cit_lc"] > 0.0):
+                        tr.organisms(key, {"lactococcus"}, f"citrate → {via}")
+                    tr.organisms(key, LAB, f"citrate → {via}", "Leuconostoc")
     k_dr = (d["kmax_diacetyl_red"] / 24.0 * _gate(ctx, YEAST | {"lab", "lab_hetero"})
             + d["kmax_diacetyl_red_lc"] / 24.0 * _gate(ctx, {"lactococcus"}))  # fmt: skip
     for key in ("diacetyl", "pentanedione_23"):
@@ -717,6 +746,19 @@ def concentrations(
         if tr.add("z3_hexenol", r_rel * residual):
             from_precursor("z3_hexenol", "@hexenol_residual")
     tr.loss("linalool", d["loss_linalool"] / 24.0 * q("q10_default", 30.0))
+    # milk-fat δ-lactones (§ 5.8): a fat-bound precursor (x times the free lactone the milk
+    # brings) released first-order
+    for key in ("decalactone_delta", "dodecalactone_delta"):
+        bound0 = tr.start(f"_lactone:{key}") + d["lactone_precursor_x"][:, 0] * ing_c0.get(
+            key, tr.zero[:, 0]
+        )
+        if np.any(bound0 > 0.0):
+            k_l = np.broadcast_to(d["lactone_release"] / 24.0, tr.zero.shape)
+            bound = integrate(ctx.t, tr.zero, k_l, bound0)
+            tr.conc[f"_lactone:{key}"] = bound
+            if tr.add(key, k_l * bound):
+                for n in carried_from.get(key, []):
+                    tr.route(key, ("ingredient", n, "milk fat (lactone precursors)"))
     # fish lipid oxidation (§ 5.8): zero-order sources per kg of fish, a slow loss
     fish = {n: f for n, f in ctx.shares.items() if n in A.FISH}
     if fish:
@@ -807,8 +849,6 @@ def concentrations(
 
 FLOOR = 1e-3  # odour activity floor for log10 values (a thousandth of the threshold)
 _LATER = {  # evidence compounds without a B1 route -> why (curation spec § 4, § 11)
-    "diacetyl": "the citrate → α-acetolactate chain arrives in a later increment",
-    "pentanedione_23": "the citrate → α-acetolactate chain arrives in a later increment",
     "linalool": "bound terpenes of the vegetable are not curated yet",
     "geraniol": "bound terpenes of the vegetable are not curated yet",
     "carvone": "the spice precursor (caraway, dill, mint) is not curated yet",
@@ -837,7 +877,10 @@ def _empty(note: str, no_data: list[str]) -> AromaResult:
                                                    "ingredients": no_data})  # fmt: skip
 
 
-_STATES = ("_acetolactate", "_ferulic_bound", "_ferulic_free", "_hemf_precursor")  # carried
+_STATES = (  # internal states carried across a mix
+    "_acetolactate", "_ferulic_bound", "_ferulic_free", "_hemf_precursor", "_citrate",
+    "_lactone:decalactone_delta", "_lactone:dodecalactone_delta",
+)  # fmt: skip
 
 
 def chain(
