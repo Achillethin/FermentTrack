@@ -970,6 +970,26 @@ B4 (plan `docs/superpowers/plans/2026-10-06-aroma-b4.md`):
   - 1-octen-3-ol in a year-long miso (as § 10.2 expected).
 - **Timing** (uncached, interleaved medians of 5): miso 180 d 1.58 vs 0.67 s (+0.91 s); garum 48 months 0.73 vs 0.22 s (+0.51 s); lacto-ferment 28 d +0.61 s in the same session.
 
+### 10.7 Implementation notes (B5 mass basis; kombucha, kefir, cheese, 2026-10-06)
+
+B5 (plan `docs/superpowers/plans/2026-10-06-aroma-b5.md`):
+
+- **One mass basis (ruling; B1's deferred minor):** tracers integrate as amounts per kg of *starting* batch, like the engine's pools, so a source from a flux or from an amount (free amino acids, engine pools) needs no conversion. Esterification, second order, reads molar concentrations of the current mass and converts its rate back (× the mass left). Every compound is divided by the mass left once, at the end: odour activity and the API read per kg of what is in the jar, and a conserved tracer concentrates exactly by 1/left as CO₂ escapes (pinned). A chain carries per-current values into the next mix. Miso test 46's 1-octen-3-ol then rose by the ~0.5 % CO₂ concentration alone; its strict xfail now asks for a rise beyond 5 %, the test's intent (a non-growth source).
+- **T4 citrate (§ 5.4, D3, D4):** the milk's citrate (9.0, 6.3–11.7 mmol/kg, lin) is taken up at `kmax_citrate` × Q10 × a cardinal pH factor (optimum 5.75, `05:Starrenburg91`; ends 4.0 and 8.0 est. (B5)) by citrate-active *Lactococcus* (`share_cit_lc` × X/x_max) and by *Leuconostoc* once hexoses fall below 1.8 g/kg (`05:Cogan81`); half of the C4 share of its pyruvate joins B2's α-acetolactate pool. The B1 note "citrate chain arrives later" is gone.
+- **Milk (§ 6.2, § 5.8):** pasteurised whole-milk pools (`03:S34`, ×/÷ 2) and δ-lactones released from a fat-bound precursor (`lactone_precursor_x` × the free lactone). `lactone_release` **0.7 → 0.3 1/d** (calibrated, inside 0.1–2.4) for tests 30 (kefir δ-dodecalactone 48/24 h ≥ 1.3) and 37 (cheese lactones within ×/÷ 3 of milk). Default kefir 0.97 milk (3 % grains, est. (B5)), cheese 1.0.
+- **Tea (§ 5.9, § 6.2):** the § 6.2 per-batch tea values are stored per kg of leaves at the default 5 g/kg (×200, derived (B5)): linalool 2 000 (600–6 000), geraniol 500, methyl salicylate 480, β-ionone 80, limonene 540, hexanal 90, nonanal 320 µg/kg leaves (each the `02:K1` ratio ×/÷ 4), bound glycosides 196 000 (105 000–366 000) µg/kg leaves (`05:Zhou26tea`). Kombucha joins the open vessels (`k_surf` 10, 2–50 1/d).
+- **Spec inconsistency for the owner (tea):** the bound pool (~1 mg/kg batch) released at ≥ 0.02 1/d and split 100 % between linalool, geraniol and methyl salicylate releases far more than their free pools (2–10 µg/kg): geraniol rises ×38 by D14 where `02:K1` sees 0.67×, and D14 linalool is ~110 µg/kg (54 even at the release and split lows) against `02:K4`'s 4–11. `05:Zhou26tea` says the Keemun bound pool is mostly linalool oxides and benzyl/phenylethyl glycosides: the split needs an "other aglycones" share (or a smaller modelled pool) before tests 9–10 can pass.
+- **§ 7 tests:** kombucha passes tests 1, 2, 3 (rise), 4, 5 (D12 window), 6 (ethyl decanoate), 7 (rise), 8, 9 (β-ionone, limonene); kefir passes 26, 27, 28 (four esters rise), 29 (non-decreasing), 30 (δ-decalactone, δ-dodecalactone), 31, 32; cheese passes 34 (diacetyl), 35, 36, 37. Strict xfails (18 cells), by cause:
+  - the engine's kombucha yeast still ferments from D7 to D14 (ethanol 1.25 → 1.74 g/kg at 30 °C): 2-phenylethanol and MCFA plateaus (3, 7);
+  - yeast esters follow the early sugar flux and the surface strips them: ethyl acetate's late acceleration (5), isoamyl acetate and ethyl hexanoate late (6), 2-phenylethyl acetate ×3 from D2 (6);
+  - the tea bound pool (above): geraniol, methyl salicylate (9), linalool (10);
+  - the slow kefir yeast (ethanol 0.19 g/kg at 48 h, 22 °C): ethyl octanoate's transient and ethyl decanoate's lateness (28);
+  - no milk lipolysis: octanoic and decanoic ×1.5 (29); 2-nonanone needs UHT milk, not a catalogue ingredient (30);
+  - citrate uptake is gated by *Lc. lactis* biomass, which reaches capacity after ~10 h at 30 °C: citrate is 37 % left at 8 h (21 % even at `kmax_citrate` 30) and α-acetolactate peaks at ~10 h (34).
+  - Test 33 (optional, a 4 °C storage schedule) is not written: forecast inputs take one temperature.
+- **Tests touched outside aroma:** the derived-failure test of `test_prediction_sensory.py` compares kinetic bands; kefir's new aroma bands are derived output, so they join the excluded taste and nutrition groups. The "no aroma yet" API case uses the generic type (every curated type now has aroma).
+- **Timing** (uncached, interleaved medians of 5): kombucha 21 d 1.87 vs 0.90 s (+0.97 s), kefir 48 h 1.51 vs 0.42 s (+1.09 s), cheese 24 h 1.11 vs 0.32 s (+0.79 s).
+
 ## 11. Implications for the increment-B plan
 
 ### 11.1 What to build
@@ -991,8 +1011,8 @@ B4 (plan `docs/superpowers/plans/2026-10-06-aroma-b4.md`):
 - **B2 (done, § 10.4):** sourdough: flour pools, T10, the α-acetolactate sugar route, chained bake phases; tests 14–15 (two strict xfails).
 - **B3 (done, § 10.5):** vinegar and koji: open-surface loss, the AAB sink, the wine/cider base, *A. oryzae* a-terms; tests 11–13, 16–18 (five strict-xfail cells).
 - **B4 (done, § 10.6):** miso and garum: Strecker, HEMF, furanones, maltol, pyrazines, koji carry-over, fish lipids; tests 38–51 (23 cells pass, 31 strict xfails with the structural gaps listed).
+- **B5 (done, § 10.7):** one mass basis; kombucha, kefir and cheese: the citrate chain, milk pools and lactones, tea terpenes; tests 1–10, 26–37 (47 cells pass, 18 strict xfails).
 - **Next, in order:**
-  - B5 kombucha + kefir and the T4 citrate chain (2, 3);
   - an ingredient pass that curates P0 precursors and adds aroma-relevant catalogue ingredients for the recipe builder.
 
 The original order, by data quality (each step ends with its § 7 tests green):
