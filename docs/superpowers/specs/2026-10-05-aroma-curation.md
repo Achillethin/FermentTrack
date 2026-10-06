@@ -933,6 +933,22 @@ B2 (plan `docs/superpowers/plans/2026-10-06-aroma-b2.md`):
 - **Timing** (uncached, warm process, medians of 5 interleaved runs with aroma on/off; this machine varies ×2 between sessions): sourdough batch 24 h 0.75 s vs 0.28 s (+0.47 s); lacto-ferment 28 d 0.65–0.70 s vs 0.27–0.30 s (+0.34–0.43 s; B1 measured +0.77 s in the same session, so B2 did not slow it); bake plan (levain + dough + 12 h retard, 0.1 h grid) 1.88 s vs 1.14 s (+0.73 s, of which diagnostics ~0.3 s).
 - **UI:** the sourdough planner keeps aroma charts out of its pro view (they belong to the batch's Taste & aroma lens), like taste and nutrition.
 
+### 10.5 Implementation notes (B3 vinegar and koji, 2026-10-06)
+
+B3 (plan `docs/superpowers/plans/2026-10-06-aroma-b3.md`):
+
+- **Open surface (§ 5.12):** vinegar (`k_surf` 20, 5–80 1/d) and koji (50, 10–200) add `k_surf × K_aw` to every tracer's loss; closed jars and dough add nothing. Kombucha's rate joins in B5.
+- **AAB sink (D11):** first-order, gated by AAB biomass (Σ X/x_max, ~1.5 for the two default *Acetobacter* in vinegar): fusel alcohols → their acids (`kmax_aab_fusel`), 2-phenylethanol (`kmax_aab_pe`, no tracked product), acetaldehyde (`kmax_aab_acetaldehyde`), 2,3-butanediol → acetoin (`kmax_aab_bdo`). The acetoin that AAB make is not fed back into a yeast/LAB reduction to 2,3-butanediol (a cycle only when both share a jar; second order, revisit with kombucha in B5).
+- **Wine/cider base (§ 6.2):** one pool for red wine, white wine and hard cider, per kg of a 94 g/kg-ethanol base, scaled by the batch's starting ethanol / 94 g/kg and shared by mass between the logged bases, so a diluted base counts once (through its ethanol). The 3- + 2-methylbutanol sum is split with § 5.1's 2-methylbutanol share 0.20 (0.10–0.35), extremes multiplied (derived (B3)): 3-methylbutanol 88 000 (55 250–130 500), 2-methylbutanol 22 000 (8 500–50 750) µg/kg. Default recipe: white wine (derived (B3): 55 g/kg ÷ 103 g/kg; only the ethanol counts).
+- **Koji (§ 5.8, § 5.2):** *A. oryzae* a-terms per g mycelium made: 1-octen-3-ol with 3-octanone, 3-octanol and 1-octen-3-one as mol/mol splits; 2-heptanone and 2-nonanone; ethyl and isoamyl acetate, lost to fungal esterase gated by X/x_max (so as growth stops). **Rice hexanal 62 (21–190) µg/kg** of logged rice: cooked rice 53.2–71.6 µg/kg (Lai et al. 2026, *Foods* 15:356, Table 1, PMC12840958; IS semi-quantitative), geometric midpoint, ×/÷ 3 for semi; logged rice is taken as steamed (est. (B3)).
+- **§ 7 tests:** vinegar (60 d at 30 °C: the engine's surface culture still holds 18 g/kg ethanol, so "end" = 60 d) passes test 11 for 3-methylbutanol, 2-methylbutanol, 2-methylpropanol and acetaldehyde, test 12, and test 13 for ethyl hexanoate, octanoate, decanoate, isoamyl and isobutyl acetate. Koji passes tests 16 and 18. Strict xfails:
+  - 11, 2-phenylethanol (end/start 0.61, target 0.8–2.0): even with `kmax_aab_pe`'s median at 0, the prior's upper half (to 0.02 1/d × gate ~1.5 over 60 d) pulls the median ratio to 0.75; `02:V3`, `V4` rises suggest ~0 (narrow the prior if a source allows);
+  - 13, ethyl acetate (rises ×3.4): esterification of acetic acid with the remaining ethanol (§ 5.5) beats the surface loss while ethanol remains; even at `ester_k` 1 and `k_surf` 80 it ends at 0.66 × start. `02:V3`'s −99 % implies an ethanol-free end, or a vessel faster than § 5.12's;
+  - 13, ethyl 2-methylpropanoate: absent (no base pool in `05:Saerens10` Table 2, no yeast in vinegar);
+  - 17, transient acetate esters (peak 42–46 h, target 12–40 h): the engine's koji grows fastest at 40–48 h (mycelium 35 % at 40 h, 75 % at 48 h), and growth-linked esters follow it even at esterase 2/d and `k_surf` 200; `02:J1`'s mid-course peak is on bran.
+  - No median was moved: none of the moves inside the ranges made a failing target pass.
+- **Timing** (uncached, interleaved medians of 5, aroma on/off): vinegar 60 d 0.81 vs 0.25 s (+0.56 s); koji 72 h 0.51 vs 0.16 s (+0.35 s); lacto-ferment 28 d +0.67 s in the same session.
+
 ## 11. Implications for the increment-B plan
 
 ### 11.1 What to build
@@ -952,8 +968,8 @@ B2 (plan `docs/superpowers/plans/2026-10-06-aroma-b2.md`):
 **Re-ordered by the owner on 2026-10-06:** the targets are lacto-ferment, miso, sourdough, vinegar, koji and garum, and the aroma view previews what a batch can smell of as groundwork for building recipes from ingredients.
 - **B1 (done):** infrastructure, the generic T1/T2/T3/T5/T12 templates, the lacto T4-sugar/T6/T7/T8 templates, the ingredient precursor map with per-compound routes (ingredient, organism, chemistry), and the palette, strip and drill-down UI.
 - **B2 (done, § 10.4):** sourdough: flour pools, T10, the α-acetolactate sugar route, chained bake phases; tests 14–15 (two strict xfails).
+- **B3 (done, § 10.5):** vinegar and koji: open-surface loss, the AAB sink, the wine/cider base, *A. oryzae* a-terms; tests 11–13, 16–18 (five strict-xfail cells).
 - **Next, in order:**
-  - B3 vinegar + koji (7, 8);
   - B4 miso + garum (4, 9);
   - B5 kombucha + kefir and the T4 citrate chain (2, 3);
   - an ingredient pass that curates P0 precursors and adds aroma-relevant catalogue ingredients for the recipe builder.
