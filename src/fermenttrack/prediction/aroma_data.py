@@ -174,8 +174,9 @@ PARAMS: dict[str, Prior] = {
     "q10_strecker": Prior(2.5, 1.5, 4.0),  # est. (05:E18)
     "strecker_oxidation": Prior(0.002, 0.0005, 0.01),  # 1/d aldehyde -> acid; 04:G1, derived-est.
     # HEMF precursor formation at the start of the mash (HEMF-eq µg/kg/d), then following the
-    # koji amylase activity: est. (B4); median set on the 04:M9 base case (curation test 38)
-    "hemf_formation": Prior(1000.0, 100.0, 10000.0),
+    # koji amylase activity: est. (B4). Median set on the 04:M9 base case (curation test 38,
+    # run with T. halophilus for the pH drop): a 17 000 µg/kg peak at 30 °C; range x/÷10 est.
+    "hemf_formation": Prior(7300.0, 730.0, 73000.0),
     "hemf_precursor_decay": Prior(0.05, 0.02, 0.15),  # 1/d at 30 °C; est. (04:M9, 04:M1)
     "kmax_hemf_conversion": Prior(0.1, 0.03, 0.3),  # 1/d, Z. rouxii; est. (04:M9, 04:M10)
     "hemf_loss": Prior(0.031, 0.02, 0.045),  # 1/d at 30 °C; 04:M9 Table 3, derived
