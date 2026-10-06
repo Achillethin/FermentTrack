@@ -712,6 +712,15 @@ def concentrations(
         if tr.add("z3_hexenol", r_rel * residual):
             from_precursor("z3_hexenol", "@hexenol_residual")
     tr.loss("linalool", d["loss_linalool"] / 24.0 * q("q10_default", 30.0))
+    # fish lipid oxidation (§ 5.8): zero-order sources per kg of fish, a slow loss
+    fish = {n: f for n, f in ctx.shares.items() if n in A.FISH}
+    if fish:
+        q_fish = q("q10_default", 25.0)
+        for key in A.FISH_LIPID:
+            if tr.add(key, sum(fish.values()) * d[f"fish_lipid:{key}"] / 24.0 * q_fish):
+                for n in fish:
+                    tr.route(key, ("ingredient", n, "fish lipid oxidation"))
+            tr.loss(key, d["fish_lipid_loss"] / 24.0)
 
     # 12. T10 (§ 5.10): bound ferulic acid released by yeast feruloyl esterase; free
     # ferulic acid decarboxylated to 4-vinylguaiacol by Pof+ yeast, or converted by padA+

@@ -184,6 +184,12 @@ PARAMS: dict[str, Prior] = {
     "q10_furaneol": Prior(2.4, 2.0, 4.0),  # 04:M1 Table 3, derived
     "kmax_norfuraneol_uptake": Prior(0.2, 0.1, 0.5),  # 1/d, Z. rouxii; 04:M1 Fig. 4, derived
     "maltol_loss": Prior(0.015, 0.007, 0.03),  # 1/d; 04:M2 Table 2, derived (app.)
+    # Fish lipid oxidation (§ 5.8, garum): zero-order sources per kg of fish (est. (B4)) at
+    # 25 °C with q10_default, and a slow loss; est. (no fish-lipid pool curated)
+    **{f"fish_lipid:{k}": Prior(1.0, 0.1, 10.0) for k in (
+        "hexanal", "nonanal", "pentylfuran_2", "z4_heptenal", "octen3ol",
+    )},  # fmt: skip
+    "fish_lipid_loss": Prior(0.005, 0.001, 0.02),  # 1/d; est.
     # A. oryzae a-terms (§ 5.8, § 5.2), a in mg per g mycelium made
     "a_octenol": Prior(0.02, 0.002, 0.2),  # 1-octen-3-ol; est. (05:Guneser17 order)
     "split_octanone": Prior(0.4, 0.1, 1.0),  # mol/mol of 1-octen-3-ol; est. (05:Miyamoto14)
@@ -365,9 +371,13 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
         "dimethylpyrazine_25": Prior(40.0, 13.0, 400.0),
         "trimethylpyrazine": Prior(40.0, 13.0, 400.0),
     },
+    # fish: no initial pools curated; its lipids oxidise (FISH_LIPID sources, § 5.8)
+    "Anchovies": {}, "Mackerel": {}, "Fish": {},
 }  # fmt: skip
 # Miso (§ 5.11): HEMF needs soybean; furaneol forms in barley mashes. The default mash
 # (koji ratio 10: equal soybean and koji grain, 11 % salt) is the reference: est. (B4)
+FISH = frozenset({"Anchovies", "Mackerel", "Fish"})
+FISH_LIPID = ("hexanal", "nonanal", "pentylfuran_2", "z4_heptenal", "octen3ol")
 SOY = frozenset({"Soybeans"})
 SOY_REF = 0.45
 BARLEY_REF = 0.44
@@ -384,9 +394,11 @@ DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
     "vinegar": {"White wine": 0.53},
     "koji": {"White rice": 1.0},  # steamed rice is the whole bed
     "miso": {"Soybeans": 0.45, "White rice": 0.44},  # est. (B4): koji ratio 10, 11 % salt
+    # derived (B4): typical recipe 140 g/kg protein / 20.4 % anchovy protein (FDC)
+    "garum": {"Anchovies": 0.69},
 }
 
-AROMA_TYPES = frozenset({"lacto_ferment", "sourdough", "vinegar", "koji", "miso"})
+AROMA_TYPES = frozenset({"lacto_ferment", "sourdough", "vinegar", "koji", "miso", "garum"})
 # Open vessels: ferment type -> its surface-loss parameter (§ 5.12); closed jars and dough: 0
 K_SURF: dict[str, str] = {"vinegar": "k_surf_vinegar", "koji": "k_surf_koji"}
 
@@ -591,6 +603,39 @@ EVIDENCE: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {
         "acetic": ("engine", "abs", ("forecast",)),
         "ethanol": ("engine", "abs", ("forecast",)),
     },
+    "garum": {  # § 4.9 (exploratory type; traditional recipe: fish + salt)
+        **{k: (_CAL, "semi", ("04:G1", "04:G2")) for k in (
+            "methylbutanoic_3", "phenylacetaldehyde", "nonanal",
+        )},  # fmt: skip
+        **{k: (_CAL, "semi", ("04:G1",)) for k in (
+            "methylpropanoic_2", "butanoic", "hexanoic", "octanoic", "decanoic",
+            "ethyl_octanoate", "phenylethanol_2",
+        )},  # fmt: skip
+        "methylbutanal_3": (_CAL, "shape", ("04:G2", "04:G5", "04:G3")),
+        "methylbutanal_2": (_CAL, "shape", ("04:G2", "04:G5")),
+        **{k: (_CAL, "shape", ("04:G2",)) for k in ("hexanal", "pentylfuran_2", "octen3ol")},
+        "dmts": (_REP, "semi", ("04:G1", "04:G4")),
+        "methylpropanal_2": (_REP, "presence", ("04:G3", "04:G4", "04:G8")),
+        "methional": (_REP, "presence", ("04:G6", "04:G2")),
+        "dmds": (_REP, "presence", ("04:G3", "04:G2")),
+        "dms": (_REP, "presence", ("04:G3", "04:G2")),
+        "ethyl_acetate": (_REP, "presence", ("04:G2",)),
+        "ethyl_decanoate": (_REP, "presence", ("04:G2",)),
+        "methylbutanol_3": (_REP, "presence", ("04:G9",)),
+        "diacetyl": (_REP, "presence", ("04:G8",)),
+        "hemf": (_REP, "presence", ("04:G7",)),
+        "trimethylamine": (_REP, "presence", ("04:G2",)),
+        "ethylphenol_4": (_REP, "presence", ("04:G2", "04:G7")),
+        "ethylguaiacol_4": (_REP, "presence", ("04:G2", "04:G7")),
+        **{k: ("plausible", "", ()) for k in (
+            "methylbutanoic_2", "methylbutanol_2", "methylpropanol_2", "methionol",
+            "ethyl_2methylpropanoate", "ethyl_2methylbutanoate", "methanethiol",
+            "dimethylpyrazine_25", "trimethylpyrazine", "z4_heptenal", "e2_nonenal",
+            "acetaldehyde", "acetoin", "furaneol", "maltol",
+        )},  # fmt: skip
+        "acetic": ("engine", "abs", ("forecast",)),
+        "ethanol": ("engine", "abs", ("forecast",)),
+    },
 }
 
 # type -> compound -> why it computes zero there (the † cells of § 4 and plausible
@@ -628,5 +673,14 @@ PENDING: dict[str, dict[str, str]] = {
         "vinylphenol_4": "soy hydroxycinnamic acids are not curated yet",
         "sotolon": "the soybean's sotolon is not curated yet",
         "acetylpyrroline_2": "the rice's 2-acetyl-1-pyrroline is not curated yet",
+    },
+    "garum": {
+        **{k: "fish lipolysis is not modelled yet" for k in (
+            "butanoic", "hexanoic", "octanoic", "decanoic",
+        )},  # fmt: skip
+        "e2_nonenal": "the fish's (E)-2-nonenal is not curated yet",
+        **{k: "the fish's sulfur precursors are not curated yet" for k in (
+            "methanethiol", "dms", "dmds", "dmts",
+        )},  # fmt: skip
     },
 }

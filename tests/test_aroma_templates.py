@@ -240,3 +240,15 @@ def test_strecker_needs_free_amino_acids() -> None:
     assert strecker in routes["methylbutanal_3"]
     _, _, routes2, _ = _run()  # cabbage: no free amino acids
     assert strecker not in routes2.get("methylbutanal_3", [])
+
+
+def test_garum_fish_lipids_rise() -> None:
+    _, c, routes, _ = _run({"Anchovies": 0.75}, ["Tetragenococcus halophilus"], ferment="garum")
+    for k in A.FISH_LIPID:
+        assert np.all(c[k][:, -1] > 0.0), k
+        assert ("ingredient", "Anchovies", "fish lipid oxidation") in routes[k], k
+
+
+def test_fish_lipids_need_fish() -> None:
+    _, c, _, _ = _run({"Soybeans": 0.5}, ["Tetragenococcus halophilus"], ferment="garum")
+    assert np.allclose(c.get("z4_heptenal", 0.0), 0.0)
