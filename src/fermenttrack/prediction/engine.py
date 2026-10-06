@@ -507,20 +507,31 @@ def make_rhs(
     return rhs
 
 
-def diagnose(p: EnsembleParams, t: FloatArray, y: FloatArray) -> dict[str, FloatArray]:
+def diagnose(
+    p: EnsembleParams, t: FloatArray, y: FloatArray, stride: int = 1
+) -> dict[str, FloatArray]:
     """Per-organism growth (g/kg/h), hexose-equivalent substrate flux (g/kg/h) and the CO2
     flux (g/kg/h) at each time of a solved trajectory, from its raw states y (N, T, S).
-    One RHS evaluation per time; the solve itself is not touched."""
+    One RHS evaluation per evaluated time (every `stride`-th, plus the last; the times in
+    between are interpolated linearly); the solve itself is not touched."""
     n, m, nt = p.n, len(p.organisms), len(t)
-    out = {f"{k}:{j}": np.zeros((n, nt)) for j in range(m) for k in ("growth", "flux")}
-    out["co2"] = np.zeros((n, nt))
+    at = np.unique(np.r_[np.arange(0, nt, max(stride, 1)), nt - 1])
+    out = {f"{k}:{j}": np.zeros((n, len(at))) for j in range(m) for k in ("growth", "flux")}
+    out["co2"] = np.zeros((n, len(at)))
     diag: dict[str, FloatArray] = {}
     rhs = make_rhs(p, None, diag)
-    for i, ti in enumerate(t):
-        rhs(float(ti), np.ascontiguousarray(y[:, i, :]).reshape(-1))
+    for c, i in enumerate(at):
+        rhs(float(t[i]), np.ascontiguousarray(y[:, i, :]).reshape(-1))
         for key, v in diag.items():
-            out[key][:, i] = v
-    return out
+            out[key][:, c] = v
+    if len(at) == nt:
+        return out
+    # linear interpolation in time onto every output time
+    hi = np.clip(np.searchsorted(t[at], t, side="right"), 1, len(at) - 1)
+    lo = hi - 1
+    span = t[at][hi] - t[at][lo]
+    f = np.divide(t - t[at][lo], span, out=np.zeros(nt), where=span > 0)
+    return {k: v[:, lo] * (1.0 - f) + v[:, hi] * f for k, v in out.items()}
 
 
 # The step size follows the stiffest member; a budget bounds a request's CPU time (typical

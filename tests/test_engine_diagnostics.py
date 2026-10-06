@@ -69,3 +69,19 @@ def test_growth_is_reported_per_organism() -> None:
     for j in range(len(p.organisms)):
         assert d[f"growth:{j}"].shape == (p.n, len(t)) and np.all(d[f"growth:{j}"] >= 0.0)
     assert np.any(d["growth:0"] > 0.0)
+
+
+def test_strided_diagnostics_match_the_full_grid() -> None:
+    """Every 2nd time evaluated, the rest interpolated: the aroma layer's cost saving. Monod
+    kinks (a substrate running out within one grid step) cost a few members up to ~25 % of
+    an integrated rate; the ensemble median stays within 3 %, far inside the aroma priors."""
+    p, t = _setup("lacto_ferment", 16)
+    tr = engine.simulate(p, t, keep_states=True)
+    assert tr.y is not None
+    full = engine.diagnose(p, t, tr.y)
+    half = engine.diagnose(p, t, tr.y, stride=2)
+    assert np.allclose(half["co2"][:, ::2], full["co2"][:, ::2], rtol=1e-4, atol=1e-9)
+    for key in full:
+        a = np.trapezoid(full[key], t, axis=1)
+        rel = np.abs(np.trapezoid(half[key], t, axis=1) / np.maximum(a, 1e-9) - 1.0)
+        assert np.median(rel) < 0.03 and np.max(rel) < 0.25, key

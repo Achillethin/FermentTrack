@@ -44,19 +44,19 @@ def integrate(t: FloatArray, source: FloatArray, k: FloatArray, c0: FloatArray) 
     """C' = S - K·C with S linear and K at its interval mean: exact per interval.
     source (N, T) µg/kg/h, k (N, T) 1/h, c0 (N,) µg/kg -> (N, T) µg/kg."""
     n, nt = source.shape
-    c = np.empty((n, nt))
-    c[:, 0] = c0
+    h = np.maximum(np.diff(np.asarray(t, dtype=float)), 0.0)  # (T-1,); 0 for repeated times
+    x = 0.5 * (k[:, :-1] + k[:, 1:]) * h
+    p1, p2 = _phi(x)
+    s0 = source[:, :-1]
+    s1 = np.divide(source[:, 1:] - s0, h, out=np.zeros_like(s0), where=h > 0.0)
+    # per interval: C(i+1) = C(i)·decay + gain; time-major so each step reads contiguous rows
+    decay = np.ascontiguousarray(np.exp(-x).T)
+    gain = np.ascontiguousarray((s0 * h * p1 + s1 * h * h * p2).T)
+    c = np.empty((nt, n))
+    c[0] = c0
     for i in range(nt - 1):
-        h = float(t[i + 1] - t[i])
-        if h <= 0.0:
-            c[:, i + 1] = c[:, i]
-            continue
-        x = 0.5 * (k[:, i] + k[:, i + 1]) * h
-        p1, p2 = _phi(x)
-        s0 = source[:, i]
-        s1 = (source[:, i + 1] - s0) / h
-        c[:, i + 1] = np.maximum(c[:, i] * np.exp(-x) + s0 * h * p1 + s1 * h * h * p2, 0.0)
-    return c
+        c[i + 1] = np.maximum(c[i] * decay[i] + gain[i], 0.0)
+    return np.ascontiguousarray(c.T)
 
 
 def neutral_fraction(ph: FloatArray, kind: str, pka: float | None) -> FloatArray:
@@ -183,7 +183,7 @@ def build_context(
 ) -> Context:  # fmt: skip
     if tr.y is None:
         raise ValueError("aroma needs raw states (simulate(..., keep_states=True))")
-    diag = engine.diagnose(params, tr.t_h, tr.y)
+    diag = engine.diagnose(params, tr.t_h, tr.y, stride=2)  # every 2nd time; see test_engine_diagnostics
     orgs = params.organisms
     temp = np.stack(
         [np.broadcast_to(params.temperature(float(ti)), (params.n,)) for ti in tr.t_h], axis=1
