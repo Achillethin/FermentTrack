@@ -91,3 +91,88 @@ export function jarSummary(sensory, which) {
     energy: row("energy_kcal"),
   };
 }
+
+// ── Aroma: palette (the preview) and strip ────────────────────────────
+
+// Sequential strength ramp for summed odour activity (orange 700/550/400/250), validated
+// --ordinal --mode dark --surface #191612. Bins: ×1, ×10, ×100, ×1000+ the threshold.
+export const AROMA_HEX = ["#8a3a17", "#c2501f", "#e8743f", "#f5a97f"];
+
+// log10 of the summed odour activity -> 0 (below threshold, no fill) .. 4
+export const aromaBin = (v) => (v <= 0 ? 0 : Math.min(4, Math.floor(v) + 1));
+
+export const aromaChance = (p) => (p < 0.2 ? "unlikely" : likelihood(p));
+
+// Aroma series rows, strongest first, with the median log10 sum from the `aroma:<key>` band.
+export function aromaRows(sensory, series) {
+  if (!sensory?.aroma_series) return [];
+  const bands = Object.fromEntries((series || []).map((s) => [s.key, s]));
+  return sensory.aroma_series
+    .map((r) => ({
+      key: r.key, label: r.label, compounds: r.compounds, noticeable: r.noticeable,
+      median: bands[`aroma:${r.key}`]?.p50 ?? r.noticeable.map(() => -3),
+      peak: r.peak_noticeable, peakT: r.peak_t_h,
+    }))
+    .sort((a, b) => b.peak - a.peak);
+}
+
+const KIND_ORDER = { ingredient: 0, organism: 1, chemistry: 2 };
+
+// Where each route comes from, as a display name: ingredient and organism names, "chemistry".
+const originName = (r) => (r.kind === "chemistry" ? "chemistry" : r.name);
+
+export function paletteSeries(sensory, series) {
+  const byKey = Object.fromEntries((sensory?.compounds || []).map((c) => [c.key, c]));
+  return aromaRows(sensory, series).map((r) => {
+    const routes = r.compounds.flatMap((k) => byKey[k]?.routes || []);
+    routes.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+    return {
+      ...r,
+      chance: aromaChance(r.peak),
+      strength: aromaBin(Math.max(...r.median)),
+      origins: [...new Set(routes.map(originName))],
+    };
+  });
+}
+
+// Aromas grouped by where they come from: each ingredient, each microbe, chemistry.
+export function paletteSources(sensory) {
+  if (!sensory?.compounds) return [];
+  const labels = Object.fromEntries((sensory.aroma_series || []).map((s) => [s.key, s.label]));
+  const groups = new Map();
+  for (const c of sensory.compounds) {
+    for (const r of c.routes || []) {
+      const id = `${r.kind}|${originName(r)}`;
+      if (!groups.has(id)) groups.set(id, { kind: r.kind, name: originName(r), vias: [], peaks: {}, compounds: [] });
+      const g = groups.get(id);
+      if (!g.vias.includes(r.via)) g.vias.push(r.via);
+      if (!g.compounds.includes(c.key)) g.compounds.push(c.key);
+      for (const s of c.series) g.peaks[s] = Math.max(g.peaks[s] ?? 0, c.peak_noticeable ?? 0);
+    }
+  }
+  return [...groups.values()]
+    .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind])
+    .map(({ peaks, ...g }) => ({
+      ...g,
+      series: Object.entries(peaks)
+        .sort((a, b) => b[1] - a[1])
+        .map(([key, p]) => ({ key, label: labels[key] ?? key[0].toUpperCase() + key.slice(1), chance: aromaChance(p) })),
+    }));
+}
+
+// n evenly spaced grid indices (first and last included).
+export function stripColumns(t_h, n = 41) {
+  const last = t_h.length - 1;
+  return Array.from({ length: Math.min(n, t_h.length) }, (_, i) => Math.round((i * last) / (Math.min(n, t_h.length) - 1 || 1)));
+}
+
+// The k compounds of a strip row with the highest median odour activity at grid index i.
+export function topCompounds(row, series, i, k = 3) {
+  const bands = Object.fromEntries((series || []).map((s) => [s.key, s]));
+  return row.compounds
+    .map((c) => bands[`odor:${c}`])
+    .filter(Boolean)
+    .sort((a, b) => b.p50[i] - a.p50[i])
+    .slice(0, k)
+    .map((b) => b.label);
+}
