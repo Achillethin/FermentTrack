@@ -169,7 +169,7 @@ Each row changes or sharpens spec 2026-10-02 § 4.
 | acetic | acetic acid | 176 · 15366 · C00033 | vinegar-like (vinegary) | 5600, 1800, 99000 | measured · CZ 99 000 vs LSB 5 600 (18×) · median: LSB TW | acid 4.76 | engine | active |
 | ethanol | ethanol | 702 · 16236 · C00469 | ethanol-like (solvent) | 990000, 100000, 3000000 | measured · CZ, LEF · median: CZ D | — | engine | active |
 
-**Counts:** 85 compounds: **77 active** (of which 2 conc-only, 1 with an est. threshold (counted in the sums since 2026-10-06), 6 P0 pending, 2 engine pools), **3 inactive**, **5 dropped**.
+**Counts:** 85 compounds: **77 active** (of which 2 conc-only, 1 with an est. threshold (counted in the sums since 2026-10-06), 6 P0 pending until B6, which gave them estimated ingredient priors (§ 10.8), 2 engine pools), **3 inactive**, **5 dropped**.
 
 ## 4. Evidence matrix
 
@@ -673,7 +673,7 @@ These go into `profiles.py` (per type) and the ingredient precursor map (per ing
 | ferulic acid, total | wheat/rye flour → sourdough | 0.30, 0.18, 0.52 | mg/g DM | `05:Boudaoud21` Table 3 (sourdoughs 0.18–0.52; doughs 0.24–0.28) |
 | ferulic acid, free share at t0 | flour | **0.005, 0.003, 0.01** (B2; was 0.03, 0.01, 0.10) | — | `05:Boudaoud21` § 3.2.2 (PMC8116856, opened in B2): free ferulic acid = 0.5 % of the total in wheat bran, and "does not exceed 0.5–1 %" in cereals; range est. The earlier 0.03 divided bran free acid by sourdough total acid (two matrices). The rest needs esterase (T10) |
 | ferulic acid | soy, rice → miso, koji | not curated | — | `05:E17` (no soybean HCA content opened): miso and koji 4-vinylguaiacol compute zero |
-| p-coumaric acid | all | not curated | — | no value in any file: 4-vinylphenol is P0 pending |
+| p-coumaric acid | cabbage, napa cabbage, cucumber | **est. (B6):** 0.05 (0.005–0.5) µmol/g FW (cabbages), 0.02 (0.002–0.2) (cucumber); ferulic acid the same | — | no value in any file; vegetable hydroxycinnamic acids are mostly esterified, 1–100 mg/kg FW as ferulic/p-coumaric (§ 10.8) |
 | bound terpenoids (glycosides), total | tea → kombucha | 1.0, 0.5, 2.9 | mg/kg batch | derived: 105–366 µg/g made black tea (`05:Zhou26tea`, Keemun) × 5–8 g tea/kg (`02:K2` 5 g/L, `02:K1` 8 g/L); the kombucha recipe carries no tea entry, so 5 g/kg is the default (est.) |
 | methionine, leucine, isoleucine, valine, phenylalanine | engine free-amino-acid pool × shares | T1 table | g/g | est. |
 | HEMF precursor | koji + soybean → miso | formation rate, T11 | — | est. |
@@ -698,8 +698,9 @@ These go into `profiles.py` (per type) and the ingredient precursor map (per ing
 | wine/cider base → vinegar (scale every value by ethanol₀ / 94 g/kg, derived: 200 g/L sugar × 0.47) | ethyl acetate 40 000 (22 500–63 500); isoamyl acetate 600 (100–3 400); isobutyl acetate 100 (10–1 600); 2-phenylethyl acetate 300 (50–18 500); ethyl butanoate 130 (10–1 800); ethyl hexanoate 300 (30–3 400); ethyl octanoate 400 (50–3 800); ethyl decanoate 100 (10–2 100) | `05:Saerens10` Table 2 (wine ranges; medians at geometric midpoints, lower ends est. where the range starts at 0) |
 | wine base (cont.) | 3-+2-methylbutanol 110 000 (85 000–145 000); 2-methylpropanol 55 000 (35 000–80 000); acetaldehyde 24 000 (14 000–34 000); 2-phenylethanol 40 000 (10 000–160 000); 2,3-butanediol 500 000 (100 000–1 500 000) | `05:Godillot23` Table 2; `05:LiMira17`; 2-phenylethanol = T1 b × 200 g/L (derived); 2,3-butanediol est. (a main wine by-product; no value opened) |
 | fish → garum | lipid aldehydes: zero at t0, formed by T8; TMAO not curated | — |
-| rice → koji, miso | 2-acetyl-1-pyrroline | P0 pending |
-| caraway, dill, mint, lemongrass, citrus, ginger | carvone, limonene, geranial, neral | P0 pending (listed in `not_modelled_aroma.ingredients` when logged) |
+| rice → koji, miso | 2-acetyl-1-pyrroline | **est. (B6):** 10 (1–100) µg/kg (a non-fragrant rice) |
+| caraway, dill, mint, lemongrass, lemon, ginger | carvone, limonene, geranial, neral | **est. (B6)**, per kg of ingredient (§ 10.8 lists the values and their reasoning) |
+| flour | sotolon | **est. (B6):** 20 (2–200) µg/kg (`02:S1`: "high odour activity", no number) |
 
 ## 7. Calibration tests to pin
 
@@ -990,6 +991,22 @@ B5 (plan `docs/superpowers/plans/2026-10-06-aroma-b5.md`):
 - **Tests touched outside aroma:** the derived-failure test of `test_prediction_sensory.py` compares kinetic bands; kefir's new aroma bands are derived output, so they join the excluded taste and nutrition groups. The "no aroma yet" API case uses the generic type (every curated type now has aroma).
 - **Timing** (uncached, interleaved medians of 5): kombucha 21 d 1.87 vs 0.90 s (+0.97 s), kefir 48 h 1.51 vs 0.42 s (+1.09 s), cheese 24 h 1.11 vs 0.32 s (+0.79 s).
 
+### 10.8 Implementation notes (B6 ingredient pass, 2026-10-06)
+
+B6 (plan `docs/superpowers/plans/2026-10-06-aroma-b6.md`) is groundwork for the owner's recipe builder (aroma → ingredients and organisms), which it does not build:
+
+- **Catalogue (migration 0017, `seed_data.INGREDIENT_SEED_DATA_V4`):** napa cabbage, cucumber, radish, carrot (lacto-ferment bases), garlic, onion, caraway seeds, dill (flavourings), lemongrass (kombucha, kefir, lacto-ferment). **No FDC nutrient rows:** the frozen snapshot (`scripts/fetch_fdc_snapshot.py`) needs an FDC API key, so that part was skipped; the new rows count as "no reference data" in a recipe's composition (a napa-only kimchi falls back to the typical recipe's sugars). A follow-up with a key adds `fdc_nutrients_v2.csv` and a migration.
+- **Estimated precursor priors** (all est. (B6), no source opened, deliberately wide; per kg of the logged ingredient):
+  - geranial / neral: fresh ginger 100 000 (10 000–1 000 000) / 60 000 (6 000–600 000) µg/kg (oil ~0.2–0.6 % FW × citral 10–30 %, geranial ~60 % of citral); lemongrass 2 000 000 (300 000–5 000 000) / 1 600 000 (240 000–3 800 000) (oil 0.3–1 % FW × citral 70–85 %; hi = the physical ceiling); lemon pulp 2 000 (200–20 000) / 1 300 (130–13 000), limonene 50 000 (5 000–500 000) (~0.02 % peel oil carried in);
+  - carvone / limonene: caraway seeds 20 000 000 (3 000 000–45 000 000) / 15 000 000 (2 000 000–35 000 000) (oil 3–7 % × carvone 50–65 %, limonene 30–45 %); dill 1 000 000 (100 000–5 000 000) / 500 000 (50 000–3 000 000); spearmint 3 000 000 (500 000–7 000 000) / 600 000 (100 000–2 000 000);
+  - vegetables (cabbage, napa cabbage, cucumber): free amino acids 2 (0.5–8) g/kg FW (cucumber 1, 0.25–4); ferulic and p-coumaric acid 0.05 (0.005–0.5) µmol/g FW each (cucumber 0.02); p-coumaric acid → 4-vinylphenol joins T10 with ferulic acid's enzymes and parameters;
+  - rice 2-acetyl-1-pyrroline 10 (1–100) µg/kg; flour sotolon 20 (2–200) µg/kg.
+- **Ruling: vegetable free amino acids feed only the chemical Strecker route.** Through § 5.1's first-order microbial routes (k_max 0.005–0.5 1/d) a 2 g/kg vegetable pool would make ~59 mg/kg 3-methylbutanol and ~1.5 mg/kg phenylacetaldehyde in a 15-day kimchi (probe), ×10³ above `03:S10` (with § 10.6's ×25–150 in miso, the same prior). They join the microbial routes once that prior is re-derived (a per-g yield, like the Strecker rate). Kimchi test 23 stays a strict xfail.
+- **Ingredients that stay "no aroma data yet":** garlic and onion (their disulfides are dropped compounds, § 8), radish (its 4-methylthio-3-butenyl isothiocyanate is dropped), carrot and chilies (their character odorants are not in the catalogue). Giving them only amino and hydroxycinnamic acids would hide that.
+- The catalogue's napa cabbage uses the post-salting kimchi pools (a lacto-ferment salts it at t0, as `03:S10`'s t0); "Napa cabbage (salted)" stays as its alias.
+- § 3's six "P0 pending" status cells now read "est. P0, B6"; the frozen CSV was rebuilt from them (`p0_pending` = 0).
+- **Timing:** a 28-day sauerkraut with 0.5 % caraway, 1.79 vs 0.53 s uncached with and without aroma (+1.26 s, interleaved medians of 5; this machine varies ×2 between sessions). Caraway's carvone may be noticeable from day 0, routed to the ingredient.
+
 ## 11. Implications for the increment-B plan
 
 ### 11.1 What to build
@@ -1012,8 +1029,8 @@ B5 (plan `docs/superpowers/plans/2026-10-06-aroma-b5.md`):
 - **B3 (done, § 10.5):** vinegar and koji: open-surface loss, the AAB sink, the wine/cider base, *A. oryzae* a-terms; tests 11–13, 16–18 (five strict-xfail cells).
 - **B4 (done, § 10.6):** miso and garum: Strecker, HEMF, furanones, maltol, pyrazines, koji carry-over, fish lipids; tests 38–51 (23 cells pass, 31 strict xfails with the structural gaps listed).
 - **B5 (done, § 10.7):** one mass basis; kombucha, kefir and cheese: the citrate chain, milk pools and lactones, tea terpenes; tests 1–10, 26–37 (47 cells pass, 18 strict xfails).
-- **Next, in order:**
-  - an ingredient pass that curates P0 precursors and adds aroma-relevant catalogue ingredients for the recipe builder.
+- **B6 (done, § 10.8):** the ingredient pass: estimated P0 precursor priors and nine catalogue ingredients (no FDC rows: API key).
+- **Next:** the owner's recipe builder on the route data; the re-derivations the strict xfails point to (§ 5.1's microbial amino-acid routes, the tea bound-pool split, fish lipolysis, alcohol losses in closed jars, koji acids for the miso pH).
 
 The original order, by data quality (each step ends with its § 7 tests green):
 
