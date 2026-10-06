@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from fermenttrack.prediction import service
-from fermenttrack.prediction.service import predict
+from fermenttrack.prediction.service import RecipeIn, member_values, predict
 from fermenttrack.schemas import SensoryOut
+from tests.test_aroma_lacto import _per_100g
 from tests.test_prediction_sensory import _inputs
 
 
@@ -48,3 +50,27 @@ def test_aroma_follows_what_if() -> None:
     service.clear_caches()
     again = predict(_inputs("lacto_ferment", 18.0), temperature_c=24.0, horizon_h=21 * 24)
     assert again["sensory"]["aroma_series"] == b["sensory"]["aroma_series"]
+
+
+def test_no_brassica_no_sulfur() -> None:
+    recipe = (RecipeIn("Chilies", 980.0, "g", _per_100g("Chilies"), "base"),
+              RecipeIn("Salt", 20.0, "g", _per_100g("Salt"), "additive"))  # fmt: skip
+    s = predict(_inputs("lacto_ferment", 20.0, recipe), horizon_h=21 * 24)["sensory"]
+    keys = {c["key"] for c in s["compounds"]}
+    assert not keys & {"allyl_itc", "butenyl_itc", "dmds", "dmts", "dms", "methanethiol"}
+    assert {"acetoin", "ethyl_butanoate"} <= keys
+    assert s["not_modelled_aroma"]["ingredients"] == ["Chilies"]
+
+
+def test_every_active_compound_counts_in_the_sums() -> None:
+    s = predict(_inputs("lacto_ferment", 20.0), horizon_h=21 * 24)["sensory"]
+    for c in s["compounds"]:
+        assert c["in_series_sum"] == (c["threshold"] is not None), c["key"]
+
+
+def test_aroma_values_are_finite_and_non_negative() -> None:
+    _, values, _ = member_values(_inputs("lacto_ferment", 24.0), 60 * 24.0)
+    assert any(k.startswith("conc:") for k in values)
+    for k, v in values.items():
+        if k.startswith("conc:"):
+            assert np.all(np.isfinite(v)) and np.all(v >= 0.0), k
