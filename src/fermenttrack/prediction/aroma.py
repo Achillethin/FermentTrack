@@ -183,7 +183,7 @@ def build_context(
 ) -> Context:  # fmt: skip
     if tr.y is None:
         raise ValueError("aroma needs raw states (simulate(..., keep_states=True))")
-    diag = engine.diagnose(params, tr.t_h, tr.y, stride=2)  # every 2nd time; see test_engine_diagnostics
+    diag = engine.diagnose(params, tr.t_h, tr.y, stride=2)  # see test_engine_diagnostics
     orgs = params.organisms
     temp = np.stack(
         [np.broadcast_to(params.temperature(float(ti)), (params.n,)) for ti in tr.t_h], axis=1
