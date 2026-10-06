@@ -328,8 +328,13 @@ def initial_state(p: EnsembleParams) -> FloatArray:
 
 
 def make_rhs(
-    p: EnsembleParams, max_evals: int | None = None
+    p: EnsembleParams,
+    max_evals: int | None = None,
+    diagnostics: dict[str, FloatArray] | None = None,
 ) -> Callable[[float, FloatArray], FloatArray]:
+    """The ODE right-hand side. With `diagnostics`, each call also writes the per-organism
+    growth (`growth:<j>`, g biomass/kg/h), hexose-equivalent substrate flux (`flux:<j>`,
+    g/kg/h) and the CO2 flux (`co2`, g/kg/h) into it; see `diagnose`."""
     n, m = p.n, len(p.organisms)
     evals = [0]
     size = _state_size(m)
@@ -409,6 +414,9 @@ def make_rhs(
                 flux = growth / o.yield_xs + o.maint * env_prod * f_sub * alpha * x
             else:
                 mu = growth = flux = np.zeros(n)
+            if diagnostics is not None:
+                diagnostics[f"growth:{j}"] = np.asarray(growth, dtype=float).copy()
+                diagnostics[f"flux:{j}"] = np.asarray(flux, dtype=float).copy()
 
             death = o.k_death * ((1.0 - stress) + 0.5 * (1.0 - f_sub)) + K_HEAT * np.maximum(
                 temp - o.t_max, 0.0
@@ -492,9 +500,27 @@ def make_rhs(
         # overshoot slightly on the way to exhaustion)
         drain = (y[:, :N_POOLS] <= 0.0) & (dp < 0.0)
         dp[drain] = 0.0
+        if diagnostics is not None:
+            diagnostics["co2"] = dp[:, PI["co2"]].copy()
         return np.asarray(dy.reshape(-1))
 
     return rhs
+
+
+def diagnose(p: EnsembleParams, t: FloatArray, y: FloatArray) -> dict[str, FloatArray]:
+    """Per-organism growth (g/kg/h), hexose-equivalent substrate flux (g/kg/h) and the CO2
+    flux (g/kg/h) at each time of a solved trajectory, from its raw states y (N, T, S).
+    One RHS evaluation per time; the solve itself is not touched."""
+    n, m, nt = p.n, len(p.organisms), len(t)
+    out = {f"{k}:{j}": np.zeros((n, nt)) for j in range(m) for k in ("growth", "flux")}
+    out["co2"] = np.zeros((n, nt))
+    diag: dict[str, FloatArray] = {}
+    rhs = make_rhs(p, None, diag)
+    for i, ti in enumerate(t):
+        rhs(float(ti), np.ascontiguousarray(y[:, i, :]).reshape(-1))
+        for key, v in diag.items():
+            out[key][:, i] = v
+    return out
 
 
 # The step size follows the stiffest member; a budget bounds a request's CPU time (typical

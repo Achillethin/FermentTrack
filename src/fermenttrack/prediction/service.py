@@ -987,7 +987,7 @@ def _forecast(
             spec, _ = _spec(profile, plans, init, what_sched, inputs.population_priors)
         z = _resample(lite.z, lite.weights, N_RESAMPLE, seed=int(fp[8:16], 16) % 2**31)
         try:
-            tr = simulate(spec.params(z[:, : spec.dim]), t_eval)
+            tr = simulate(spec.params(z[:, : spec.dim]), t_eval, keep_states=True)
         except SimulationError as exc:
             raise PredictionUnavailable(str(exc)) from exc
         weights = np.full(len(z), 1.0 / len(z))

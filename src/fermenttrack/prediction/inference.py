@@ -104,6 +104,7 @@ def _stack(trs: list[Trajectories]) -> Trajectories:
         biomass_g=np.concatenate([t.biomass_g for t in trs]),
         ph=np.concatenate([t.ph for t in trs]),
         extra={k: np.concatenate([t.extra[k] for t in trs]) for k in trs[0].extra},
+        y=np.concatenate([t.y for t in trs]) if all(t.y is not None for t in trs) else None,
     )
 
 
@@ -149,9 +150,10 @@ def _normalise(logw: FloatArray) -> tuple[FloatArray, float]:
 
 
 def _simulate(spec: ModelSpec, z: FloatArray, t_eval: FloatArray) -> Trajectories:
-    """A spec may chain several phases itself (sourdough.SourdoughModel.simulate_z)."""
+    """A spec may chain several phases itself (sourdough.SourdoughModel.simulate_z). Raw
+    states are kept for the aroma layer (engine.diagnose); a chained solve has none yet."""
     chained = getattr(spec, "simulate_z", None)
-    return chained(z, t_eval) if chained else simulate(spec.params(z), t_eval)
+    return chained(z, t_eval) if chained else simulate(spec.params(z), t_eval, keep_states=True)
 
 
 def run(
