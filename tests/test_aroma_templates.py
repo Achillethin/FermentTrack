@@ -18,9 +18,9 @@ Run = tuple[Context, dict[str, FloatArray], dict[str, list[Route]], Draws]
 
 def _run(
     shares: dict[str, float] | None = None, organisms: list[str] | None = None, n: int = 16,
-    ferment: str = "lacto_ferment",
+    ferment: str = "lacto_ferment", temp: float | None = None,
 ) -> Run:  # fmt: skip
-    p, t = _setup(ferment, n, organisms)
+    p, t = _setup(ferment, n, organisms, temp)
     tr = engine.simulate(p, t, keep_states=True)
     prof = PROFILES[ferment]
     seg = aroma.Segment(p, tr, shares or {"Cabbage": 0.98})
@@ -201,3 +201,42 @@ def test_no_growth_no_mould_volatiles() -> None:
     c, _ = aroma.concentrations(ctx, d)
     for k in ("octen3ol", "heptanone_2", "ethyl_acetate"):
         assert np.allclose(c.get(k, 0.0), 0.0), k
+
+
+MISO = ["Aspergillus oryzae", "Tetragenococcus halophilus", "Zygosaccharomyces rouxii"]
+SOY_RICE = {"Soybeans": 0.45, "White rice": 0.44}
+
+
+def test_miso_makes_hemf_through_the_yeast() -> None:
+    _, c, routes, _ = _run(SOY_RICE, MISO, ferment="miso", temp=30.0)
+    assert np.median(c["hemf"].max(axis=1)) > 0.0
+    assert any(r[1] == "Zygosaccharomyces rouxii" for r in routes["hemf"])
+    assert any(r[0] == "ingredient" and r[1] == "Soybeans" for r in routes["hemf"])
+
+
+def test_no_soybean_no_hemf() -> None:
+    _, c, _, _ = _run({"White rice": 0.89}, MISO, ferment="miso", temp=30.0)
+    assert np.allclose(c.get("hemf", 0.0), 0.0)
+
+
+def test_no_koji_no_hemf() -> None:
+    _, c, _, _ = _run(SOY_RICE, MISO[1:], ferment="miso", temp=30.0)
+    assert np.allclose(c.get("hemf", 0.0), 0.0)
+
+
+def test_hemf_conversion_waits_for_ph_5_6() -> None:
+    ctx, c, _, _ = _run(SOY_RICE, MISO, ferment="miso", temp=30.0)
+    first = np.argmax(ctx.ph < A.HEMF_PH, axis=1)  # first time below the gate
+    for i, j in enumerate(first):
+        if ctx.ph[i, j] < A.HEMF_PH:
+            assert np.allclose(c["hemf"][i, :j], 0.0)  # the gate opens at j
+        else:  # never below: none at all
+            assert np.allclose(c["hemf"][i], 0.0)
+
+
+def test_strecker_needs_free_amino_acids() -> None:
+    strecker = ("chemistry", "free amino acids", "Strecker degradation")
+    _, _, routes, _ = _run(SOY_RICE, MISO, ferment="miso", temp=30.0)
+    assert strecker in routes["methylbutanal_3"]
+    _, _, routes2, _ = _run()  # cabbage: no free amino acids
+    assert strecker not in routes2.get("methylbutanal_3", [])

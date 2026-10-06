@@ -12,13 +12,13 @@ from fermenttrack.prediction.profiles import PROFILES
 
 
 def _setup(
-    ferment: str, n: int = 8, organisms: list[str] | None = None
+    ferment: str, n: int = 8, organisms: list[str] | None = None, temp: float | None = None
 ) -> tuple[EnsembleParams, FloatArray]:
     """Prior ensemble parameters for a type's typical recipe, and its 161-point grid."""
     profile = PROFILES[ferment]
     names = organisms if organisms is not None else FERMENTATION_TYPE_ORGANISMS[ferment]
     inputs = service.PredictionInputs(
-        fermentation_type=ferment, now_h=0.0, expected_temperature_c=None,
+        fermentation_type=ferment, now_h=0.0, expected_temperature_c=temp,
         organisms=tuple(service.OrganismIn(o, ORGANISMS.get(o, "bacteria"), ()) for o in names),
         organism_source="default" if organisms is None else "custom", recipe=(), measurements=(),
     )  # fmt: skip

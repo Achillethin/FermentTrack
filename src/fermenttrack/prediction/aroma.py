@@ -82,6 +82,7 @@ def draws(n: int, seed: int) -> Draws:
     priors = dict(A.PARAMS)
     priors.update({f"thr:{k}": c.threshold for k, c in A.COMPOUNDS.items() if c.threshold})
     priors.update({f"ing:{i}:{k}": p for i, e in A.AROMA_INGREDIENTS.items() for k, p in e.items()})
+    priors.update({f"koji:{t}:{k}": p for t, e in A.KOJI_CARRY.items() for k, p in e.items()})
     out = {}
     for k, p in priors.items():
         v = np.asarray(p.value(_stream(seed, k).standard_normal(n)))
@@ -415,6 +416,12 @@ def concentrations(
                 via = A.PRECURSOR_LABEL.get(_CARRIED_VIA.get(key, ""), "carried in")
                 tr.route(key, ("ingredient", name, via))
 
+    # the koji's own volatiles carried into a mash (§ 6.2), when the koji is there
+    if "mould" in ctx.classes:
+        for key in A.KOJI_CARRY.get(ctx.ferment, {}):
+            tr.c0[key] = tr.c0.get(key, 0.0) + d[f"koji:{ctx.ferment}:{key}"][:, 0]
+            tr.route(key, ("ingredient", "Koji", "carried over from the koji"))
+
     def from_precursor(key: str, p: str) -> None:
         for name in pre_from.get(p, []):
             tr.route(key, ("ingredient", name, A.PRECURSOR_LABEL[p]))
@@ -461,12 +468,20 @@ def concentrations(
         if acid and tr.add(acid, f * s_acid * mw[acid] / mw[aa_key]):
             tr.organisms(acid, NONYEAST_AT, AA_BREAKDOWN)
 
+    # 3b. Strecker degradation of free amino acids (§ 5.11): a mass rate per g amino acid
+    k_st = d["strecker_rate"] * 1e-6 / 24.0 * q("q10_strecker", 25.0)
+    strecker = ("chemistry", "free amino acids", "Strecker degradation")
+    for _aa, aa_share, ald, _acid in _AA_ROUTE:
+        if tr.add(ald, k_st * aa * d[aa_share]):
+            tr.route(ald, strecker)
+
     # 4. aldehydes, then the alcohols they are reduced to. ponytail: the yeast route's 1 %
     # aldehyde share is also inside its measured alcohol yield, so it counts twice (well
     # inside the b-term ranges).
     k_red = d["kmax_ald_reduction"] / 24.0 * _gate(ctx, YEAST | LAB)
+    k_ox = d["strecker_oxidation"] / 24.0  # slow aldehyde -> acid oxidation (§ 5.11)
     for ald, a in _ALD_ALC:
-        tr.loss(ald, k_red)
+        tr.loss(ald, k_red + k_ox)
         if ald in tr.src or ald in tr.c0:
             c_ald = tr.solve(ald)
             if tr.add(a, k_red * c_ald * mw[a] / mw[ald]):
@@ -474,6 +489,9 @@ def concentrations(
                 for kind, name, how in tr.routes.get(ald, []):
                     tr.route(a, (kind, name, via if kind == "ingredient" else how))
                 tr.organisms(a, YEAST | LAB, f"reduces {A.COMPOUNDS[ald].name}")
+    for _aa, _share, ald, acid in _AA_ROUTE:  # the oxidised aldehydes feed their acids
+        if acid and ald in tr.conc and tr.add(acid, k_ox * tr.conc[ald] * mw[acid] / mw[ald]):
+            tr.route(acid, ("chemistry", A.COMPOUNDS[ald].name, "aldehyde oxidation"))
     # acetic acid bacteria oxidise the fusel alcohols to their acids (§ 5.1, D11)
     g_aab = _gate(ctx, AAB)
     k_aab = d["kmax_aab_fusel"] / 24.0 * g_aab
@@ -721,6 +739,33 @@ def concentrations(
                 tr.organisms("vinylguaiacol_4", LAB, how, "plantarum")
         tr.loss("vinylguaiacol_4", d["loss_4vg"] / 24.0)
 
+    # 13. T11 (§ 5.11, D13): a koji-derived pentose-Maillard precursor (needs soybean),
+    # converted by Z. rouxii below pH 5.6 into HEMF, which decays chemically (steep Q10);
+    # furaneol formed zero-order in barley mashes; norfuraneol taken up by Z. rouxii; maltol
+    # lost first-order
+    soy = sum(f for n, f in ctx.shares.items() if n in A.SOY) / A.SOY_REF
+    amy = ctx.pools[:, :, PI["amylase"]]
+    p0 = tr.start("_hemf_precursor")
+    if (soy > 0.0 and np.any(amy[:, 0] > 0.0)) or np.any(p0 > 0.0):
+        form = d["hemf_formation"] / 24.0 * soy * amy / np.maximum(amy[:, :1], 1e-12)
+        k_pd = d["hemf_precursor_decay"] / 24.0 * q("q10_default", 30.0)
+        g_zr = _gate(ctx, YEAST, "rouxii") * (ctx.ph < A.HEMF_PH)
+        k_cv = d["kmax_hemf_conversion"] / 24.0 * g_zr
+        prec = integrate(ctx.t, form, k_pd + k_cv, p0)
+        tr.conc["_hemf_precursor"] = prec
+        if tr.add("hemf", k_cv * prec):
+            tr.organisms("hemf", YEAST, "converts the koji's Maillard precursor", "rouxii")
+            for n in ctx.shares:
+                if n in A.SOY:
+                    tr.route("hemf", ("ingredient", n, "Maillard precursor (with the koji)"))
+    tr.loss("hemf", d["hemf_loss"] / 24.0 * q("q10_hemf", 30.0))
+    barley = ctx.shares.get("Pearl barley", 0.0) / A.BARLEY_REF
+    f_hdmf = barley * d["furaneol_formation"] / 24.0 * q("q10_furaneol", 30.0)
+    if barley > 0.0 and tr.add("furaneol", f_hdmf):
+        tr.route("furaneol", ("ingredient", "Pearl barley", "Maillard reaction"))
+    tr.loss("norfuraneol", d["kmax_norfuraneol_uptake"] / 24.0 * _gate(ctx, YEAST, "rouxii"))
+    tr.loss("maltol", d["maltol_loss"] / 24.0)
+
     # everything not solved above (carried in, or a source without its own step)
     for key in [*tr.c0, *tr.src]:
         if key not in tr.conc:
@@ -776,7 +821,7 @@ def _empty(note: str, no_data: list[str]) -> AromaResult:
                                                    "ingredients": no_data})  # fmt: skip
 
 
-_STATES = ("_acetolactate", "_ferulic_bound", "_ferulic_free")  # carried across a mix
+_STATES = ("_acetolactate", "_ferulic_bound", "_ferulic_free", "_hemf_precursor")  # carried
 
 
 def chain(

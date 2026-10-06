@@ -169,6 +169,21 @@ PARAMS: dict[str, Prior] = {
     "hexenol_release": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
     "hexenol_loss": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
     "loss_linalool": Prior(0.05, 0.01, 0.2),  # 1/d at 30 °C; est. (02:K1)
+    # T11 slow chemistry (§ 5.11)
+    "strecker_rate": Prior(0.5, 0.05, 5.0),  # µg aldehyde / g free amino acid / d, 25 °C; est.
+    "q10_strecker": Prior(2.5, 1.5, 4.0),  # est. (05:E18)
+    "strecker_oxidation": Prior(0.002, 0.0005, 0.01),  # 1/d aldehyde -> acid; 04:G1, derived-est.
+    # HEMF precursor formation at the start of the mash (HEMF-eq µg/kg/d), then following the
+    # koji amylase activity: est. (B4); median set on the 04:M9 base case (curation test 38)
+    "hemf_formation": Prior(1000.0, 100.0, 10000.0),
+    "hemf_precursor_decay": Prior(0.05, 0.02, 0.15),  # 1/d at 30 °C; est. (04:M9, 04:M1)
+    "kmax_hemf_conversion": Prior(0.1, 0.03, 0.3),  # 1/d, Z. rouxii; est. (04:M9, 04:M10)
+    "hemf_loss": Prior(0.031, 0.02, 0.045),  # 1/d at 30 °C; 04:M9 Table 3, derived
+    "q10_hemf": Prior(3.9, 2.5, 6.0),  # 04:M9 Table 3, derived
+    "furaneol_formation": Prior(50.0, 15.0, 150.0),  # µg/kg/d at 30 °C, barley; 04:M1, derived
+    "q10_furaneol": Prior(2.4, 2.0, 4.0),  # 04:M1 Table 3, derived
+    "kmax_norfuraneol_uptake": Prior(0.2, 0.1, 0.5),  # 1/d, Z. rouxii; 04:M1 Fig. 4, derived
+    "maltol_loss": Prior(0.015, 0.007, 0.03),  # 1/d; 04:M2 Table 2, derived (app.)
     # A. oryzae a-terms (§ 5.8, § 5.2), a in mg per g mycelium made
     "a_octenol": Prior(0.02, 0.002, 0.2),  # 1-octen-3-ol; est. (05:Guneser17 order)
     "split_octanone": Prior(0.4, 0.1, 1.0),  # mol/mol of 1-octen-3-ol; est. (05:Miyamoto14)
@@ -250,7 +265,8 @@ MW: dict[str, float] = {  # g/mol
     "butenyl_itc": 113.18, "methanethiol": 48.11, "dms": 62.13, "dmds": 94.20,
     "dmts": 126.26, "diacetyl": 86.09, "pentanedione_23": 100.12, "vinylguaiacol_4": 150.17,
     "ferulic": 194.18, "octen3ol": 128.21, "octanone_3": 128.21, "octanol_3": 130.23,
-    "octen3one": 126.20, "heptanone_2": 114.19, "nonanone_2": 142.24,
+    "octen3one": 126.20, "heptanone_2": 114.19, "nonanone_2": 142.24, "hemf": 142.15,
+    "furaneol": 128.13, "norfuraneol": 114.10, "maltol": 126.11,
 }  # fmt: skip
 
 PRECURSOR_LABEL: dict[str, str] = {
@@ -333,7 +349,32 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
     # cooked rice, per kg of logged rice (assumed steamed; est. (B3)): hexanal 53.2-71.6 µg/kg
     # (Lai 2026 Foods 15:356 Table 1, PMC12840958; IS semi), geometric mid, x/÷3 for semi
     "White rice": {"hexanal": Prior(62.0, 21.0, 190.0)},
+    # Cooked substrates of miso (§ 6.2), per kg of the logged ingredient. App. values are
+    # lower bounds (porous-polymer traps, 04:M9 p. 162): hi allows x10 for recovery, est. (B4)
+    "Soybeans": {
+        "maltol": Prior(2_980.0, 990.0, 30_000.0),  # 04:M2 Table 2 (cooked soybean, app.)
+        "furaneol": Prior(30.0, 10.0, 300.0),  # 04:M2 (app.)
+        # derived (B4): 8 000-15 000 per kg barley-miso mash at the end of mashing (04:M1
+        # Fig. 4) / the soybean share 0.45, widened x/÷1.5 for that share
+        "norfuraneol": Prior(24_400.0, 11_900.0, 50_000.0),
+    },
+    "Pearl barley": {
+        # derived (B4): barley-miso mash 28 000 (3 400-59 000) (04:M1) / barley share 0.44
+        "maltol": Prior(64_000.0, 7_700.0, 134_000.0),
+        # est. (B4): 14-22 (app.) per kg barley/soybean miso (04:M10) / 0.44, hi x10
+        "dimethylpyrazine_25": Prior(40.0, 13.0, 400.0),
+        "trimethylpyrazine": Prior(40.0, 13.0, 400.0),
+    },
 }  # fmt: skip
+# Miso (§ 5.11): HEMF needs soybean; furaneol forms in barley mashes. The default mash
+# (koji ratio 10: equal soybean and koji grain, 11 % salt) is the reference: est. (B4)
+SOY = frozenset({"Soybeans"})
+SOY_REF = 0.45
+BARLEY_REF = 0.44
+HEMF_PH = 5.6  # Z. rouxii converts the precursor only below this pH (04:M10)
+# Compounds the koji carries into a mash, per kg (route: ingredient "Koji"):
+# 04:M10 20-76 µg/kg (app.), geometric midpoint, x/÷3 below, x3 above the max: est. (B4)
+KOJI_CARRY: dict[str, dict[str, Prior]] = {"miso": {"octen3ol": Prior(40.0, 13.0, 230.0)}}
 
 DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
     "lacto_ferment": {"Cabbage": 0.98},  # no recipe logged: a 2 % dry-salted sauerkraut
@@ -342,9 +383,10 @@ DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
     # derived (B3): 55 g/kg ethanol / 103 g/kg in white wine (FDC); only the ethanol counts
     "vinegar": {"White wine": 0.53},
     "koji": {"White rice": 1.0},  # steamed rice is the whole bed
+    "miso": {"Soybeans": 0.45, "White rice": 0.44},  # est. (B4): koji ratio 10, 11 % salt
 }
 
-AROMA_TYPES = frozenset({"lacto_ferment", "sourdough", "vinegar", "koji"})  # with templates
+AROMA_TYPES = frozenset({"lacto_ferment", "sourdough", "vinegar", "koji", "miso"})
 # Open vessels: ferment type -> its surface-loss parameter (§ 5.12); closed jars and dough: 0
 K_SURF: dict[str, str] = {"vinegar": "k_surf_vinegar", "koji": "k_surf_koji"}
 
@@ -511,6 +553,44 @@ EVIDENCE: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {
             "e2_nonenal", "z3_hexenal", "z3_hexenol", "z4_heptenal", "acetylpyrroline_2",
         )},  # fmt: skip
     },
+    "miso": {  # § 4.8 (exploratory type)
+        "hemf": (_CAL, "abs", ("04:M9", "04:M1", "04:M2", "04:M8", "04:M10")),
+        "furaneol": (_CAL, "abs", ("04:M1", "04:M2")),
+        "norfuraneol": (_CAL, "abs", ("04:M1",)),
+        "maltol": (_CAL, "shape", ("04:M2", "04:M1")),
+        "methylbutanol_3": (_CAL, "shape", ("04:M2", "04:M8", "04:M1")),
+        "methylbutanol_2": (_CAL, "shape", ("04:M2",)),
+        "methylpropanol_2": (_CAL, "shape", ("04:M2",)),
+        "phenylethanol_2": (_CAL, "shape", ("04:M2", "04:M8")),
+        "methionol": (_CAL, "shape", ("04:M2", "04:M8")),
+        "phenylethyl_acetate": (_CAL, "shape", ("04:M2",)),
+        **{k: (_CAL, "shape", ("04:M3",)) for k in (
+            "methylbutanal_3", "methylbutanal_2", "methylpropanal_2", "phenylacetaldehyde",
+            "ethyl_2methylpropanoate", "ethyl_2methylbutanoate", "ethyl_acetate",
+            "isoamyl_acetate", "acetaldehyde", "hexanal", "octen3ol",
+        )},  # fmt: skip
+        **{k: (_REP, "abs", ("04:M1",)) for k in (
+            "methylbutanoic_3", "acetoin", "butanediol_23", "ethyl_lactate",
+        )},  # fmt: skip
+        "methional": (_REP, "presence", ("04:M5",)),
+        "octen3one": (_REP, "presence", ("04:M5",)),
+        "dmts": (_REP, "presence", ("04:M6",)),
+        **{k: (_REP, "presence", ("04:M3",)) for k in (
+            "ethyl_hexanoate", "ethyl_octanoate", "ethyl_decanoate",
+        )},  # fmt: skip
+        **{k: (_REP, "semi", ("04:M10",)) for k in (
+            "hexanoic", "dimethylpyrazine_25", "trimethylpyrazine", "vinylguaiacol_4",
+            "ethylguaiacol_4", "ethylphenol_4",
+        )},  # fmt: skip
+        **{k: ("plausible", "", ()) for k in (
+            "methylbutanoic_2", "methylpropanoic_2", "isobutyl_acetate", "ethyl_butanoate",
+            "octanoic", "decanoic", "diacetyl", "pentanedione_23", "z3_hexenal", "e2_nonenal",
+            "nonanal", "pentylfuran_2", "z4_heptenal", "octanone_3", "octanol_3",
+            "methanethiol", "dms", "dmds", "vinylphenol_4", "sotolon", "acetylpyrroline_2",
+        )},  # fmt: skip
+        "acetic": ("engine", "abs", ("forecast",)),
+        "ethanol": ("engine", "abs", ("forecast",)),
+    },
 }
 
 # type -> compound -> why it computes zero there (the † cells of § 4 and plausible
@@ -536,5 +616,17 @@ PENDING: dict[str, dict[str, str]] = {
             "acetylpyrroline_2",
         )},  # fmt: skip
         "vinylguaiacol_4": "the rice's ferulic acid is not curated yet",
+    },
+    "miso": {
+        **{k: f"the soybean's {COMPOUNDS[k].name} is not curated yet" for k in (
+            "hexanal", "z3_hexenal", "e2_nonenal", "nonanal", "pentylfuran_2", "z4_heptenal",
+        )},  # fmt: skip
+        **{k: "the soybean's sulfur precursors are not curated yet" for k in (
+            "methanethiol", "dms", "dmds", "dmts",
+        )},  # fmt: skip
+        "vinylguaiacol_4": "soy hydroxycinnamic acids are not curated yet",
+        "vinylphenol_4": "soy hydroxycinnamic acids are not curated yet",
+        "sotolon": "the soybean's sotolon is not curated yet",
+        "acetylpyrroline_2": "the rice's 2-acetyl-1-pyrroline is not curated yet",
     },
 }
