@@ -1,0 +1,86 @@
+key,name,pubchem,chebi,kegg,descriptor,series,thr_median,thr_lo,thr_hi,basis,ph_kind,pka,templates,status,conc_only,p0_pending
+methylbutanal_3,3-methylbutanal,11552,16638,C07329,malty,malty,0.40,0.13,2.0,measured,,,T1;T11,active,0,0
+methylbutanal_2,2-methylbutanal,7284,16182,C02223,malty,malty,4.4,1.0,14,measured,,,T1;T11,active,0,0
+methylpropanal_2,2-methylpropanal,6561,48943,C22919,malty,malty,0.49,0.10,2.3,measured,,,T1;T11,active,0,0
+phenylacetaldehyde,phenylacetaldehyde,998,16424,C00601,"floral, honey-like",floral,5.2,1.7,16,measured,,,T1;T11,active,0,0
+methional,methional,18635,49017,,cooked potato-like,sulfurous,0.43,0.14,1.3,measured,,,T1;T11,active,0,0
+methylbutanol_3,3-methylbutan-1-ol,31260,15837,C07328,malty,malty;solvent,220,73,660,measured,,,T1,active,0,0
+methylbutanol_2,2-methylbutan-1-ol,8723,48945,,"malty, solvent-like",malty;solvent,1200,240,6000,measured,,,T1,active,0,0
+methylpropanol_2,2-methylpropan-1-ol,6560,46645,C14710,malty,malty;solvent,19000,550,57000,measured,,,T1,active,0,0
+phenylethanol_2,2-phenylethanol,6054,49000,C05853,"flowery, honey-like",floral,140,46,1100,measured,,,T1,active,0,0
+methionol,methionol,10448,49019,,cooked potato-like,sulfurous,36,7.2,180,measured,,,T1,active,0,0
+methylbutanoic_3,3-methylbutanoic acid,10430,28484,C08262,sweaty,cheesy,490,120,1500,measured,acid,4.8,T1,active,0,0
+methylbutanoic_2,2-methylbutanoic acid,8314,37070,C18319,"fruity, sweaty",cheesy;fruity,3100,1000,9300,measured,acid,4.8,T1,active,0,0
+methylpropanoic_2,2-methylpropanoic acid,6590,16135,C02632,"sweaty, cheesy",cheesy,60000,8100,180000,measured,acid,4.8,T1,active,0,0
+ethyl_acetate,ethyl acetate,8857,27750,C00849,solvent-like,solvent;fruity,12000,5.0,36000,measured,,,T2;T5,active,0,0
+isoamyl_acetate,3-methylbutyl acetate,31276,31725,C12296,"banana-like, fruity",fruity,7.2,2.0,22,measured,,,T2,active,0,0
+phenylethyl_acetate,2-phenylethyl acetate,7654,31988,C12303,"honey-like, floral",floral;fruity,360,72,1800,measured,,,T2,active,0,0
+isobutyl_acetate,2-methylpropyl acetate,8038,50569,,fruity,fruity,88,29,270,measured,,,T2,active,0,0
+ethyl_butanoate,ethyl butanoate,7762,88764,,fruity,fruity,0.75,0.25,2.3,measured,,,T2,active,0,0
+ethyl_hexanoate,ethyl hexanoate,31265,86055,,"fruity, pineapple-like",fruity,1.2,0.40,3.6,measured,,,T2,active,0,0
+ethyl_octanoate,ethyl octanoate,7799,87426,C12292,"fruity, green",fruity,8.7,1.7,44,measured,,,T2,active,0,0
+ethyl_decanoate,ethyl decanoate,8048,87430,,"soapy, pear-like",fruity,74,14,370,measured,,,T2,active,0,0
+ethyl_2methylbutanoate,ethyl 2-methylbutanoate,24020,88452,,fruity,fruity,0.0080,0.0026,0.30,measured,,,T2,active,0,0
+ethyl_2methylpropanoate,ethyl 2-methylpropanoate,7342,87303,,fruity,fruity,0.089,0.029,0.27,measured,,,T2,active,0,0
+hexanoic,hexanoic acid,8892,30776,C01585,sweaty,cheesy,4800,1600,15000,measured,acid,4.8,T2;T8,active,0,0
+octanoic,octanoic acid,379,28837,C06423,"carrot-like, musty",cheesy,190,63,3000,measured,acid,4.8,T2;T8,active,0,0
+decanoic,decanoic acid,2969,30813,C01571,"soapy, musty",cheesy,10000,2000,50000,measured,acid,4.8,T2;T8,active,0,0
+acetaldehyde,acetaldehyde,177,15343,C00084,"fresh, green",green;pungent,16,5.3,120,measured,,,T3,active,0,0
+diacetyl,"butane-2,3-dione",650,16583,C00741,buttery,buttery,0.96,0.32,6.5,measured,,,T4,active,0,0
+pentanedione_23,"2,3-pentanedione",11747,52774,,butter-like,buttery,3.9,0.78,20,measured,,,T4,active,0,0
+acetoin,3-hydroxybutan-2-one,179,15688,C00466,"butter-like, carrot-like",buttery,590,190,1800,measured,,,T4,active,0,0
+butanediol_23,"2,3-butanediol",262,62064,,"butter-like, sweet",buttery,,,,none,,,T4,active,1,0
+ethyl_lactate,ethyl lactate,7344,78321,,fruity,fruity,14000,2800,70000,measured,,,T5,active,0,0
+hexanal,hexanal,6184,88528,,"green, grassy",green,2.4,0.80,7.2,measured,,,T8,active,0,0
+z3_hexenal,(Z)-3-hexenal,643941,23292,C16310,"green, grassy",green,0.12,0.040,0.36,measured,,,T8,active,0,0
+z3_hexenol,(Z)-3-hexen-1-ol,5281167,28857,C08492,lettuce-like,green,3.9,1.3,70,measured,,,T8,active,0,0
+e2_nonenal,(E)-2-nonenal,5283335,142592,,"fatty, green",green,0.69,0.080,2.1,measured,,,T8,active,0,0
+nonanal,nonanal,31289,84268,,"citrus-like, soapy",green;fruity,2.8,0.93,8.4,measured,,,T8,active,0,0
+pentylfuran_2,2-pentylfuran,19602,89197,,vegetable-like,green,6.0,1.2,30,measured,,,T8,active,0,0
+z4_heptenal,(Z)-4-heptenal,5362814,195657,,"fishy, fish-oil-like",fishy,0.060,0.0087,0.80,measured,,,T8,active,0,0
+octen3ol,1-octen-3-ol,18827,34118,C14272,mushroom-like,mushroom,45,1.0,140,measured,,,T8,active,0,0
+octen3one,1-octen-3-one,61346,88900,,mushroom-like,mushroom,0.016,0.0050,0.048,measured,,,T8,active,0,0
+octanone_3,3-octanone,246728,80946,C17145,"citrus-like, fruity",fruity;mushroom,160,28,480,measured,,,T8,active,0,0
+octanol_3,3-octanol,11527,80945,C17144,"citrus-like, soapy",mushroom,240,48,1200,measured,,,T8,active,0,0
+allyl_itc,allyl isothiocyanate,5971,73224,C19317,"pungent, mustard-like",pungent,32,5.0,200,class,,,T6,active,0,0
+allyl_cyanide,allyl cyanide,8009,183063,,"pungent, mustard-like",pungent,,,,none,,,T6,active,1,0
+butenyl_itc,3-butenyl isothiocyanate,76922,138747,,"pungent, garlic-like",pungent;sulfurous,32,5.0,200,est,,,T6,active,0,0
+mtb_itc,(E)-4-(methylthio)-3-butenyl ITC,5368086,,,radish character impact,,,,,none,,,,drop,0,0
+methanethiol,methanethiol,878,16007,C00409,"sulfuric, cabbage-like",sulfurous,0.59,0.020,1.8,measured,,,T7,active,0,0
+dms,dimethyl sulfide,1068,17437,C00580,"asparagus-like, putrid",sulfurous,0.30,0.10,1.0,measured,,,T7,active,0,0
+dmds,dimethyl disulfide,12232,4608,C08371,"cabbage-like, sulfuric",sulfurous,1.7,0.16,12,measured,,,T7,active,0,0
+dmts,dimethyl trisulfide,19310,4614,C08372,cabbage-like,sulfurous,0.0099,0.0033,0.099,measured,,,T7,active,0,0
+s_methyl_thioacetate,S-methyl thioacetate,73750,51280,,cheesy,sulfurous;cheesy,,,,none,,,,drop,0,0
+diallyl_disulfide,diallyl disulfide,16590,4488,C08369,garlic-like,sulfurous,,,,none,,,,drop,0,0
+allyl_methyl_disulfide,allyl methyl disulfide,62434,6854,C08383,garlic-like,sulfurous,,,,none,,,,drop,0,0
+linalool,linalool,6549,17580,C03985,"citrus-, bergamot-like, floral",floral;fruity,0.82,0.087,8.3,measured,,,T9,active,0,0
+geraniol,geraniol,637566,17447,C01500,"rose-, citrus-like",floral,40,1.1,120,measured,,,T9,active,0,0
+citronellol,citronellol,8842,50462,,"soapy, rose-like",floral,10,3.3,40,measured,,,T9,active,0,0
+methyl_salicylate,methyl salicylate,4133,31832,C12305,peppermint,herbal,40,8.0,200,measured,,,T9,active,0,0
+damascenone,(E)-β-damascenone,5366074,67251,,baked apple-like,fruity,0.0060,0.0020,0.018,measured,,,T9,active,0,0
+ionone_beta,(E)-β-ionone,638014,32325,C12287,"flowery, violet-like",floral,0.021,0.0070,3.5,measured,,,T9,active,0,0
+geranial,geranial,638011,16980,C01499,citrus-like,fruity,25,8.3,75,measured,,,T9,active,0,1
+neral,neral,643779,29020,C09847,"citrus-like, soapy",fruity,100,30,300,measured,,,T9,active,0,1
+zingiberene,(−)-zingiberene,92776,10115,C09750,"spice, fresh, sharp",herbal,,,,none,,,,drop,0,0
+carvone,carvone,7439,38265,C01767,"mint- (R), caraway-like (S)",herbal,95,31,290,measured,,,T9,active,0,1
+limonene,limonene,22311,15384,C06078,citrus-like,fruity;herbal,8.0,2.6,24,measured,,,T9,active,0,0
+vinylguaiacol_4,4-vinylguaiacol,332,42438,C17883,"clove-like, smoky",phenolic,21,3.0,63,measured,,,T10,active,0,0
+vinylphenol_4,4-vinylphenol,62453,1883,C05627,"phenolic, earthy",phenolic,78,10,240,measured,,,T10,active,0,1
+ethylguaiacol_4,4-ethylguaiacol,62465,179252,C23176,"smoky, gammon-like",phenolic,50,4.4,150,measured,,,T10,inactive,0,0
+ethylphenol_4,4-ethylphenol,31242,49584,C13637,phenolic,phenolic,13,2.6,65,measured,,,T10,inactive,0,0
+hemf,"HEMF (homofuraneol, both tautomers as one)",33931,137995,,caramel-like,caramel,17,5.6,51,measured,,,T11,active,0,0
+furaneol,furaneol (HDMF),19309,76247,C20717,caramel-like,caramel,87,25,270,measured,,,T11,active,0,0
+norfuraneol,norfuraneol,4564493,74456,,caramel-like,caramel,6900,2100,23000,measured,,,T11,active,0,0
+maltol,maltol,8369,69438,C11918,caramel-like,caramel,5000,1600,35000,measured,,,T11,active,0,0
+sotolon,sotolon,62835,67890,,"seasoning-like, fenugreek",caramel;herbal,1.7,0.49,5.1,measured,,,T11,active,0,1
+dimethylpyrazine_25,"2,5-dimethylpyrazine",31252,89762,,"earthy, nutty",roasty,140,46,1800,measured,,,T11,active,0,0
+trimethylpyrazine,"2,3,5-trimethylpyrazine",26808,190131,,earthy,roasty,11,3.6,1800,measured,,,T11,active,0,0
+decalactone_delta,δ-decalactone,12810,87327,,coconut-like,fruity;buttery,31,10,100,measured,,,T8,active,0,0
+dodecalactone_delta,δ-dodecalactone,12844,171817,,"peach-, coconut-like",fruity;buttery,53,10,270,measured,,,T8,active,0,0
+butanoic,butanoic acid,264,30772,C00246,sweaty,cheesy,2730,240,8200,measured,acid,4.8,T8,active,0,0
+heptanone_2,2-heptanone,8051,5672,C08380,"fruity, soapy",fruity;cheesy,650,130,3300,measured,,,T8,active,0,0
+nonanone_2,2-nonanone,13187,77927,,"fruity, musty",fruity,32,5.0,200,measured,,,T8,active,0,0
+trimethylamine,trimethylamine,1146,18139,C00565,"ammonia-, fish-like",fishy,1.2,0.37,3.6,measured,base,9.8,,inactive,0,0
+acetylpyrroline_2,2-acetyl-1-pyrroline,522834,67125,,"popcorn-like, roasty",roasty,0.053,0.010,0.27,measured,,,T11,active,0,1
+acetic,acetic acid,176,15366,C00033,vinegar-like,vinegary,5600,1800,99000,measured,acid,4.76,engine,active,0,0
+ethanol,ethanol,702,16236,C00469,ethanol-like,solvent,990000,100000,3000000,measured,,,engine,active,0,0

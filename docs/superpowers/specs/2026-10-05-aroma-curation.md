@@ -33,7 +33,7 @@
 | plausible | precursor or producer present, not reported in this ferment | — | non-negative, mass balance |
 | drop | no precursor or producer in this ferment | — | — |
 
-**Series sums** (the headline aroma strip) include a compound in a ferment only when (i) its tier is calibrated, or reported with an `abs` or `semi` anchor, (ii) its threshold basis is `measured` or `class` (§ 3), and (iii) it is not "P0 pending" for that ferment (it would compute zero). Everything else appears in the drill-down only. This is the one place this document tightens spec § 4.3: a "reported (presence)" compound has no magnitude to stand on, so it must not drive the headline.
+**Series sums** (the palette and the aroma strip) include **every active compound with a threshold** (measured, class or est.) that computes above zero, whatever its tier: owner decision 2026-10-06 ("the richest modelling … a complete aroma palette from what I can build a priori"). The tier sets the compound's badge and line style only. Conc-only compounds (no threshold) are shown as concentrations and never summed. (Before 2026-10-06 this rule kept reported-presence and est.-threshold compounds out of the sums, tightening spec § 4.3; the owner chose breadth, with the tier badges carrying the evidence strength.)
 
 **"†" in § 4** marks a cell whose only route is an ingredient precursor not yet curated (§ 6): it computes ~0, and its test is deferred until the precursor exists.
 
@@ -68,7 +68,7 @@ Each row changes or sharpens spec 2026-10-02 § 4.
 **Identity** (PubChem CID · ChEBI · KEGG) is copied from `01` table A, where every ID was resolved twice and checked against its ChEBI/KEGG entry; "—" = no entry. **Descriptor** is the Munich aroma language (`01:CZ`, else `01:LSB`); series as assigned in `01`.
 
 **Threshold prior rule** (orthonasal detection in water, µg/kg):
-- median = `01`'s median over distinct sources (geometric mean of the two middle values when even);
+- median = **the latest reliable determination** (owner decision 2026-10-06): the Leibniz-LSB@TUM basic table (`01:LSB` TW, the Munich group's curated reference, v1.2 2022), else the latest dated LSB literature row, else `01:CZ` D, else the `01:LEF` value (geometric midpoint of a range), else the only source. A determination flagged as a probable slip is not a median (decanoic acid LSB 3.5; DMTS LSB row 2020, exactly ×10). The basis cell names the source as "median: …". (Before 2026-10-06: `01`'s median over distinct sources.);
 - lo/hi = min/max of the determinations actually opened (`01:CZ` D, `01:LSB` TW and its rows, both ends of a `01:LEF` range, `01:HSDB`, named papers). The CZ *lit* column and `01:Schwab13`'s secondary ranges are **excluded** (secondary, primaries unopened; they would make e.g. ethyl butanoate span five decades) unless they are the only source; they are recorded in § 9;
 - widened to at least ×/÷ 3 around the median, or ×/÷ 5 when only one source or one compiled value exists (est.: thin evidence).
 - On top, one **matrix factor** per ensemble member, shared by all compounds, `(1, 1/3, 3)` est. (the ×/÷ ~3 matrix allowance of spec § 3; shared so that series sums do not average it away).
@@ -83,93 +83,93 @@ Each row changes or sharpens spec 2026-10-02 § 4.
 
 | key | name | CID · ChEBI · KEGG | descriptor (series) | threshold (median, lo, hi) µg/kg | basis · source | pH | template | status |
 |---|---|---|---|---|---|---|---|---|
-| methylbutanal_3 | 3-methylbutanal | 11552 · 16638 · C07329 | malty (malty) | 0.45, 0.15, 2.0 | measured · CZ, LSB, LEF | — | T1 + T11 | active |
-| methylbutanal_2 | 2-methylbutanal | 7284 · 16182 · C02223 | malty (malty) | 1.5, 0.50, 4.5 | measured · CZ, LSB, LEF | — | T1 + T11 | active |
-| methylpropanal_2 | 2-methylpropanal | 6561 · 48943 · C22919 | malty (malty) | 0.48, 0.10, 2.3 | measured · CZ, LEF | — | T1 + T11 | active |
-| phenylacetaldehyde | phenylacetaldehyde | 998 · 16424 · C00601 | floral, honey-like (floral) | 4.6, 1.5, 14 | measured · LSB, LEF | — | T1 + T11 | active |
-| methional | methional | 18635 · 49017 · — | cooked potato-like (sulfurous) | 0.29, 0.10, 0.87 | measured · CZ, LEF | — | T1 (Met) + T11 | active |
-| methylbutanol_3 | 3-methylbutan-1-ol | 31260 · 15837 · C07328 | malty (malty, solvent) | 250, 83, 750 | measured · CZ, LEF | — | T1 | active |
-| methylbutanol_2 | 2-methylbutan-1-ol | 8723 · 48945 · — | malty, solvent-like (malty, solvent) | 1200, 240, 6000 | measured · CZ only | — | T1 | active |
-| methylpropanol_2 | 2-methylpropan-1-ol | 6560 · 46645 · C14710 | malty (malty, solvent) | 3600, 550, 19000 | measured · CZ, LSB, LEF | — | T1 | active |
-| phenylethanol_2 | 2-phenylethanol | 6054 · 49000 · C05853 | flowery, honey-like (floral) | 360, 120, 1100 | measured · CZ, LEF | — | T1 | active |
-| methionol | methionol | 10448 · 49019 · — | cooked potato-like (sulfurous) | 36, 7.2, 180 | measured · CZ only | — | T1 (Met) | active |
-| methylbutanoic_3 | 3-methylbutanoic acid | 10430 · 28484 · C08262 | sweaty (cheesy) | 380, 120, 1100 | measured · CZ, LEF | acid 4.8 | T1 | active |
-| methylbutanoic_2 | 2-methylbutanoic acid | 8314 · 37070 · C18319 | fruity, sweaty (cheesy, fruity) | 2600, 870, 7800 | measured · CZ (×2), LSB | acid 4.8 est. | T1 | active |
-| methylpropanoic_2 | 2-methylpropanoic acid | 6590 · 16135 · C02632 | sweaty, cheesy (cheesy) | 16000, 5300, 60000 | measured · CZ (×2), LSB, LEF/HSDB | acid 4.8 est. | T1 | active |
-| ethyl_acetate | ethyl acetate | 8857 · 27750 · C00849 | solvent-like (solvent, fruity) | 1400, 5.0, 12000 | measured (weak) · LSB, LEF | — | T2 + T5 | active |
-| isoamyl_acetate | 3-methylbutyl acetate | 31276 · 31725 · C12296 | banana-like, fruity (fruity) | 7.2, 2.0, 22 | measured · LSB, LEF, HSDB | — | T2 | active |
-| phenylethyl_acetate | 2-phenylethyl acetate | 7654 · 31988 · C12303 | honey-like, floral (floral, fruity) | 360, 72, 1800 | measured · LSB only | — | T2 | active |
-| isobutyl_acetate | 2-methylpropyl acetate | 8038 · 50569 · — | fruity (fruity) | 76, 25, 230 | measured · LSB, LEF | — | T2 | active |
-| ethyl_butanoate | ethyl butanoate | 7762 · 88764 · — | fruity (fruity) | 0.76, 0.25, 2.3 | measured · CZ, LSB, LEF | — | T2 | active |
-| ethyl_hexanoate | ethyl hexanoate | 31265 · 86055 · — | fruity, pineapple-like (fruity) | 1.1, 0.37, 3.3 | measured · LSB, LEF | — | T2 | active |
-| ethyl_octanoate | ethyl octanoate | 7799 · 87426 · C12292 | fruity, green (fruity) | 8.7, 1.7, 44 | measured · LSB only | — | T2 | active |
-| ethyl_decanoate | ethyl decanoate | 8048 · 87430 · — | soapy, pear-like (fruity) | 74, 15, 370 | measured · LSB only (primary unnamed) | — | T2 | active |
-| ethyl_2methylbutanoate | ethyl 2-methylbutanoate | 24020 · 88452 · — | fruity (fruity) | 0.016, 0.0053, 0.30 | measured · CZ, LSB, LEF | — | T2 | active |
-| ethyl_2methylpropanoate | ethyl 2-methylpropanoate | 7342 · 87303 · — | fruity (fruity) | 0.094, 0.031, 0.28 | measured · CZ, LEF | — | T2 | active |
-| hexanoic | hexanoic acid | 8892 · 30776 · C01585 | sweaty (cheesy) | 3000, 1000, 9000 | measured · LSB, LEF | acid 4.8 est. | T2 + T8 | active |
-| octanoic | octanoic acid | 379 · 28837 · C06423 | carrot-like, musty (cheesy) | 750, 190, 3000 | measured · LSB, LEF | acid 4.8 est. | T2 + T8 | active |
-| decanoic | decanoic acid | 2969 · 30813 · C01571 | soapy, musty (cheesy) | 10000, 2000, 50000 | measured · LEF only (LSB 3.5 excluded, § 9) | acid 4.8 est. | T2 + T8 | active |
-| acetaldehyde | acetaldehyde | 177 · 15343 · C00084 | fresh, green (green, pungent) | 25, 8.3, 120 | measured · CZ, LSB, LEF | — | T3 | active |
-| diacetyl | butane-2,3-dione | 650 · 16583 · C00741 | buttery (buttery) | 1.7, 0.57, 6.5 | measured · CZ, LSB, LEF | — | T4 | active |
-| pentanedione_23 | 2,3-pentanedione | 11747 · 52774 · — | butter-like (buttery) | 3.9, 0.78, 20 | measured · LSB only | — | T4 | active |
-| acetoin | 3-hydroxybutan-2-one | 179 · 15688 · C00466 | butter-like, carrot-like (buttery) | 690, 230, 2100 | measured · LSB, LEF | — | T4 | active |
+| methylbutanal_3 | 3-methylbutanal | 11552 · 16638 · C07329 | malty (malty) | 0.40, 0.13, 2.0 | measured · CZ, LSB, LEF · median: LSB row Tamura 2014 | — | T1 + T11 | active |
+| methylbutanal_2 | 2-methylbutanal | 7284 · 16182 · C02223 | malty (malty) | 4.4, 1.0, 14 | measured · CZ, LSB, LEF · median: LSB row Tamura 2014 | — | T1 + T11 | active |
+| methylpropanal_2 | 2-methylpropanal | 6561 · 48943 · C22919 | malty (malty) | 0.49, 0.10, 2.3 | measured · CZ, LEF · median: CZ D | — | T1 + T11 | active |
+| phenylacetaldehyde | phenylacetaldehyde | 998 · 16424 · C00601 | floral, honey-like (floral) | 5.2, 1.7, 16 | measured · LSB, LEF · median: LSB TW | — | T1 + T11 | active |
+| methional | methional | 18635 · 49017 · — | cooked potato-like (sulfurous) | 0.43, 0.14, 1.3 | measured · CZ, LEF · median: CZ D | — | T1 (Met) + T11 | active |
+| methylbutanol_3 | 3-methylbutan-1-ol | 31260 · 15837 · C07328 | malty (malty, solvent) | 220, 73, 660 | measured · CZ, LEF · median: CZ D | — | T1 | active |
+| methylbutanol_2 | 2-methylbutan-1-ol | 8723 · 48945 · — | malty, solvent-like (malty, solvent) | 1200, 240, 6000 | measured · CZ only · median: CZ D | — | T1 | active |
+| methylpropanol_2 | 2-methylpropan-1-ol | 6560 · 46645 · C14710 | malty (malty, solvent) | 19000, 550, 57000 | measured · CZ, LSB, LEF · median: LSB TW | — | T1 | active |
+| phenylethanol_2 | 2-phenylethanol | 6054 · 49000 · C05853 | flowery, honey-like (floral) | 140, 46, 1100 | measured · CZ, LEF · median: CZ D | — | T1 | active |
+| methionol | methionol | 10448 · 49019 · — | cooked potato-like (sulfurous) | 36, 7.2, 180 | measured · CZ only · median: CZ D | — | T1 (Met) | active |
+| methylbutanoic_3 | 3-methylbutanoic acid | 10430 · 28484 · C08262 | sweaty (cheesy) | 490, 120, 1500 | measured · CZ, LEF · median: CZ D | acid 4.8 | T1 | active |
+| methylbutanoic_2 | 2-methylbutanoic acid | 8314 · 37070 · C18319 | fruity, sweaty (cheesy, fruity) | 3100, 1000, 9300 | measured · CZ (×2), LSB · median: LSB row Wagner 2016 | acid 4.8 est. | T1 | active |
+| methylpropanoic_2 | 2-methylpropanoic acid | 6590 · 16135 · C02632 | sweaty, cheesy (cheesy) | 60000, 8100, 180000 | measured · CZ (×2), LSB, LEF/HSDB · median: LSB TW | acid 4.8 est. | T1 | active |
+| ethyl_acetate | ethyl acetate | 8857 · 27750 · C00849 | solvent-like (solvent, fruity) | 12000, 5.0, 36000 | measured (weak) · LSB, LEF · median: LSB TW | — | T2 + T5 | active |
+| isoamyl_acetate | 3-methylbutyl acetate | 31276 · 31725 · C12296 | banana-like, fruity (fruity) | 7.2, 2.0, 22 | measured · LSB, LEF, HSDB · median: LSB TW | — | T2 | active |
+| phenylethyl_acetate | 2-phenylethyl acetate | 7654 · 31988 · C12303 | honey-like, floral (floral, fruity) | 360, 72, 1800 | measured · LSB only · median: LSB TW | — | T2 | active |
+| isobutyl_acetate | 2-methylpropyl acetate | 8038 · 50569 · — | fruity (fruity) | 88, 29, 270 | measured · LSB, LEF · median: LSB TW | — | T2 | active |
+| ethyl_butanoate | ethyl butanoate | 7762 · 88764 · — | fruity (fruity) | 0.75, 0.25, 2.3 | measured · CZ, LSB, LEF · median: LSB row Munafo 2016 | — | T2 | active |
+| ethyl_hexanoate | ethyl hexanoate | 31265 · 86055 · — | fruity, pineapple-like (fruity) | 1.2, 0.40, 3.6 | measured · LSB, LEF · median: LSB TW | — | T2 | active |
+| ethyl_octanoate | ethyl octanoate | 7799 · 87426 · C12292 | fruity, green (fruity) | 8.7, 1.7, 44 | measured · LSB only · median: LSB TW | — | T2 | active |
+| ethyl_decanoate | ethyl decanoate | 8048 · 87430 · — | soapy, pear-like (fruity) | 74, 14, 370 | measured · LSB only (primary unnamed) · median: LSB TW | — | T2 | active |
+| ethyl_2methylbutanoate | ethyl 2-methylbutanoate | 24020 · 88452 · — | fruity (fruity) | 0.0080, 0.0026, 0.30 | measured · CZ, LSB, LEF · median: LSB row Li 2017, (S) | — | T2 | active |
+| ethyl_2methylpropanoate | ethyl 2-methylpropanoate | 7342 · 87303 · — | fruity (fruity) | 0.089, 0.029, 0.27 | measured · CZ, LEF · median: CZ D | — | T2 | active |
+| hexanoic | hexanoic acid | 8892 · 30776 · C01585 | sweaty (cheesy) | 4800, 1600, 15000 | measured · LSB, LEF · median: LSB TW | acid 4.8 est. | T2 + T8 | active |
+| octanoic | octanoic acid | 379 · 28837 · C06423 | carrot-like, musty (cheesy) | 190, 63, 3000 | measured · LSB, LEF · median: LSB TW | acid 4.8 est. | T2 + T8 | active |
+| decanoic | decanoic acid | 2969 · 30813 · C01571 | soapy, musty (cheesy) | 10000, 2000, 50000 | measured · LEF only (LSB 3.5 excluded, § 9) · median: LEF | acid 4.8 est. | T2 + T8 | active |
+| acetaldehyde | acetaldehyde | 177 · 15343 · C00084 | fresh, green (green, pungent) | 16, 5.3, 120 | measured · CZ, LSB, LEF · median: LSB TW | — | T3 | active |
+| diacetyl | butane-2,3-dione | 650 · 16583 · C00741 | buttery (buttery) | 0.96, 0.32, 6.5 | measured · CZ, LSB, LEF · median: LSB row Grimm 2019 | — | T4 | active |
+| pentanedione_23 | 2,3-pentanedione | 11747 · 52774 · — | butter-like (buttery) | 3.9, 0.78, 20 | measured · LSB only · median: LSB TW | — | T4 | active |
+| acetoin | 3-hydroxybutan-2-one | 179 · 15688 · C00466 | butter-like, carrot-like (buttery) | 590, 190, 1800 | measured · LSB, LEF · median: LSB TW | — | T4 | active |
 | butanediol_23 | 2,3-butanediol | 262 · 62064 · — | butter-like, sweet (buttery) | none | none · `01` | — | T4 | active, conc-only (C4 pool branch) |
-| ethyl_lactate | ethyl lactate | 7344 · 78321 · — | fruity (fruity) | 14000, 2800, 70000 | measured · LEF only (medium possibly aqueous ethanol) | — | T5 | active |
-| hexanal | hexanal | 6184 · 88528 · — | green, grassy (green) | 3.4, 1.1, 10 | measured · CZ, LEF | — | T8 | active |
-| z3_hexenal | (Z)-3-hexenal | 643941 · 23292 · C16310 | green, grassy (green) | 0.17, 0.057, 0.51 | measured · CZ, LEF | — | T8 | active |
-| z3_hexenol | (Z)-3-hexen-1-ol | 5281167 · 28857 · C08492 | lettuce-like (green) | 17, 3.9, 70 | measured · CZ, LEF | — | T8 | active |
-| e2_nonenal | (E)-2-nonenal | 5283335 · 142592 · — | fatty, green (green) | 0.22, 0.073, 0.69 | measured · CZ, LSB, LEF | — | T8 | active |
-| nonanal | nonanal | 31289 · 84268 · — | citrus-like, soapy (green, fruity) | 1.7, 0.57, 5.1 | measured · CZ, LEF | — | T8 | active |
-| pentylfuran_2 | 2-pentylfuran | 19602 · 89197 · — | vegetable-like (green) | 6.0, 1.2, 30 | measured · LEF only | — | T8 | active |
-| z4_heptenal | (Z)-4-heptenal | 5362814 · 195657 · — | fishy, fish-oil-like (fishy) | 0.060, 0.0087, 0.80 | measured · CZ, LSB, LEF | — | T8 | active |
-| octen3ol | 1-octen-3-ol | 18827 · 34118 · C14272 | mushroom-like (mushroom) | 6.7, 1.0, 45 | measured · LSB, LEF | — | T8 | active |
-| octen3one | 1-octen-3-one | 61346 · 88900 · — | mushroom-like (mushroom) | 0.0089, 0.0030, 0.027 | measured · CZ, LEF | — | T8 | active |
-| octanone_3 | 3-octanone | 246728 · 80946 · C17145 | citrus-like, fruity (fruity, mushroom) | 67, 22, 200 | measured · LSB, LEF | — | T8 | active |
-| octanol_3 | 3-octanol | 11527 · 80945 · C17144 | citrus-like, soapy (mushroom) | 240, 48, 1200 | measured · LSB only (primary unnamed) | — | T8 | active |
-| allyl_itc | allyl isothiocyanate | 5971 · 73224 · C19317 | pungent, mustard-like (pungent) | 32, 5.0, 200 | **class** · `01:MJ20` (abs.): 19 ITCs, 5–200 µg/L; median = geometric midpoint | — | T6 | active (badge "threshold from a class range") |
+| ethyl_lactate | ethyl lactate | 7344 · 78321 · — | fruity (fruity) | 14000, 2800, 70000 | measured · LEF only (medium possibly aqueous ethanol) · median: LEF | — | T5 | active |
+| hexanal | hexanal | 6184 · 88528 · — | green, grassy (green) | 2.4, 0.80, 7.2 | measured · CZ, LEF · median: CZ D | — | T8 | active |
+| z3_hexenal | (Z)-3-hexenal | 643941 · 23292 · C16310 | green, grassy (green) | 0.12, 0.040, 0.36 | measured · CZ, LEF · median: CZ D | — | T8 | active |
+| z3_hexenol | (Z)-3-hexen-1-ol | 5281167 · 28857 · C08492 | lettuce-like (green) | 3.9, 1.3, 70 | measured · CZ, LEF · median: CZ D | — | T8 | active |
+| e2_nonenal | (E)-2-nonenal | 5283335 · 142592 · — | fatty, green (green) | 0.69, 0.080, 2.1 | measured · CZ, LSB, LEF · median: LSB row Greger 2007 | — | T8 | active |
+| nonanal | nonanal | 31289 · 84268 · — | citrus-like, soapy (green, fruity) | 2.8, 0.93, 8.4 | measured · CZ, LEF · median: CZ D | — | T8 | active |
+| pentylfuran_2 | 2-pentylfuran | 19602 · 89197 · — | vegetable-like (green) | 6.0, 1.2, 30 | measured · LEF only · median: LEF | — | T8 | active |
+| z4_heptenal | (Z)-4-heptenal | 5362814 · 195657 · — | fishy, fish-oil-like (fishy) | 0.060, 0.0087, 0.80 | measured · CZ, LSB, LEF · median: LSB row Guth & Grosch 1993 | — | T8 | active |
+| octen3ol | 1-octen-3-ol | 18827 · 34118 · C14272 | mushroom-like (mushroom) | 45, 1.0, 140 | measured · LSB, LEF · median: LSB TW | — | T8 | active |
+| octen3one | 1-octen-3-one | 61346 · 88900 · — | mushroom-like (mushroom) | 0.016, 0.0050, 0.048 | measured · CZ, LEF · median: CZ D | — | T8 | active |
+| octanone_3 | 3-octanone | 246728 · 80946 · C17145 | citrus-like, fruity (fruity, mushroom) | 160, 28, 480 | measured · LSB, LEF · median: LSB TW | — | T8 | active |
+| octanol_3 | 3-octanol | 11527 · 80945 · C17144 | citrus-like, soapy (mushroom) | 240, 48, 1200 | measured · LSB only (primary unnamed) · median: LSB TW | — | T8 | active |
+| allyl_itc | allyl isothiocyanate | 5971 · 73224 · C19317 | pungent, mustard-like (pungent) | 32, 5.0, 200 | **class** · `01:MJ20` (abs.): 19 ITCs, 5–200 µg/L; median = geometric midpoint · median: class midpoint | — | T6 | active (badge "threshold from a class range") |
 | allyl_cyanide | allyl cyanide | 8009 · 183063 · — | pungent, mustard-like (pungent) | none | none · `01` | — | T6 | active, conc-only (nitrile branch of sinigrin) |
-| butenyl_itc | 3-butenyl isothiocyanate | 76922 · 138747 · — | pungent, garlic-like (pungent, sulfurous) | 32, 5.0, 200 | **est.** · `01:MJ20` class range; compound not named in the abstract | — | T6 | active, drill-down only |
+| butenyl_itc | 3-butenyl isothiocyanate | 76922 · 138747 · — | pungent, garlic-like (pungent, sulfurous) | 32, 5.0, 200 | **est.** · `01:MJ20` class range; compound not named in the abstract · median: class midpoint | — | T6 | active (badge "estimated threshold"; drill-down only before 2026-10-06) |
 | mtb_itc | (E)-4-(methylthio)-3-butenyl ITC | 5368086 · — · — | radish character impact | none ("unknown", `01:BvG93`) | none | — | — | drop (§ 8) |
-| methanethiol | methanethiol | 878 · 16007 · C00409 | sulfuric, cabbage-like (sulfurous) | 0.11, 0.020, 0.59 | measured · LSB, LEF | — | T7 | active |
-| dms | dimethyl sulfide | 1068 · 17437 · C00580 | asparagus-like, putrid (sulfurous) | 0.55, 0.18, 1.7 | measured · CZ, LSB, LEF | — | T7 | active |
-| dmds | dimethyl disulfide | 12232 · 4608 · C08371 | cabbage-like, sulfuric (sulfurous) | 1.5, 0.16, 12 | measured · LSB, LEF | — | T7 | active |
-| dmts | dimethyl trisulfide | 19310 · 4614 · C08372 | cabbage-like (sulfurous) | 0.0099, 0.0033, 0.099 | measured · CZ, LSB, LEF | — | T7 | active |
+| methanethiol | methanethiol | 878 · 16007 · C00409 | sulfuric, cabbage-like (sulfurous) | 0.59, 0.020, 1.8 | measured · LSB, LEF · median: LSB TW | — | T7 | active |
+| dms | dimethyl sulfide | 1068 · 17437 · C00580 | asparagus-like, putrid (sulfurous) | 0.30, 0.10, 1.0 | measured · CZ, LSB, LEF · median: LSB TW | — | T7 | active |
+| dmds | dimethyl disulfide | 12232 · 4608 · C08371 | cabbage-like, sulfuric (sulfurous) | 1.7, 0.16, 12 | measured · LSB, LEF · median: LSB TW | — | T7 | active |
+| dmts | dimethyl trisulfide | 19310 · 4614 · C08372 | cabbage-like (sulfurous) | 0.0099, 0.0033, 0.099 | measured · CZ, LSB, LEF · median: CZ D (LSB 2020 row: possible ×10 slip) | — | T7 | active |
 | s_methyl_thioacetate | S-methyl thioacetate | 73750 · 51280 · — | cheesy (sulfurous, cheesy) | none (beer flavour only, `01:Kelting20`) | none | — | — | drop (§ 8) |
 | diallyl_disulfide | diallyl disulfide | 16590 · 4488 · C08369 | garlic-like (sulfurous) | none | none | — | — | drop (§ 8) |
 | allyl_methyl_disulfide | allyl methyl disulfide | 62434 · 6854 · C08383 | garlic-like (sulfurous) | none | none | — | — | drop (§ 8) |
-| linalool | linalool | 6549 · 17580 · C03985 | citrus-, bergamot-like, floral (floral, fruity) | 0.80, 0.087, 8.3 | measured · CZ (R), LSB, LEF; (S) 2.7–8.3 sets hi | — | T9 | active |
-| geraniol | geraniol | 637566 · 17447 · C01500 | rose-, citrus-like (floral) | 40, 1.1, 120 | measured · CZ, LSB, LEF, HSDB | — | T9 | active |
-| citronellol | citronellol | 8842 · 50462 · — | soapy, rose-like (floral) | 10, 3.3, 40 | measured · LSB (R, S), LEF | — | T9 | active |
-| methyl_salicylate | methyl salicylate | 4133 · 31832 · C12305 | peppermint (herbal) | 40, 8.0, 200 | measured · LEF only | — | T9 | active |
-| damascenone | (E)-β-damascenone | 5366074 · 67251 · — | baked apple-like (fruity) | 0.0060, 0.0020, 0.018 | measured · CZ, LSB, LEF | — | T9 | active |
-| ionone_beta | (E)-β-ionone | 638014 · 32325 · C12287 | flowery, violet-like (floral) | 0.27, 0.021, 3.5 | measured · CZ 3.5 vs LSB 0.021 (170×, § 9) | — | T9 | active |
-| geranial | geranial | 638011 · 16980 · C01499 | citrus-like (fruity) | 28, 9.3, 84 | measured · LSB, LEF | — | T9 | active, P0 pending (lemongrass, citrus, ginger) |
-| neral | neral | 643779 · 29020 · C09847 | citrus-like, soapy (fruity) | 55, 18, 170 | measured · LSB, LEF | — | T9 | active, P0 pending |
+| linalool | linalool | 6549 · 17580 · C03985 | citrus-, bergamot-like, floral (floral, fruity) | 0.82, 0.087, 8.3 | measured · CZ (R), LSB, LEF; (S) 2.7–8.3 sets hi · median: LSB row Reglitz 2023, (R) | — | T9 | active |
+| geraniol | geraniol | 637566 · 17447 · C01500 | rose-, citrus-like (floral) | 40, 1.1, 120 | measured · CZ, LSB, LEF, HSDB · median: LSB row Sinuco 2013 | — | T9 | active |
+| citronellol | citronellol | 8842 · 50462 · — | soapy, rose-like (floral) | 10, 3.3, 40 | measured · LSB (R, S), LEF · median: LSB row Schaller 2020, (R) | — | T9 | active |
+| methyl_salicylate | methyl salicylate | 4133 · 31832 · C12305 | peppermint (herbal) | 40, 8.0, 200 | measured · LEF only · median: LEF | — | T9 | active |
+| damascenone | (E)-β-damascenone | 5366074 · 67251 · — | baked apple-like (fruity) | 0.0060, 0.0020, 0.018 | measured · CZ, LSB, LEF · median: LSB TW | — | T9 | active |
+| ionone_beta | (E)-β-ionone | 638014 · 32325 · C12287 | flowery, violet-like (floral) | 0.021, 0.0070, 3.5 | measured · CZ 3.5 vs LSB 0.021 (170×, § 9) · median: LSB TW | — | T9 | active |
+| geranial | geranial | 638011 · 16980 · C01499 | citrus-like (fruity) | 25, 8.3, 75 | measured · LSB, LEF · median: LSB TW | — | T9 | active, P0 pending (lemongrass, citrus, ginger) |
+| neral | neral | 643779 · 29020 · C09847 | citrus-like, soapy (fruity) | 100, 30, 300 | measured · LSB, LEF · median: LSB TW | — | T9 | active, P0 pending |
 | zingiberene | (−)-zingiberene | 92776 · 10115 · C09750 | spice, fresh, sharp (herbal) | none | none | — | — | drop (§ 8) |
-| carvone | carvone | 7439 · 38265 · C01767 (R) / C11383 (S) | mint- (R), caraway-like (S) (herbal) | 69, 23, 210 | measured · LSB (S), LEF (R) | — | T9 | active, P0 pending (caraway, dill, mint) |
-| limonene | limonene | 22311 · 15384 · C06078 | citrus-like (fruity, herbal) | 10, 3.3, 30 | measured · LSB (R, S), LEF | — | T9 | active |
-| vinylguaiacol_4 | 4-vinylguaiacol | 332 · 42438 · C17883 | clove-like, smoky (phenolic) | 5.1, 1.7, 21 | measured · CZ, LSB, LEF | — | T10 | active |
-| vinylphenol_4 | 4-vinylphenol | 62453 · 1883 · C05627 | phenolic, earthy (phenolic) | 28, 9.3, 84 | measured · LSB, LEF | — | T10 | active, P0 pending (p-coumaric acid) |
-| ethylguaiacol_4 | 4-ethylguaiacol | 62465 · 179252 · C23176 | smoky, gammon-like (phenolic) | 50, 4.4, 150 | measured · CZ, LSB, LEF | — | T10 | **inactive** (*Brettanomyces*/*Candida*) |
-| ethylphenol_4 | 4-ethylphenol | 31242 · 49584 · C13637 | phenolic (phenolic) | 13, 2.6, 65 | measured · CZ only | — | T10 | **inactive** (*Brettanomyces*/*Candida*) |
-| hemf | HEMF (homofuraneol, both tautomers as one) | 33931 / 93111 · 137995 · — | caramel-like (caramel) | 27, 9.0, 81 | measured · LSB, LEF (`01:Schwab13` 0.04–21 excluded, § 9) | — | T11 | active |
-| furaneol | furaneol (HDMF) | 19309 · 76247 · C20717 | caramel-like (caramel) | 53, 18, 160 | measured · CZ, LSB rows | — | T11 | active |
-| norfuraneol | norfuraneol | 4564493 · 74456 · — | caramel-like (caramel) | 6900, 2100, 23000 | measured (secondary only) · `01:Schwab13` | — | T11 | active |
-| maltol | maltol | 8369 · 69438 · C11918 | caramel-like (caramel) | 13000, 4300, 39000 | measured · LSB, LEF | — | T11 | active |
-| sotolon | sotolon | 62835 · 67890 · — | seasoning-like, fenugreek (caramel, herbal) | 0.91, 0.30, 2.7 | measured · CZ, LSB (LEF excluded as doubtful, § 9) | — | T11 | active, P0 pending (flour) |
-| dimethylpyrazine_25 | 2,5-dimethylpyrazine | 31252 · 89762 · — | earthy, nutty (roasty) | 410, 140, 1800 | measured · LSB, LEF | — | T11 | active |
-| trimethylpyrazine | 2,3,5-trimethylpyrazine | 26808 · 190131 · — | earthy (roasty) | 97, 11, 1800 | measured · LSB, LEF (160×, § 9) | — | T11 | active |
-| decalactone_delta | δ-decalactone | 12810 · 87327 · — | coconut-like (fruity, buttery) | 56, 19, 170 | measured · CZ, LEF | — | T8 | active |
-| dodecalactone_delta | δ-dodecalactone | 12844 · 171817 · — | peach-, coconut-like (fruity, buttery) | 53, 11, 270 | measured · CZ only | — | T8 | active |
-| butanoic | butanoic acid | 264 · 30772 · C00246 | sweaty (cheesy) | 1500, 240, 4500 | measured · CZ, LSB, LEF | acid 4.8 est. | T8 | active |
-| heptanone_2 | 2-heptanone | 8051 · 5672 · C08380 | fruity, soapy (fruity, cheesy) | 650, 130, 3300 | measured · LEF range only | — | T8 | active |
-| nonanone_2 | 2-nonanone | 13187 · 77927 · — | fruity, musty (fruity) | 32, 5.0, 200 | measured · LEF range only | — | T8 | active |
-| trimethylamine | trimethylamine | 1146 · 18139 · C00565 | ammonia-, fish-like (fishy) | 0.87, 0.29, 2.6 (free base) | measured · LSB, LEF | base 9.8 | TMAO precursor | **inactive** (TMAO-reducing bacteria) |
-| acetylpyrroline_2 | 2-acetyl-1-pyrroline | 522834 · 67125 · — | popcorn-like, roasty (roasty) | 0.053, 0.011, 0.27 | measured · CZ only | — | T11 (rice initial pool) | active, P0 pending (rice) |
-| acetic | acetic acid | 176 · 15366 · C00033 | vinegar-like (vinegary) | 24000, 5600, 99000 | measured · CZ 99 000 vs LSB 5 600 (18×) | acid 4.76 | engine | active |
-| ethanol | ethanol | 702 · 16236 · C00469 | ethanol-like (solvent) | 310000, 100000, 990000 | measured · CZ, LEF | — | engine | active |
+| carvone | carvone | 7439 · 38265 · C01767 (R) / C11383 (S) | mint- (R), caraway-like (S) (herbal) | 95, 31, 290 | measured · LSB (S), LEF (R) · median: LSB row Sellami 2018, (S) | — | T9 | active, P0 pending (caraway, dill, mint) |
+| limonene | limonene | 22311 · 15384 · C06078 | citrus-like (fruity, herbal) | 8.0, 2.6, 24 | measured · LSB (R, S), LEF · median: LSB row Xu 2025, (S) | — | T9 | active |
+| vinylguaiacol_4 | 4-vinylguaiacol | 332 · 42438 · C17883 | clove-like, smoky (phenolic) | 21, 3.0, 63 | measured · CZ, LSB, LEF · median: LSB TW | — | T10 | active |
+| vinylphenol_4 | 4-vinylphenol | 62453 · 1883 · C05627 | phenolic, earthy (phenolic) | 78, 10, 240 | measured · LSB, LEF · median: LSB TW | — | T10 | active, P0 pending (p-coumaric acid) |
+| ethylguaiacol_4 | 4-ethylguaiacol | 62465 · 179252 · C23176 | smoky, gammon-like (phenolic) | 50, 4.4, 150 | measured · CZ, LSB, LEF · median: LSB row Grosch 1995 | — | T10 | **inactive** (*Brettanomyces*/*Candida*) |
+| ethylphenol_4 | 4-ethylphenol | 31242 · 49584 · C13637 | phenolic (phenolic) | 13, 2.6, 65 | measured · CZ only · median: CZ D | — | T10 | **inactive** (*Brettanomyces*/*Candida*) |
+| hemf | HEMF (homofuraneol, both tautomers as one) | 33931 / 93111 · 137995 · — | caramel-like (caramel) | 17, 5.6, 51 | measured · LSB, LEF (`01:Schwab13` 0.04–21 excluded, § 9) · median: LSB TW | — | T11 | active |
+| furaneol | furaneol (HDMF) | 19309 · 76247 · C20717 | caramel-like (caramel) | 87, 25, 270 | measured · CZ, LSB rows · median: LSB TW | — | T11 | active |
+| norfuraneol | norfuraneol | 4564493 · 74456 · — | caramel-like (caramel) | 6900, 2100, 23000 | measured (secondary only) · `01:Schwab13` · median: Schwab13 (only source) | — | T11 | active |
+| maltol | maltol | 8369 · 69438 · C11918 | caramel-like (caramel) | 5000, 1600, 35000 | measured · LSB, LEF · median: LSB TW | — | T11 | active |
+| sotolon | sotolon | 62835 · 67890 · — | seasoning-like, fenugreek (caramel, herbal) | 1.7, 0.49, 5.1 | measured · CZ, LSB (LEF excluded as doubtful, § 9) · median: LSB TW | — | T11 | active, P0 pending (flour) |
+| dimethylpyrazine_25 | 2,5-dimethylpyrazine | 31252 · 89762 · — | earthy, nutty (roasty) | 140, 46, 1800 | measured · LSB, LEF · median: LSB TW | — | T11 | active |
+| trimethylpyrazine | 2,3,5-trimethylpyrazine | 26808 · 190131 · — | earthy (roasty) | 11, 3.6, 1800 | measured · LSB, LEF (160×, § 9) · median: LSB TW | — | T11 | active |
+| decalactone_delta | δ-decalactone | 12810 · 87327 · — | coconut-like (fruity, buttery) | 31, 10, 100 | measured · CZ, LEF · median: CZ D | — | T8 | active |
+| dodecalactone_delta | δ-dodecalactone | 12844 · 171817 · — | peach-, coconut-like (fruity, buttery) | 53, 10, 270 | measured · CZ only · median: CZ D | — | T8 | active |
+| butanoic | butanoic acid | 264 · 30772 · C00246 | sweaty (cheesy) | 2730, 240, 8200 | measured · CZ, LSB, LEF · median: LSB row Schieberle & Hofmann 1997 | acid 4.8 est. | T8 | active |
+| heptanone_2 | 2-heptanone | 8051 · 5672 · C08380 | fruity, soapy (fruity, cheesy) | 650, 130, 3300 | measured · LEF range only · median: LEF mid | — | T8 | active |
+| nonanone_2 | 2-nonanone | 13187 · 77927 · — | fruity, musty (fruity) | 32, 5.0, 200 | measured · LEF range only · median: LEF mid | — | T8 | active |
+| trimethylamine | trimethylamine | 1146 · 18139 · C00565 | ammonia-, fish-like (fishy) | 1.2, 0.37, 3.6 (free base) | measured · LSB, LEF · median: LSB TW | base 9.8 | TMAO precursor | **inactive** (TMAO-reducing bacteria) |
+| acetylpyrroline_2 | 2-acetyl-1-pyrroline | 522834 · 67125 · — | popcorn-like, roasty (roasty) | 0.053, 0.010, 0.27 | measured · CZ only · median: CZ D | — | T11 (rice initial pool) | active, P0 pending (rice) |
+| acetic | acetic acid | 176 · 15366 · C00033 | vinegar-like (vinegary) | 5600, 1800, 99000 | measured · CZ 99 000 vs LSB 5 600 (18×) · median: LSB TW | acid 4.76 | engine | active |
+| ethanol | ethanol | 702 · 16236 · C00469 | ethanol-like (solvent) | 990000, 100000, 3000000 | measured · CZ, LEF · median: CZ D | — | engine | active |
 
-**Counts:** 85 compounds: **77 active** (of which 2 conc-only, 1 drill-down only with an est. threshold, 6 P0 pending, 2 engine pools), **3 inactive**, **5 dropped**.
+**Counts:** 85 compounds: **77 active** (of which 2 conc-only, 1 with an est. threshold (counted in the sums since 2026-10-06), 6 P0 pending, 2 engine pools), **3 inactive**, **5 dropped**.
 
 ## 4. Evidence matrix
 
@@ -809,7 +809,7 @@ These go into `profiles.py` (per type) and the ingredient precursor map (per ing
 | S-methyl thioacetate | drop | only a beer flavour threshold (50 µg/L, retronasal, `01:Kelting20`); presence in canned kraut only (`03:S2`) | an orthonasal water threshold (`01:E`) |
 | allyl cyanide | conc-only | no threshold; the nitrile branch of sinigrin, so AITC's mass balance needs it | a threshold (`01:E`: Buttery 1976) |
 | 2,3-butanediol | conc-only | no threshold ("known to be weak"); the end of the C4 chain and the AAB acetoin source | a water threshold (`01:E`) |
-| 3-butenyl ITC | active, drill-down only | threshold is the ITC class range, but the compound is not named in the opened abstract | the full text of `01:MJ20` |
+| 3-butenyl ITC | active, est. threshold (counted in the sums since 2026-10-06) | threshold is the ITC class range, but the compound is not named in the opened abstract | the full text of `01:MJ20` |
 
 Inactive compounds are not shown; they are listed in `sensory.not_modelled_aroma.organisms` as "*Brettanomyces* / *Candida* yeasts (smoky, phenolic notes)" and "TMAO-reducing bacteria (fishy notes)", with the spoilage caveat of spec § 7 for the latter.
 
@@ -821,27 +821,27 @@ The first 14 rows are the ones `01` flagged; the rest are additional > 10× span
 
 | compound | values µg/kg (source) | spread | prior in § 3 | consequence |
 |---|---|---|---|---|
-| (E)-β-ionone | 3.5 (`01:CZ`, procedure C); 0.021 (`01:LSB` basic = Sellami 2018, Flaig 2020); lit 0.007–23 | 170× | (0.27, 0.021, 3.5): the two Munich values at 5 % / 95 % | LSB value supersedes CZ in Munich papers since 2018; a kombucha β-ionone OAV spans two decades |
-| acetic acid | 99 000 (CZ); 5 600 (LSB, Dunkel 2014); lit 22 000–320 000; orange juice pH 3.6: 1 500; wine model 41 000 | 18× | (24 000, 5 600, 99 000) | the vinegary series and kombucha's "vinegar note" are uncertain by ~1 decade |
+| (E)-β-ionone | 3.5 (`01:CZ`, procedure C); 0.021 (`01:LSB` basic = Sellami 2018, Flaig 2020); lit 0.007–23 | 170× | (0.021, 0.0070, 3.5): median = LSB basic (2026-10-06 rule); CZ 3.5 stays the 95 % | LSB value supersedes CZ in Munich papers since 2018; a kombucha β-ionone OAV spans two decades |
+| acetic acid | 99 000 (CZ); 5 600 (LSB, Dunkel 2014); lit 22 000–320 000; orange juice pH 3.6: 1 500; wine model 41 000 | 18× | (5 600, 1 800, 99 000): median = LSB basic (2026-10-06 rule) | the vinegary series and kombucha's "vinegar note" are uncertain by ~1 decade |
 | decanoic acid | 10 000 (`01:LEF`); 3.5 (LSB basic, no details row; its only row is water/EtOH 60/40, 2 800) | 2 900× | LSB 3.5 **excluded** as a probable unit error; (10 000, 2 000, 50 000) single-source floor | `03:S23`'s kefir OAVs used 1 000; ours will be ~10× lower |
-| ethyl acetate | 12 000 (LSB basic); 5–5 000 (LEF) | 2 400× | (1 400, 5.0, 12 000), deliberately wide | P(noticeable) of ethyl acetate stays honestly uncertain |
-| 2-methylpropanol | 550 (CZ); 19 000 (LSB = Dunkel 2014); 1 900 (LSB row Féchir 2021); 7 000 (LEF) | 35× | (3 600, 550, 19 000) | — |
-| octanoic acid | 190 (LSB, Wagner 2017); 3 000 (LEF) | 16× | (750, 190, 3 000) | — |
-| 1-octen-3-ol | 45 (LSB); 1 (LEF); enantiomer not stated | 45× | (6.7, 1.0, 45) | koji/miso mushroom note uncertain by ~1.5 decades |
-| methanethiol | 0.59 (LSB); 0.02 (LEF) | 30× | (0.11, 0.020, 0.59) | — |
-| (Z)-3-hexenol | 3.9 (CZ); 70 (LEF); lit 39–347 | 18× (90× with lit) | (17, 3.9, 70) | — |
+| ethyl acetate | 12 000 (LSB basic); 5–5 000 (LEF) | 2 400× | (12 000, 5.0, 36 000): median = LSB basic (2026-10-06 rule), deliberately wide | P(noticeable) of ethyl acetate stays honestly uncertain |
+| 2-methylpropanol | 550 (CZ); 19 000 (LSB = Dunkel 2014); 1 900 (LSB row Féchir 2021); 7 000 (LEF) | 35× | (19 000, 550, 57 000): median = LSB basic = Dunkel 2014, not the newer Féchir 2021 row (2026-10-06 rule) | — |
+| octanoic acid | 190 (LSB, Wagner 2017); 3 000 (LEF) | 16× | (190, 63, 3 000): median = LSB basic | — |
+| 1-octen-3-ol | 45 (LSB); 1 (LEF); enantiomer not stated | 45× | (45, 1.0, 140): median = LSB basic | koji/miso mushroom note uncertain by ~1.5 decades |
+| methanethiol | 0.59 (LSB); 0.02 (LEF) | 30× | (0.59, 0.020, 1.8): median = LSB basic | — |
+| (Z)-3-hexenol | 3.9 (CZ); 70 (LEF); lit 39–347 | 18× (90× with lit) | (3.9, 1.3, 70): median = CZ D | — |
 | geraniol | 1.1 (CZ); 40 (LSB); 40–75 (LEF); 4–75 (HSDB/Fenaroli) | 35–70× | (40, 1.1, 120) | CZ is below every other value |
 | 4-ethylguaiacol | 4.4 (CZ); 50 (LSB, Grosch 1995); 50 (LEF) | 11× | (50, 4.4, 150) | inactive anyway |
-| 2,3,5-trimethylpyrazine | 11 (LSB, Mall 2017); 400–1 800 (LEF) | 36–160× | (97, 11, 1 800) | — |
-| sotolon | 0.49 (CZ); 1.7 (LSB); 0.001 and 0.04 (LEF lists it twice) | 1 700× with LEF | LEF **excluded** as doubtful; median 0.91 (not `01`'s 0.14); (0.91, 0.30, 2.7) | P0 pending anyway |
-| ethanol | 990 000 (CZ); 100 000 (LEF); lit 25 000–900 000 | 10× | (310 000, 100 000, 990 000) | — |
+| 2,3,5-trimethylpyrazine | 11 (LSB, Mall 2017); 400–1 800 (LEF) | 36–160× | (11, 3.6, 1 800): median = LSB basic | — |
+| sotolon | 0.49 (CZ); 1.7 (LSB); 0.001 and 0.04 (LEF lists it twice) | 1 700× with LEF | LEF **excluded** as doubtful; median = LSB basic 1.7 (2026-10-06 rule); (1.7, 0.49, 5.1) | P0 pending anyway |
+| ethanol | 990 000 (CZ); 100 000 (LEF); lit 25 000–900 000 | 10× | (990 000, 100 000, 3 000 000): median = CZ D (no LSB value) | — |
 | (Z)-4-heptenal | 0.0087 (CZ); 0.06 (LSB); 0.8 (LEF) | 92× | (0.060, 0.0087, 0.80) | — |
-| linalool | 0.087 (CZ, (R)); 0.58–0.82 (LSB, rac/(R)); 6 (LEF, unspecified); (S) 2.7–8.3 | 95× | (0.80, 0.087, 8.3) | enantiomer of tea or cucumber linalool unknown |
-| dimethyl disulfide | 1.7 (LSB); 0.16–12 (LEF) | 75× | (1.5, 0.16, 12) | — |
-| ethyl 2-methylbutanoate | 0.008–0.02 (LSB rows); 0.013 (CZ); 0.1–0.3 (LEF) | 37× | (0.016, 0.0053, 0.30) | — |
-| 2-methylpropanal | 0.49 (CZ); 0.1–2.3 (LEF) | 23× | (0.48, 0.10, 2.3) | — |
-| dimethyl trisulfide | 0.0099 (CZ); 0.099 (LSB row Schmidberger 2020, exactly 10×: possible slip); 0.005–0.01 (LEF) | 20× | (0.0099, 0.0033, 0.099) | kraut/kimchi sulfur note |
-| HEMF | 17 (LSB); 43 (LEF, Givaudan data sheet); 0.04–21 (`01:Schwab13`, secondary); "< 20 ppb" (`04:M7` citing Huber 1992) vs "≤ 0.04 ppb" (`04:M2` citing its ref. 6) | ~10³ | secondary values excluded: (27, 9.0, 81) | miso HEMF is 10³–10⁴ µg/kg, so P(noticeable) ≈ 1 under every value |
+| linalool | 0.087 (CZ, (R)); 0.58–0.82 (LSB, rac/(R)); 6 (LEF, unspecified); (S) 2.7–8.3 | 95× | (0.82, 0.087, 8.3): median = LSB row Reglitz 2023, (R) | enantiomer of tea or cucumber linalool unknown |
+| dimethyl disulfide | 1.7 (LSB); 0.16–12 (LEF) | 75× | (1.7, 0.16, 12): median = LSB basic | — |
+| ethyl 2-methylbutanoate | 0.008–0.02 (LSB rows); 0.013 (CZ); 0.1–0.3 (LEF) | 37× | (0.0080, 0.0026, 0.30): median = LSB row Li 2017, (S) | — |
+| 2-methylpropanal | 0.49 (CZ); 0.1–2.3 (LEF) | 23× | (0.49, 0.10, 2.3): median = CZ D | — |
+| dimethyl trisulfide | 0.0099 (CZ); 0.099 (LSB row Schmidberger 2020, exactly 10×: possible slip); 0.005–0.01 (LEF) | 20× | (0.0099, 0.0033, 0.099): median = CZ D; the 2020 row is not used as a median (possible slip) | kraut/kimchi sulfur note |
+| HEMF | 17 (LSB); 43 (LEF, Givaudan data sheet); 0.04–21 (`01:Schwab13`, secondary); "< 20 ppb" (`04:M7` citing Huber 1992) vs "≤ 0.04 ppb" (`04:M2` citing its ref. 6) | ~10³ | secondary values excluded: (17, 5.6, 51), median = LSB basic | miso HEMF is 10³–10⁴ µg/kg, so P(noticeable) ≈ 1 under every value |
 | furaneol, ethyl butanoate, nonanal, 3-methylbutanol, 2-phenylethanol | lit/secondary ranges of 3–5 decades (e.g. ethyl butanoate lit 0.0032–450) against modern values within ×1.5–8 | — | modern values only | — |
 
 **OAVs quoted inside the research files use other thresholds** and are not targets: `03:S23` (decanoic 1 000, δ-decalactone 2.5, δ-dodecalactone 4.6, 2-nonanone 5, ethyl octanoate 19.3, octanoic 3 000), `04:G1` (3-methylbutanoic 30, DMTS 0.36, nonanal 1, phenylacetaldehyde 5, butanoic 240), `02:K1` (thresholds printed in ppm, ~10³× literature). The model recomputes every OAV from § 3.
@@ -933,7 +933,7 @@ Templates by data quality, highest-evidence ferments first; each step ends with 
 
 ### 11.4 UI notes (spec § 6 aroma strip)
 
-- **Headline strip** rows = aromatic series with at least one compound passing the § 1 sum rule for this batch: calibrated cells, plus reported cells with an `abs` or `semi` anchor, with a `measured` or `class` threshold, and not †. Bar height = P(series sum > 1), shade = median sum in the four ×-threshold bins.
+- **Aroma palette and strip** rows = aromatic series with at least one active compound with a threshold computing above zero (§ 1 rule, owner decision 2026-10-06). The palette (the preview) shows each series' peak P(noticeable) and its routes (ingredient, organism, chemistry); the strip shows bar height = P(series sum > 1), shade = median sum in the four ×-threshold bins.
 - **Drill-down** shows, in addition: reported (presence) compounds with a "reported" badge; 3-butenyl ITC with "threshold estimated"; AITC with "threshold from a class range"; allyl cyanide and 2,3-butanediol as concentrations with "no odour threshold known"; plausible compounds dashed behind "Show plausible compounds (n)".
 - **pH-corrected compounds** (acids, trimethylamine) carry one line on their card: "odour activity at this batch's pH: only the un-ionised form is volatile".
 - **Calibrated-from-shape** cells: the card says the timing follows a published time course while the amount is a model estimate.
