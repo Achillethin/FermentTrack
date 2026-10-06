@@ -49,8 +49,9 @@ def test_flour_pools_follow_the_new_threshold_medians() -> None:
         assert thr is not None and flour[key].hi >= 100 * thr.median, key
 
 
-def test_sourdough_has_aroma_data() -> None:
-    assert "sourdough" in A.AROMA_TYPES and "sourdough" in A.EVIDENCE
-    assert set(A.DEFAULT_INGREDIENTS["sourdough"]) == {"White wheat flour"}
+def test_new_types_have_aroma_data() -> None:
+    for t, default in (("sourdough", "White wheat flour"), ("vinegar", "White wine")):
+        assert t in A.AROMA_TYPES and t in A.EVIDENCE, t
+        assert set(A.DEFAULT_INGREDIENTS[t]) == {default}, t
     for t, cells in A.PENDING.items():
         assert set(cells) <= set(A.COMPOUNDS), t

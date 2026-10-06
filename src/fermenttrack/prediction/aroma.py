@@ -124,6 +124,7 @@ def odour_activity(conc: FloatArray, key: str, f_neutral: FloatArray, d: Draws) 
 
 LAB = frozenset({"lab", "lab_hetero", "lactococcus"})
 YEAST = frozenset({"yeast"})
+AAB = frozenset({"aab"})
 NONYEAST_AT = LAB | {"mould"}  # aminotransferase route of non-yeast organisms (§ 5.1)
 REDUCERS_LIPID = frozenset({"lab", "lab_hetero", "yeast"})  # § 5.8: not Lactococcus
 _LAB_GENERA = ("Lactobacillus", "Leuconostoc", "Tetragenococcus")
@@ -314,6 +315,9 @@ class _Tracers:
         self.conc: dict[str, FloatArray] = {}
         self.routes: dict[str, list[Route]] = {}
         self.inherit: dict[str, FloatArray] = {}  # internal states carried into a mix
+        # open vessels lose volatiles at the surface (§ 5.12): k_surf (1/d, N x 1), else 0
+        surf = A.K_SURF.get(ctx.ferment)
+        self.k_surf: FloatArray | float = d[surf] if surf else 0.0
 
     def start(self, key: str) -> FloatArray:
         """(N,) initial value of an internal state: carried in, else 0."""
@@ -353,7 +357,9 @@ class _Tracers:
         """Integrate `key` with its own (or the given) source, loss and initial pool, plus
         volatility. Stored as the compound's tracer unless explicit parts were given."""
         ctx, d = self.ctx, self.d
-        vol = volatility(key, ctx.temp, self.f_neutral(key), ctx.co2, d, ctx.co2_escapes)
+        vol = volatility(
+            key, ctx.temp, self.f_neutral(key), ctx.co2, d, ctx.co2_escapes, self.k_surf
+        )
         c0_ = self.c0.get(key, self.zero[:, 0]) if c0 is None else c0
         src_ = self.src.get(key, self.zero) if src is None else src
         k_ = (self.k.get(key, self.zero) if k is None else k) + vol
@@ -383,9 +389,13 @@ def concentrations(
     # 1. ingredient pools (§ 6): compounds carried in, and precursors
     pre: dict[str, FloatArray] = {}
     pre_from: dict[str, list[str]] = {}
+    # an alcoholic base's pools follow the batch's starting ethanol (§ 6.2), shared by mass
+    bases = sum(f for n, f in ctx.shares.items() if n in A.ALCOHOL_BASES)
+    per_base = ctx.pools[:, 0, PI["ethanol"]] / A.BASE_ETHANOL / max(bases, 1e-9)
     for name, share in ctx.shares.items():
+        scale_in = share * per_base if name in A.ALCOHOL_BASES else share
         for key in A.AROMA_INGREDIENTS.get(name, {}):
-            v = share * d[f"ing:{name}:{key}"][:, 0]
+            v = scale_in * d[f"ing:{name}:{key}"][:, 0]
             if key.startswith("@"):
                 scale = 1.0 if key == "@hexenol_residual" else 1000.0  # µmol/g -> µmol/kg
                 pre[key] = pre.get(key, 0.0) + v * scale
@@ -454,7 +464,22 @@ def concentrations(
                 for kind, name, how in tr.routes.get(ald, []):
                     tr.route(a, (kind, name, via if kind == "ingredient" else how))
                 tr.organisms(a, YEAST | LAB, f"reduces {A.COMPOUNDS[ald].name}")
-    for a in (*alc, "methionol", "methylbutanoic_3", "methylbutanoic_2", "methylpropanoic_2"):
+    # acetic acid bacteria oxidise the fusel alcohols to their acids (§ 5.1, D11)
+    g_aab = _gate(ctx, AAB)
+    k_aab = d["kmax_aab_fusel"] / 24.0 * g_aab
+    for a, _, _ in _ALC_ALD_ACID:
+        tr.loss(a, d["kmax_aab_pe"] / 24.0 * g_aab if a == "phenylethanol_2" else k_aab)
+    for a in (*alc, "methionol"):
+        if a in tr.src or a in tr.c0:
+            tr.solve(a)
+    for a, _, acid in _ALC_ALD_ACID:
+        if acid and a in tr.conc and tr.add(acid, k_aab * tr.conc[a] * mw[acid] / mw[a]):
+            name_a = A.COMPOUNDS[a].name
+            tr.organisms(acid, AAB, f"oxidises {name_a}")
+            for kind, name, _how in tr.routes.get(a, []):
+                if kind == "ingredient":
+                    tr.route(acid, (kind, name, f"{name_a}, oxidised by acetic acid bacteria"))
+    for a in ("methylbutanoic_3", "methylbutanoic_2", "methylpropanoic_2"):
         if a in tr.src or a in tr.c0:
             tr.solve(a)
 
@@ -527,6 +552,7 @@ def concentrations(
     if tr.add("acetaldehyde", 1000.0 * d["b_acetaldehyde_lab"] * f_lab):
         tr.organisms("acetaldehyde", LAB, "pyruvate overflow")
     tr.loss("acetaldehyde", d["kmax_acetaldehyde_yeast"] / 24.0 * _gate(ctx, YEAST))
+    tr.loss("acetaldehyde", d["kmax_aab_acetaldehyde"] / 24.0 * g_aab)  # AAB ALDH (§ 5.3)
 
     # 8. T4 sugar route (§ 5.4, D3): LAB pyruvate -> α-acetolactate, which decays to
     # diacetyl (oxidative share) or acetoin; diacetyl and 2,3-pentanedione are reduced by
@@ -561,6 +587,20 @@ def concentrations(
         if tr.add("butanediol_23", k_bdo * acetoin * mw["butanediol_23"] / mw["acetoin"]):
             for r in tr.routes.get("acetoin", []):
                 tr.route("butanediol_23", r)
+    # AAB oxidise 2,3-butanediol back to acetoin (§ 5.4, D11). ponytail: that acetoin is not
+    # fed to the yeast/LAB reduction again (a cycle only when both share a jar; second order)
+    k_ab = d["kmax_aab_bdo"] / 24.0 * g_aab
+    tr.loss("butanediol_23", k_ab)
+    if np.any(k_ab > 0.0) and ("butanediol_23" in tr.src or "butanediol_23" in tr.c0):
+        bdo = tr.solve("butanediol_23")
+        src = k_ab * bdo * mw["acetoin"] / mw["butanediol_23"]
+        more = tr.solve("acetoin", c0=tr.zero[:, 0], src=src, k=tr.k["acetoin"])
+        tr.conc["acetoin"] = tr.conc.get("acetoin", tr.zero) + more
+        tr.organisms("acetoin", AAB, "oxidises 2,3-butanediol")
+        for kind, name, _how in tr.routes.get("butanediol_23", []):
+            if kind == "ingredient":
+                via = "2,3-butanediol, oxidised by acetic acid bacteria"
+                tr.route("acetoin", (kind, name, via))
 
     # 9. T6 glucosinolates (§ 5.6): myrosinase release -> isothiocyanate / nitrile
     k_rel = d["gsl_release"] / 24.0 * q("q10_default", 20.0)

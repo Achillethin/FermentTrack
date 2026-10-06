@@ -149,3 +149,39 @@ def test_sugar_route_goes_through_acetolactate() -> None:
     assert np.all(c["diacetyl"][:, -1] > 0.0) and np.all(c["pentanedione_23"][:, -1] > 0.0)
     assert np.all(c["_acetolactate"] >= 0.0) and np.any(c["_acetolactate"] > 0.0)
     assert any(r[0] == "organism" for r in routes["diacetyl"])
+
+
+VIN = ["Acetobacter aceti", "Acetobacter pasteurianus"]
+
+
+def test_aab_sink_and_products() -> None:
+    _, c, routes, _ = _run({"White wine": 0.53}, VIN, ferment="vinegar")
+    for k in ("methylbutanol_3", "methylpropanol_2", "acetaldehyde", "butanediol_23"):
+        assert np.all(c[k][:, -1] < c[k][:, 0]), k
+    for k in ("methylbutanoic_3", "methylpropanoic_2", "acetoin"):
+        assert np.all(c[k][:, -1] > c[k][:, 0]), k
+    assert any(r[1] == "Acetobacter aceti" for r in routes["methylbutanoic_3"])
+    assert any(r[0] == "ingredient" and r[1] == "White wine" for r in routes["acetoin"])
+
+
+def test_aab_oxidation_mass_balance() -> None:
+    _, c, _, _ = _run({"White wine": 0.53}, VIN, ferment="vinegar")
+    lost = (c["methylpropanol_2"][:, 0] - c["methylpropanol_2"][:, -1]) / A.MW["methylpropanol_2"]
+    made = c["methylpropanoic_2"][:, -1] / A.MW["methylpropanoic_2"]
+    assert np.all(made <= lost * 1.0001)
+
+
+@pytest.mark.parametrize("base", ["White wine", "Hard cider"])
+def test_wine_base_scales_with_starting_ethanol(base: str) -> None:
+    ctx, c, _, d = _run({base: 0.5}, VIN, ferment="vinegar")
+    etoh0 = ctx.pools[:, 0, engine.PI["ethanol"]]
+    pool = d[f"ing:{base}:ethyl_acetate"][:, 0]
+    assert np.allclose(c["ethyl_acetate"][:, 0], pool * etoh0 / A.BASE_ETHANOL)
+
+
+def test_surface_loss_only_in_open_vessels() -> None:
+    d = aroma.draws(4, 0)
+    for ferment, open_ in (("vinegar", True), ("koji", True), ("lacto_ferment", False),
+                           ("sourdough", False)):  # fmt: skip
+        assert (ferment in A.K_SURF) == open_, ferment
+    assert np.all(d["k_surf_vinegar"] > 0.0) and np.all(d["k_surf_koji"] > 0.0)

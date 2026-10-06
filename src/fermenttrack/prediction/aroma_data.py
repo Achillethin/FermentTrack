@@ -169,6 +169,14 @@ PARAMS: dict[str, Prior] = {
     "hexenol_release": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
     "hexenol_loss": Prior(0.3, 0.1, 1.0),  # 1/d; est., shaped to 03:S10
     "loss_linalool": Prior(0.05, 0.01, 0.2),  # 1/d at 30 °C; est. (02:K1)
+    # Acetic acid bacteria (§ 5.1, § 5.3, § 5.4, D11), k_max 1/d
+    "kmax_aab_fusel": Prior(0.1, 0.02, 0.5),  # 02:K2, 02:V3, derived (with the fusel acid)
+    "kmax_aab_pe": _lin(0.005, 0.0, 0.02),  # 2-phenylethanol, a poor substrate; 02:V1, V3, V4
+    "kmax_aab_acetaldehyde": Prior(5.0, 1.0, 20.0),  # est. (02:V1, 02:V4)
+    "kmax_aab_bdo": Prior(0.5, 0.1, 2.0),  # 2,3-butanediol -> acetoin; est. (02:V1, 02:V12)
+    # T12 open surface (§ 5.12): k0 = k_surf x K_aw, 1/d
+    "k_surf_vinegar": Prior(20.0, 5.0, 80.0),  # surface culture; 02:V3, derived
+    "k_surf_koji": Prior(50.0, 10.0, 200.0),  # koji bed; est. (05:E19)
     # T12 volatility (§ 5.12) and shared
     "kaw_eta": _lin(0.35, 0.15, 0.7),  # 05:Godillot23, derived
     "kaw_tfactor": _lin(2.1, 1.9, 2.3),  # per +10 °C; 05:Sander23, derived
@@ -247,6 +255,32 @@ PRECURSOR_LABEL: dict[str, str] = {
 # Ingredient -> initial compound (µg/kg of ingredient) or "@" precursor (µmol/g fresh
 # weight; @hexenol_residual in µg/kg). Names as in seed_data; the napa cabbage and the
 # cucumber are stand-ins until the catalogue has those ingredients (§ 6.1, § 6.2).
+# Wine/cider base -> vinegar (§ 6.2, D11), µg per kg of a 94 g/kg-ethanol base: 05:Saerens10
+# Table 2 (esters; medians at geometric midpoints), 05:Godillot23 (fusel alcohols),
+# 05:LiMira17 (acetaldehyde), 2-phenylethanol = T1 b x 200 g/L (derived), 2,3-butanediol est.
+# The 3- + 2-methylbutanol sum 110 000 (85 000-145 000) is split with § 5.1's 2-methylbutanol
+# share 0.20 (0.10-0.35), extremes multiplied: derived (B3).
+_WINE: dict[str, Prior] = {
+    "ethyl_acetate": Prior(40_000.0, 22_500.0, 63_500.0),
+    "isoamyl_acetate": Prior(600.0, 100.0, 3_400.0),
+    "isobutyl_acetate": Prior(100.0, 10.0, 1_600.0),
+    "phenylethyl_acetate": Prior(300.0, 50.0, 18_500.0),
+    "ethyl_butanoate": Prior(130.0, 10.0, 1_800.0),
+    "ethyl_hexanoate": Prior(300.0, 30.0, 3_400.0),
+    "ethyl_octanoate": Prior(400.0, 50.0, 3_800.0),
+    "ethyl_decanoate": Prior(100.0, 10.0, 2_100.0),
+    "methylbutanol_3": Prior(88_000.0, 55_250.0, 130_500.0),
+    "methylbutanol_2": Prior(22_000.0, 8_500.0, 50_750.0),
+    "methylpropanol_2": Prior(55_000.0, 35_000.0, 80_000.0),
+    "acetaldehyde": Prior(24_000.0, 14_000.0, 34_000.0),
+    "phenylethanol_2": Prior(40_000.0, 10_000.0, 160_000.0),
+    "butanediol_23": Prior(500_000.0, 100_000.0, 1_500_000.0),
+}
+BASE_ETHANOL = 94.0  # g/kg ethanol of the base the § 6.2 pools describe (200 g/L x 0.47)
+# Alcoholic bases: pools scale with the batch's starting ethanol (/ BASE_ETHANOL), shared by
+# mass between the logged bases (§ 6.2: "scale every value by ethanol0 / 94")
+ALCOHOL_BASES = frozenset({"Red wine", "White wine", "Hard cider"})
+
 # Flour (§ 6.2), re-derived (B2) with the 2026-10-06 threshold medians: the spec's priors
 # were OAV > 100 in rye flour (02:S2) x the old medians (hexanal 3.4, (E)-2-nonenal 0.22,
 # methional 0.29); each prior is scaled by new/old median (2.4/3.4, 0.69/0.22, 0.43/0.29).
@@ -286,15 +320,20 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
         "hexanal": _x3(29.0), "linalool": _x3(4.6), "e2_nonenal": Prior(5.0, 1.0, 25.0),
     },
     "White wheat flour": _FLOUR, "Whole wheat flour": _FLOUR, "Rye flour": _FLOUR,
+    "Red wine": _WINE, "White wine": _WINE, "Hard cider": _WINE,
 }  # fmt: skip
 
 DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
     "lacto_ferment": {"Cabbage": 0.98},  # no recipe logged: a 2 % dry-salted sauerkraut
     # derived (B2): the profile's typical levain has 370 g/kg starch = 536 g T65 flour (69 %)
     "sourdough": {"White wheat flour": 0.54},
+    # derived (B3): 55 g/kg ethanol / 103 g/kg in white wine (FDC); only the ethanol counts
+    "vinegar": {"White wine": 0.53},
 }
 
-AROMA_TYPES = frozenset({"lacto_ferment", "sourdough"})  # ferment types with aroma templates
+AROMA_TYPES = frozenset({"lacto_ferment", "sourdough", "vinegar"})  # with aroma templates
+# Open vessels: ferment type -> its surface-loss parameter (§ 5.12); closed jars and dough: 0
+K_SURF: dict[str, str] = {"vinegar": "k_surf_vinegar", "koji": "k_surf_koji"}
 
 # Per-member strain flags (Bernoulli): the chance that the member's strain has the trait
 FLAGS: dict[str, float] = {
@@ -387,6 +426,47 @@ EVIDENCE: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {
         "acetic": ("engine", "abs", ("forecast",)),
         "ethanol": ("engine", "abs", ("forecast",)),
     },
+    "vinegar": {  # § 4.2: every calibrated cell is a direction (wine -> vinegar)
+        "acetaldehyde": (_CAL, "shape", ("02:V1", "02:V4")),
+        "ethyl_acetate": (_CAL, "shape", ("02:V3", "02:V1")),
+        "acetoin": (_CAL, "shape", ("02:V1", "02:V3", "02:V4", "02:V10")),
+        "methylbutanol_3": (_CAL, "shape", ("02:V1", "02:V3", "02:V4")),
+        "methylbutanol_2": (_CAL, "shape", ("02:V1", "02:V2", "02:V3")),
+        "methylpropanol_2": (_CAL, "shape", ("02:V1", "02:V3", "02:V4")),
+        "phenylethanol_2": (_CAL, "shape", ("02:V1", "02:V3", "02:V4")),
+        "methylbutanoic_3": (_CAL, "shape", ("02:V4", "02:V8")),
+        "methylpropanoic_2": (_CAL, "shape", ("02:V4",)),
+        **{k: (_CAL, "shape", ("02:V3", "02:V4")) for k in (
+            "isoamyl_acetate", "isobutyl_acetate", "ethyl_hexanoate", "ethyl_octanoate",
+            "ethyl_decanoate", "ethyl_2methylpropanoate",
+        )},  # fmt: skip
+        "linalool": (_CAL, "shape", ("02:V3",)),
+        "damascenone": (_CAL, "shape", ("02:V3",)),
+        "diacetyl": (_REP, "presence", ("02:V3", "02:V6")),
+        "butanediol_23": (_REP, "presence", ("02:V1", "02:V3", "02:V4")),
+        "ethyl_lactate": (_REP, "presence", ("02:V1", "02:V3")),
+        **{k: (_REP, "presence", ("02:V4", "02:V6", "02:V9", "02:V13")) for k in (
+            "methylbutanal_3", "methylbutanal_2", "methylpropanal_2", "methional",
+        )},  # fmt: skip
+        "methylbutanoic_2": (_REP, "presence", ("02:V13",)),
+        **{k: (_REP, "presence", ("02:V3", "02:V4", "02:V6", "02:V8")) for k in (
+            "phenylethyl_acetate", "ethyl_butanoate", "ethyl_2methylbutanoate",
+        )},  # fmt: skip
+        **{k: (_REP, "presence", ("02:V4", "02:V3")) for k in (
+            "hexanoic", "octanoic", "decanoic",
+        )},  # fmt: skip
+        **{k: (_REP, "presence", ("02:V3", "02:V4", "02:V5", "02:V6")) for k in (
+            "hexanal", "nonanal", "octen3one", "citronellol",
+        )},  # fmt: skip
+        "vinylguaiacol_4": (_REP, "presence", ("02:V14",)),
+        "ethylguaiacol_4": (_REP, "presence", ("02:V6", "02:V9")),
+        "ethylphenol_4": (_REP, "presence", ("02:V6", "02:V9")),
+        **{k: ("plausible", "", ()) for k in (
+            "pentanedione_23", "phenylacetaldehyde", "methionol",
+        )},  # fmt: skip
+        "acetic": ("engine", "abs", ("forecast",)),
+        "ethanol": ("engine", "abs", ("forecast",)),
+    },
 }
 
 # type -> compound -> why it computes zero there (the † cells of § 4 and plausible
@@ -399,5 +479,11 @@ PENDING: dict[str, dict[str, str]] = {
     "sourdough": {
         **{k: f"the flour's {COMPOUNDS[k].name} is not curated yet" for k in _FLOUR_PENDING},
         "vinylphenol_4": "the flour's p-coumaric acid is not curated yet",
+    },
+    "vinegar": {
+        **{k: f"the base wine's {COMPOUNDS[k].name} is not curated yet" for k in (
+            "linalool", "damascenone", "hexanal", "nonanal", "octen3one", "citronellol",
+        )},  # fmt: skip
+        "vinylguaiacol_4": "the base fruit's ferulic acid is not curated yet",
     },
 }
