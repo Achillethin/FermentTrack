@@ -62,7 +62,7 @@ function AromaStrip({ rows, grid, nowH, horizonH, timeUnit, hoverIndex, onHover,
                 return (
                   <rect
                     key={c}
-                    x={x(grid[c]) - colW / 2}
+                    x={Math.min(Math.max(x(grid[c]) - colW / 2, M.left + 1), M.left + innerW - colW)}
                     y={34 - h}
                     width={colW}
                     height={h}
