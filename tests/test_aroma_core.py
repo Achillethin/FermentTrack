@@ -59,9 +59,20 @@ def test_draws_stay_physical() -> None:
     assert d["matrix"].shape == (4000, 1) and "ing:Cabbage:@sinigrin" in d
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "§ 7 / D5: with the 2026-10-06 median (LSB 1.2 µg/kg, free base) the pH-6.9 effective "
+    "threshold is 1.2 x 795 = 954 µg/kg, x2.17 of Mall & Schieberle's 440 µg/kg; D5's "
+    "check used the 0.87 µg/kg value (690 µg/kg)"))
 def test_trimethylamine_effective_threshold_at_ph_6_9() -> None:
-    """Curation spec § 7 invariant: the free-base threshold, corrected to pH 6.9 by the
-    neutral fraction, lands within the prior's own x/÷3 of the measured 440 µg/kg."""
+    """Curation spec § 7 invariant as written: within x2 of the measured 440 µg/kg."""
+    thr = A.COMPOUNDS["trimethylamine"].threshold
+    assert thr is not None
+    f = aroma.neutral_fraction(np.array([6.9]), "base", 9.8)[0]
+    assert 440.0 / 2 <= thr.median / f <= 440.0 * 2
+
+
+def test_trimethylamine_effective_threshold_within_x3_of_440() -> None:
+    """The same correction lands within the threshold prior's own x/÷3 of 440 µg/kg."""
     thr = A.COMPOUNDS["trimethylamine"].threshold
     assert thr is not None
     f = aroma.neutral_fraction(np.array([6.9]), "base", 9.8)[0]
