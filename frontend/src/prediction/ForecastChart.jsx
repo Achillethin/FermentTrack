@@ -54,7 +54,7 @@ const HALO = {
  * One forecast chart: median line + 90 % band per series, observed points,
  * "now" split, optional reference lines, shared crosshair and tooltip.
  *
- * series: [{ key, label, unit, t_h, p05, p50, p95, slot }] (same t_h grid)
+ * series: [{ key, label, unit, t_h, p05, p50, p95, slot, dashed? }] (same t_h grid)
  * phases (optional, sourdough): [{ key, label, start_h, end_h }] drawn as
  * alternating washes with a dashed boundary and a label at the top.
  */
@@ -451,6 +451,7 @@ export default function ForecastChart({
                     d={pathFor(grid, s.p50, x, y, 0, Math.min(splitIdx + 1, grid.length - 1))}
                     fill="none"
                     strokeWidth={2}
+                    strokeDasharray={s.dashed ? "5 4" : undefined}
                     strokeOpacity={nowClamped > 0 ? 0.5 : 1}
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -460,6 +461,7 @@ export default function ForecastChart({
                       d={pathFor(grid, s.p50, x, y, splitIdx, grid.length - 1)}
                       fill="none"
                       strokeWidth={2}
+                      strokeDasharray={s.dashed ? "5 4" : undefined}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />

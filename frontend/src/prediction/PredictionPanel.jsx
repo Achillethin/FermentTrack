@@ -29,7 +29,7 @@ const GROUP_ORDER = [
 ];
 
 // Groups shown in the Taste & aroma and Nutrition lenses, not in Process.
-const SENSORY_GROUPS = new Set(["nutrition", "taste"]);
+const SENSORY_GROUPS = new Set(["nutrition", "taste", "aroma"]);
 
 // Readings a user can log that the model calibrates on.
 const MEASURABLE = { ph: "pH", gravity: "gravity", brix: "Brix", rise: "rise", tta: "TTA" };
@@ -69,6 +69,8 @@ function chartMeta(group, unit) {
       };
     case "taste":
       return { title: "Taste", subtitle: "× detection threshold in water · log scale", logScale: true };
+    case "aroma":
+      return { title: "Aroma", subtitle: "× odour threshold in water · log scale", logScale: true };
     case "nutrition":
       if (unit === "% ABV") return { title: "Alcohol", subtitle: "% ABV" };
       if (unit === "kcal/100 g") return { title: "Energy", subtitle: "kcal per 100 g" };

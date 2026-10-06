@@ -1,4 +1,6 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
+import Aroma from "./Aroma.jsx";
+import AromaPalette from "./AromaPalette.jsx";
 import { useWidth } from "./ForecastChart.jsx";
 import { timeLabel } from "./format.js";
 import { linear, nearestIndex } from "./scale.js";
@@ -97,9 +99,11 @@ function PhaseBand({ tp, nowH, horizonH, timeUnit, hoverIndex, onHover }) {
   );
 }
 
-/** Taste & aroma lens: the phase band and the taste chart (aroma joins in increment B). */
+/** Taste & aroma lens: the phase band, the taste chart, the aroma palette and strip. */
 export default function TasteAroma({ data, charts, renderChart, hoverIndex, onHover, timeUnit }) {
   const s = data.sensory;
+  const [openSeries, setOpenSeries] = useState(null);
+  const hasAroma = Array.isArray(s.aroma_series);
   return (
     <div className="space-y-5">
       <p className="border-l-2 border-slate-500 pl-3 text-xs leading-relaxed text-slate-300">{s.disclaimer}</p>
@@ -114,7 +118,31 @@ export default function TasteAroma({ data, charts, renderChart, hoverIndex, onHo
         />
       )}
       {charts.map((c) => renderChart(c, THRESHOLD_LINE))}
-      <p className="text-xs text-slate-400">Aroma compounds are coming next; bitterness and fizz are not modelled.</p>
+      {hasAroma ? (
+        <>
+          <AromaPalette
+            sensory={s}
+            series={data.series || []}
+            timeUnit={timeUnit}
+            openSeries={openSeries}
+            onOpen={setOpenSeries}
+          />
+          <Aroma
+            sensory={s}
+            series={data.series || []}
+            nowH={data.now_h}
+            horizonH={data.horizon_h}
+            timeUnit={timeUnit}
+            hoverIndex={hoverIndex}
+            onHover={onHover}
+            openSeries={openSeries}
+            renderChart={renderChart}
+          />
+          <p className="text-xs text-slate-400">Bitterness and fizz are not modelled.</p>
+        </>
+      ) : (
+        <p className="text-xs text-slate-400">Aroma compounds are coming next; bitterness and fizz are not modelled.</p>
+      )}
     </div>
   );
 }
