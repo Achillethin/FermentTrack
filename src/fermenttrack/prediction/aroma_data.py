@@ -134,7 +134,9 @@ PARAMS: dict[str, Prior] = {
     "share_c4_leuc": _lin(0.7, 0.3, 1.0),  # same, Leuconostoc; 05:Cogan81 (hi); median est.
     # Milk fat lactones (§ 5.8): fat-bound precursor = x times the free lactone, released
     "lactone_precursor_x": Prior(5.0, 1.0, 20.0),  # est. (03:S23 shape)
-    "lactone_release": Prior(0.7, 0.1, 2.4),  # 1/d; est. (03:S23 shape)
+    # 1/d; est. (03:S23 shape). Calibrated 2026-10-06 (0.7 -> 0.3): curation tests 30
+    # (kefir δ-dodecalactone 48 h / 24 h >= 1.3) and 37 (cheese lactones within x/÷3 of milk)
+    "lactone_release": Prior(0.3, 0.1, 2.4),
     # T9 tea terpenoids (§ 5.9): bound glycosides released by yeast and acid; losses at 30 °C
     # (q10_default)
     "kmax_bound_release": Prior(0.1, 0.02, 0.5),  # 1/d, yeast beta-glucosidase; est. (02:K2, K4)
