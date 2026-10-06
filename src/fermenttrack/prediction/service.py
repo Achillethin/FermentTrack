@@ -19,7 +19,7 @@ from typing import Any
 import numpy as np
 
 from fermenttrack.composition import to_grams
-from fermenttrack.prediction import derived
+from fermenttrack.prediction import aroma, derived
 from fermenttrack.prediction.engine import PI, SimulationError, Trajectories, simulate
 from fermenttrack.prediction.inference import (
     MIN_ESS,
@@ -996,16 +996,27 @@ def _forecast(
 
     want_density = profile.show_density
     values = _series_values(tr, spec, z, want_density)
-    if keep is not None:  # member_values
-        keep.update(t=t_eval, values=values, weights=weights)
+    ar: aroma.AromaResult | None = None
+    try:
+        shares, no_data = aroma.ingredient_shares(
+            [(r.name, to_grams(r.quantity, r.unit), r.role) for r in inputs.recipe], profile.type
+        )
+        ar = aroma.evaluate(
+            spec.params(z[:, : spec.dim]), tr, profile, shares, no_data, seed + 2,
+            profile.co2_escapes,
+        )  # fmt: skip
+    except Exception:  # aroma must never break a forecast, nor taste and nutrition
+        logger.exception("aroma layer failed for a %s batch", profile.type)
     der: derived.Derived | None = None
     try:
         der = derived.evaluate(
             tr.pools, tr.ph, profile, init.carried, seed=seed + 1,
-            co2_escapes=profile.co2_escapes,
+            co2_escapes=profile.co2_escapes, aroma=ar,
         )  # fmt: skip
     except Exception:  # the derived layer must never break a forecast
         logger.exception("derived layer failed for a %s batch", profile.type)
+    if keep is not None:  # member_values
+        keep.update(t=t_eval, values={**values, **(der.values if der else {})}, weights=weights)
     t_grid = t_eval[grid_idx]
     series: list[dict[str, Any]] = []
     for key, v in values.items():

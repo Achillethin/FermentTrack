@@ -573,3 +573,88 @@ def concentrations(
         k: v for k, v in tr.conc.items() if k.startswith("_") or k in tr.routes or np.any(v > 0.0)
     }
     return made_here, {k: r for k, r in tr.routes.items() if k in made_here}
+
+
+# ── odour activity, series sums, and what is not modelled ──────────────
+
+FLOOR = 1e-3  # odour activity floor for log10 values (a thousandth of the threshold)
+_LATER = {  # evidence compounds without a B1 route -> why (curation spec § 4, § 11)
+    "diacetyl": "the citrate → α-acetolactate chain arrives in a later increment",
+    "pentanedione_23": "the citrate → α-acetolactate chain arrives in a later increment",
+    "linalool": "bound terpenes of the vegetable are not curated yet",
+    "geraniol": "bound terpenes of the vegetable are not curated yet",
+    "carvone": "the spice precursor (caraway, dill, mint) is not curated yet",
+    "geranial": "the spice precursor (ginger, lemongrass, citrus) is not curated yet",
+    "neral": "the spice precursor (ginger, lemongrass, citrus) is not curated yet",
+    "vinylguaiacol_4": "the vegetable's ferulic acid is not curated yet",
+    "methional": "the vegetable's free amino acids are not tracked yet",
+    "phenylacetaldehyde": "the vegetable's free amino acids are not tracked yet",
+}
+
+
+@dataclass
+class AromaResult:
+    conc: dict[str, FloatArray]  # µg/kg (N, T)
+    oav: dict[str, FloatArray]  # odour activity (N, T): active compounds with a threshold
+    series: dict[str, FloatArray]  # log10 summed odour activity per aromatic series (N, T)
+    members: dict[str, list[str]]  # series -> its compounds in this batch
+    compounds: list[str]  # computed compounds, by evidence tier then key
+    routes: dict[str, list[Route]]
+    tiers: dict[str, tuple[str, str, tuple[str, ...]]]  # key -> (tier, anchor, sources)
+    not_modelled: dict[str, list[str]]  # notes, organisms, ingredients
+
+
+def _empty(note: str, no_data: list[str]) -> AromaResult:
+    return AromaResult({}, {}, {}, {}, [], {}, {}, {"notes": [note], "organisms": [],
+                                                   "ingredients": no_data})  # fmt: skip
+
+
+def evaluate(
+    params: EnsembleParams, tr: Trajectories, profile: FermentProfile,
+    shares: dict[str, float], no_data: list[str], seed: int, co2_escapes: bool,
+) -> AromaResult:  # fmt: skip
+    """Aroma for every member at every time: concentrations, odour activities and series
+    sums (every active compound with a threshold counts: owner decision 2026-10-06)."""
+    if profile.type not in A.B1_TYPES or tr.y is None:
+        return _empty(f"Aroma for {profile.type.replace('_', ' ')} arrives in a later increment.",
+                      no_data)  # fmt: skip
+    ctx = build_context(params, tr, profile, shares, co2_escapes)
+    d = draws(params.n, seed)
+    conc, routes = concentrations(ctx, d)
+    evidence = A.EVIDENCE.get(profile.type, {})
+    made = [k for k in conc if not k.startswith("_")]
+    oav: dict[str, FloatArray] = {}
+    members: dict[str, list[str]] = {}
+    for key in made:
+        c = A.COMPOUNDS[key]
+        if c.status != "active" or c.threshold is None:
+            continue
+        oav[key] = odour_activity(conc[key], key, neutral_fraction(ctx.ph, c.ph_kind, c.pka), d)
+        for s in c.series:
+            members.setdefault(s, []).append(key)
+    series = {
+        s: np.log10(np.maximum(np.sum([oav[k] for k in ks], axis=0), FLOOR))
+        for s, ks in members.items()
+    }
+    rank = {"calibrated": 0, "reported": 1, "plausible": 2, "engine": 3}
+    tiers = {k: evidence.get(k, ("plausible", "", ())) for k in made}
+    notes: dict[str, list[str]] = {}
+    for key in evidence:
+        c = A.COMPOUNDS[key]
+        if key in made and float(np.max(conc[key])) > 0.0:
+            continue
+        why = (
+            "no organism in the model makes it yet" if c.status == "inactive"
+            else _LATER.get(key, "no route in this recipe")
+        )  # fmt: skip
+        notes.setdefault(why, []).append(c.name)
+    return AromaResult(
+        conc={k: conc[k] for k in made}, oav=oav, series=series, members=members,
+        compounds=sorted(made, key=lambda k: (rank[tiers[k][0]], k)), routes=routes,
+        tiers=tiers,
+        not_modelled={
+            "notes": [f"{', '.join(names)}: {why}." for why, names in notes.items()],
+            "organisms": [n for n, c in zip(ctx.names, ctx.classes, strict=True) if c == "unknown"],
+            "ingredients": no_data,
+        },
+    )  # fmt: skip

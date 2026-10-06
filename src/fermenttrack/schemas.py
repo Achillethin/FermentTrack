@@ -432,7 +432,7 @@ class PredictionSeriesOut(BaseModel):
     unit: str  # "" | "g/kg" | "log CFU/g" | "SG" | "°Bx" | "%"
     group: Literal[
         "ph", "density", "substrates", "products", "growth", "population", "rise", "acidity",
-        "nutrition", "taste",
+        "nutrition", "taste", "aroma",
     ]
     t_h: list[float]
     p05: list[float]
@@ -522,6 +522,54 @@ class TastePhasesOut(BaseModel):
     prob: dict[str, list[float]]  # phase -> weighted share of members in it, per t_h
 
 
+class AromaSeriesOut(BaseModel):
+    # One aromatic series (fruity, sulfurous, ...): the summed odour activity of its compounds.
+    key: str
+    label: str
+    compounds: list[str]
+    noticeable: list[float]  # P(series sum above threshold) on taste_phases.t_h
+    peak_noticeable: float
+    peak_t_h: float
+
+
+class AromaRouteOut(BaseModel):
+    kind: Literal["ingredient", "organism", "chemistry"]
+    name: str
+    via: str
+
+
+class AromaThresholdOut(BaseModel):
+    p50: float
+    lo: float
+    hi: float
+
+
+class AromaCompoundOut(BaseModel):
+    key: str
+    name: str
+    pubchem: str
+    chebi: str
+    kegg: str
+    descriptor: str
+    series: list[str]
+    tier: str  # calibrated | reported | plausible | engine
+    anchor: str
+    threshold_basis: str  # measured | class | est | none
+    threshold: AromaThresholdOut | None  # µg/kg in water; None: shown as concentration
+    ph_corrected: bool
+    routes: list[AromaRouteOut]
+    peak_noticeable: float | None
+    peak_t_h: float | None
+    sources: list[str]
+    in_series_sum: bool
+
+
+class NotModelledAromaOut(BaseModel):
+    notes: list[str]
+    organisms: list[str]
+    ingredients: list[str]  # logged ingredients without aroma data yet
+
+
 class SensoryOut(BaseModel):
     # Taste and nutrition derived from the same ensemble (spec 2026-10-02); model estimates.
     derived_version: str
@@ -533,6 +581,9 @@ class SensoryOut(BaseModel):
     nutrition_label: list[NutritionRowOut]
     noticeable: dict[str, dict[str, float]]  # "now"/"end" -> taste -> P(above threshold)
     assumptions: list[str]
+    aroma_series: list[AromaSeriesOut] = []
+    compounds: list[AromaCompoundOut] = []
+    not_modelled_aroma: NotModelledAromaOut | None = None
 
 
 class PredictionOut(BaseModel):

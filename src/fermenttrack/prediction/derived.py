@@ -2,25 +2,30 @@
 
 Pure numpy, no DB. Computed per ensemble member from the trajectories after the kinetic
 solve (the solve is unchanged), so the posterior your readings shaped carries over and a
-what-if temperature moves these curves too. Aroma joins in increment B.
+what-if temperature moves these curves too. Aroma (increment B) is computed by aroma.py and
+handed in; this module turns it into series and the sensory block.
 Design: docs/superpowers/specs/2026-10-02-flavour-nutrition-design.md § 2, 3, 7, 8.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
 
+from fermenttrack.prediction import aroma_data as A
 from fermenttrack.prediction import compounds as C
 from fermenttrack.prediction.engine import ACIDS, PI
 from fermenttrack.prediction.inference import weighted_quantiles
 from fermenttrack.prediction.priors import FloatArray, Prior
 from fermenttrack.prediction.profiles import FermentProfile, Milestone, TasteSpec
 
-DERIVED_VERSION = "sensory-v1"
+if TYPE_CHECKING:
+    from fermenttrack.prediction.aroma import AromaResult
+
+DERIVED_VERSION = "sensory-v2"
 DISCLAIMER = (
     "Taste shows which tastes may be above their detection threshold for people tasting in "
     "water, not how it will taste to you. Spoilage off-flavours are not modelled: trust your "
@@ -158,6 +163,7 @@ _SHOW_IF = {
     "taste:sweet": -1.0, "taste:umami": -1.0, "taste:alcohol": -1.0,
 }  # fmt: skip
 _OPTIONAL_ROWS = {"lactose", "free_amino_acids", "alcohol"}  # left out when always ~0
+_AROMA_SHOW_IF = -2.0  # a compound's band is drawn once it reaches a hundredth of threshold
 
 
 @dataclass
@@ -168,6 +174,7 @@ class Derived:
     lower: frozenset[str]  # label rows that are lower bounds
     activity: dict[str, FloatArray]  # taste -> (N, T) concentration / threshold
     phases: tuple[str, ...] = ()
+    aroma: AromaResult | None = None
 
 
 def _draws(n: int, spec: TasteSpec | None, seed: int) -> dict[str, FloatArray]:
@@ -187,9 +194,9 @@ def _draws(n: int, spec: TasteSpec | None, seed: int) -> dict[str, FloatArray]:
 
 def evaluate(
     pools: FloatArray, ph: FloatArray, profile: FermentProfile, carried: Carried, seed: int,
-    co2_escapes: bool = True,
+    co2_escapes: bool = True, aroma: AromaResult | None = None,
 ) -> Derived:  # fmt: skip
-    """Nutrition and taste for every member at every time of the trajectory."""
+    """Nutrition and taste (and aroma, when given) for every member at every time."""
     rows, lower = nutrition(pools, carried, co2_escapes)
     spec = profile.taste
     d = _draws(pools.shape[0], spec, seed)
@@ -216,8 +223,10 @@ def evaluate(
     values.update(
         {f"taste:{k}": np.log10(np.maximum(a, 10.0**FLOOR)) for k, a in activity.items()}
     )
+    if aroma is not None:
+        values.update(_aroma_values(aroma))
     if spec is None:
-        return Derived(values, rows, lower, activity)
+        return Derived(values, rows, lower, activity, aroma=aroma)
     acids = p("lactic_acid") + p("acetic_acid") + p("gluconic_acid")
     metrics = {
         "sugar_acid": np.asarray(sweet_raw / np.maximum(acids, 1e-3)),  # g/g, both per kg
@@ -232,7 +241,29 @@ def evaluate(
         ok &= (m > thr) if b.kind == "above" else (m < thr)
         phase += ok
     values["taste_phase"] = phase
-    return Derived(values, rows, lower, activity, spec.phases)
+    return Derived(values, rows, lower, activity, spec.phases, aroma)
+
+
+def _aroma_values(ar: AromaResult) -> dict[str, FloatArray]:
+    """odor:<key> log10 odour activity (conc-only compounds: log10 µg/kg), aroma:<series>
+    log10 summed activity, conc:<key> µg/kg (for calibration; never an API series)."""
+    out: dict[str, FloatArray] = {}
+    for key in ar.compounds:
+        v = ar.oav.get(key, ar.conc[key])
+        out[f"odor:{key}"] = np.log10(np.maximum(v, 10.0**FLOOR))
+        out[f"conc:{key}"] = ar.conc[key]
+    out.update({f"aroma:{s}": v for s, v in ar.series.items()})
+    return out
+
+
+def _aroma_meta(ar: AromaResult | None) -> dict[str, tuple[str, str, str]]:
+    if ar is None:
+        return {}
+    meta = {f"aroma:{s}": (s.capitalize(), "aroma", "× threshold") for s in ar.series}
+    for key in ar.compounds:
+        unit = "× threshold" if key in ar.oav else "µg/kg"
+        meta[f"odor:{key}"] = (A.COMPOUNDS[key].name, "aroma", unit)
+    return meta
 
 
 def taste_milestones(profile: FermentProfile) -> tuple[Milestone, ...]:
@@ -254,11 +285,11 @@ def series_out(
 ) -> list[dict[str, Any]]:
     """PredictionSeriesOut-shaped bands on the display grid (`idx` into the trajectory)."""
     out: list[dict[str, Any]] = []
-    for key, (label, group, unit) in META.items():
+    for key, (label, group, unit) in {**META, **_aroma_meta(der.aroma)}.items():
         v = der.values.get(key)
         if v is None:
             continue
-        floor = _SHOW_IF.get(key)
+        floor = _AROMA_SHOW_IF if key.startswith("odor:") else _SHOW_IF.get(key)
         if floor is not None and float(np.max(v[:, idx])) < floor:
             continue  # no member reaches it, so neither does the 95th percentile: skip the sort
         q = weighted_quantiles(v[:, idx], w, (0.05, 0.5, 0.95))
@@ -326,4 +357,48 @@ def sensory_block(
         "nutrition_label": label,
         "noticeable": noticeable,
         "assumptions": list(ASSUMPTIONS),
+        **_aroma_block(der.aroma, t[idx], wn, idx),
     }
+
+
+def _aroma_block(
+    ar: AromaResult | None, t_grid: FloatArray, wn: FloatArray, idx: NDArray[np.intp]
+) -> dict[str, Any]:
+    """sensory.aroma_series, .compounds and .not_modelled_aroma (empty without aroma)."""
+    if ar is None:
+        return {"aroma_series": [], "compounds": [], "not_modelled_aroma": None}
+
+    def chance(above: NDArray[np.bool_]) -> tuple[list[float], float, float]:
+        p = wn @ above
+        i = int(np.argmax(p))
+        return [round(float(x), 3) for x in p], round(float(p[i]), 3), round(float(t_grid[i]), 3)
+
+    series: list[dict[str, Any]] = []
+    for s, v in ar.series.items():
+        noticeable, s_peak, s_peak_t = chance(v[:, idx] > 0.0)
+        series.append({
+            "key": s, "label": s.capitalize(), "compounds": ar.members[s],
+            "noticeable": noticeable, "peak_noticeable": s_peak, "peak_t_h": s_peak_t,
+        })  # fmt: skip
+    series.sort(key=lambda r: -float(r["peak_noticeable"]))
+    compounds = []
+    for key in ar.compounds:
+        c = A.COMPOUNDS[key]
+        tier, anchor, sources = ar.tiers[key]
+        peak: float | None = None
+        peak_t: float | None = None
+        if key in ar.oav:
+            _, peak, peak_t = chance(ar.oav[key][:, idx] > 1.0)
+        thr = c.threshold
+        compounds.append({
+            "key": key, "name": c.name, "pubchem": c.pubchem, "chebi": c.chebi,
+            "kegg": c.kegg, "descriptor": c.descriptor, "series": list(c.series),
+            "tier": tier, "anchor": anchor, "threshold_basis": c.basis,
+            "threshold": {"p50": thr.median, "lo": thr.lo, "hi": thr.hi} if thr else None,
+            "ph_corrected": bool(c.ph_kind),
+            "routes": [{"kind": k, "name": n, "via": v} for k, n, v in ar.routes.get(key, [])],
+            "peak_noticeable": peak, "peak_t_h": peak_t, "sources": list(sources),
+            "in_series_sum": key in ar.oav,
+        })  # fmt: skip
+    return {"aroma_series": series, "compounds": compounds,
+            "not_modelled_aroma": ar.not_modelled}  # fmt: skip

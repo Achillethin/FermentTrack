@@ -90,7 +90,7 @@ async def test_prediction_endpoint(client: AsyncClient, db_session: AsyncSession
     assert org["pathways"][0]["in_reference_graph"] is True
     assert body["initial"]["source"] == "recipe"
     assert any(s["key"] == "lactic_acid" for s in body["series"])
-    assert body["sensory"]["derived_version"] == "sensory-v1"
+    assert body["sensory"]["derived_version"] == "sensory-v2"
     assert body["sensory"]["validated"] is False
     assert all("lens" in m for m in body["milestones"])
 
