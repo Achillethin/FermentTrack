@@ -29,7 +29,7 @@ const GROUP_ORDER = [
 ];
 
 // Groups shown in the Taste & aroma and Nutrition lenses, not in Process.
-const SENSORY_GROUPS = new Set(["nutrition", "taste", "aroma"]);
+export const SENSORY_GROUPS = new Set(["nutrition", "taste", "aroma"]);
 
 // Readings a user can log that the model calibrates on.
 const MEASURABLE = { ph: "pH", gravity: "gravity", brix: "Brix", rise: "rise", tta: "TTA" };

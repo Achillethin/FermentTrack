@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Button, Input } from "../components/ui.jsx";
 import ForecastChart from "../prediction/ForecastChart.jsx";
 import ModelDetails, { Warnings } from "../prediction/ModelDetails.jsx";
-import { groupCharts } from "../prediction/PredictionPanel.jsx";
+import { groupCharts, SENSORY_GROUPS } from "../prediction/PredictionPanel.jsx";
 import { axisUnit, duration } from "../prediction/format.js";
 import { valueAt } from "../prediction/scale.js";
 import { formatC } from "../prediction/temperature.js";
@@ -235,10 +235,8 @@ function Results({ data, startMs, pro, kind, busy }) {
     );
   }
 
-  // taste and nutrition live in the batch forecast's lenses, not in the planner
-  const shown = charts.filter(
-    (ch) => (pro || ch.group === "rise" || ch.group === "ph") && ch.group !== "taste" && ch.group !== "nutrition"
-  );
+  // taste, aroma and nutrition live in the batch forecast's lenses, not in the planner
+  const shown = charts.filter((ch) => (pro || ch.group === "rise" || ch.group === "ph") && !SENSORY_GROUPS.has(ch.group));
   const startIso = new Date(startMs).toISOString();
   const timeUnit = axisUnit(horizonH);
 

@@ -671,7 +671,7 @@ These go into `profiles.py` (per type) and the ingredient precursor map (per ing
 | SMCSO (→ methanethiol, DMDS, DMTS, DMS) | white or red cabbage; napa cabbage (est. same) | 5.7, 3.2, 10.2 | µmol/g FW | `05:Friedrich22` (white 3.2–10.2, red 3.9–10.3); cross-check 185–2 218 ppm FW = 1.1–13.4 µmol/g (`03:S1`, secondary); stable over 8 months' cold storage (`05:Andernach24`) |
 | alliin | garlic | ≈ 0.9 % FW (allicin after full conversion ≈ 0.4 %) | g/g | `05:Iberl90` (abs.) — **recorded, unused** (garlic disulfides dropped) |
 | ferulic acid, total | wheat/rye flour → sourdough | 0.30, 0.18, 0.52 | mg/g DM | `05:Boudaoud21` Table 3 (sourdoughs 0.18–0.52; doughs 0.24–0.28) |
-| ferulic acid, free share at t0 | flour | 0.03, 0.01, 0.10 | — | derived-est.: free 0.01 mg/g DM in bran vs 0.18–0.52 total (`05:Boudaoud21`); the rest needs esterase (T10) |
+| ferulic acid, free share at t0 | flour | **0.005, 0.003, 0.01** (B2; was 0.03, 0.01, 0.10) | — | `05:Boudaoud21` § 3.2.2 (PMC8116856, opened in B2): free ferulic acid = 0.5 % of the total in wheat bran, and "does not exceed 0.5–1 %" in cereals; range est. The earlier 0.03 divided bran free acid by sourdough total acid (two matrices). The rest needs esterase (T10) |
 | ferulic acid | soy, rice → miso, koji | not curated | — | `05:E17` (no soybean HCA content opened): miso and koji 4-vinylguaiacol compute zero |
 | p-coumaric acid | all | not curated | — | no value in any file: 4-vinylphenol is P0 pending |
 | bound terpenoids (glycosides), total | tea → kombucha | 1.0, 0.5, 2.9 | mg/kg batch | derived: 105–366 µg/g made black tea (`05:Zhou26tea`, Keemun) × 5–8 g tea/kg (`02:K2` 5 g/L, `02:K1` 8 g/L); the kombucha recipe carries no tea entry, so 5 g/kg is the default (est.) |
@@ -685,7 +685,7 @@ These go into `profiles.py` (per type) and the ingredient precursor map (per ing
 |---|---|---|
 | tea (free, at t0 of kombucha) | linalool 10, 3, 30 | est., anchored to the D14 absolute values 4–11 µg/L (`02:K4`) with the near-flat D0→D14 course of `02:K1` |
 | tea, relative to linalool (same SBSE sample, derived ratios) | geraniol ×0.25 (`02:K1` D0: 18.03/72.2); methyl salicylate ×0.24 (17.61/72.2); β-ionone ×0.04 (2.77/72.2); limonene ×0.27 (black-tea infusion 60.3/222.3); hexanal ×0.045 (10.0/222.3); nonanal ×0.16 (34.7/222.3); each ratio ×/÷ 4 | `02:K1` Table 1 (semi; ratios within one sample, compound-specific recovery still unknown) |
-| flour → sourdough | hexanal 500, 150, 2 000; (E)-2-nonenal 40, 20, 150; methional 50, 29, 300 | derived lower bounds: "OAV > 100" in rye flour (`02:S2`, abs.) × § 3 threshold medians (hexanal 340, (E)-2-nonenal 22, methional 29 µg/kg); hexanal cross-checked against the dough end point 100–372 µg/kg after it "decreased" (`02:S1`, `02:S3`) |
+| flour → sourdough | **re-derived in B2:** hexanal 353, 106, 1 412; (E)-2-nonenal 125, 63, 470; methional 74, 43, 445 (before B2: 500, 150, 2 000; 40, 20, 150; 50, 29, 300) | derived lower bounds: "OAV > 100" in rye flour (`02:S2`, abs.) × § 3 threshold medians. The first derivation used the pre-2026-10-06 medians (hexanal 3.4, (E)-2-nonenal 0.22, methional 0.29); B2 scales each prior by new/old median (2.4/3.4, 0.69/0.22, 0.43/0.29), keeping its shape. Hexanal cross-checked against the dough end point 100–372 µg/kg after it "decreased" (`02:S1`, `02:S3`). One pool serves white, whole-wheat and rye flour (no opened source separates them; est.) |
 | flour | 1-octen-3-one, sotolon, (E,E)-2,4-decadienal | P0 pending (abstracts give FD/OAV, no numbers: `02:S1`, `02:S2`; `02:E`) |
 | white cabbage (raw, shredded at t0 of sauerkraut) | hexanal 11.7, (Z)-3-hexenal 12.9, (Z)-3-hexenol 1 490, each ×/÷ 3 | `03:S10` Table 1 (napa cabbage, raw; semi) as stand-in (est.) |
 | napa cabbage after salting (t0 of kimchi) | hexanal 1.9; (Z)-3-hexenal 0; (Z)-3-hexenol 10.4; methional 0.3; phenylacetaldehyde 6.6; acetoin 74; 2,3-butanediol 3.7; 3-butenyl ITC 212; DMDS 205; DMTS 425 (each ×/÷ 3) | `03:S10` Tables 1, 3 (semi) |
@@ -916,6 +916,23 @@ B1 (plan `docs/superpowers/plans/2026-10-06-aroma-b1.md`) built the infrastructu
   - K_aw stand-ins: ITCs and nitriles → allyl ITC, dropped disulfides → DMDS.
 - **Recipe stand-ins in the tests:** napa cabbage and cucumber borrow the Cabbage row's nutrients (no catalogue rows yet), and the cucumber brine's 53 mM acetic acid cannot be logged.
 
+### 10.4 Implementation notes (B2 sourdough, 2026-10-06)
+
+B2 (plan `docs/superpowers/plans/2026-10-06-aroma-b2.md`):
+
+- **Per-parameter draw streams.** Each aroma parameter draws from its own seeded stream (`aroma._stream`: seed + CRC32 of its name), so later plans never move earlier draws. The one-time re-draw moved kimchi hexanal (test 22) to 0.29 × t0 at d15 (bound 1/3) even with `kmax_lipid_reduction` at its lo. Fix (structural, est. (B2)): the lipid-aldehyde reduction of § 5.8 gets the default Q10 (2, 1.5, 3) with reference 30 °C, and its median moves to **0.17 1/d**, the `02:K1` kombucha check at 30 °C. This resolves the § 10.3 kimchi/kombucha conflict: kimchi (15 °C) hexanal stays ≥ 0.39 × t0, cucumber hexanal at d21 is 7 µg/kg (test 24 window 4–114).
+- **Strain flags** (Bernoulli per member): Pof⁺ *S. cerevisiae* P = 0.5 (§ 5.10, est.), padA⁺ *L. plantarum* P = 0.12 (`05:Rosimin15`).
+- **T4 sugar route through α-acetolactate** (D3): the LAB sugar-derived C4 yield (`b_acetoin_lab`) now forms α-acetolactate, which decays (`al_decay`, Q10 `al_q10`) to diacetyl (oxidative share) and acetoin; 2,3-pentanedione forms at `pd_per_diacetyl` × the diacetyl flux; diacetyl and 2,3-pentanedione are reduced by yeast and LAB at `kmax_diacetyl_red` (*Lactococcus* at `kmax_diacetyl_red_lc`). Lactobacilli use the yeast/*Leuconostoc* rate: **est. (B2)**. Lacto-ferments and sourdough now make diacetyl; the citrate branch stays for B5.
+- **T10 ferulic acid** as § 5.10, with the flour pool **1.34 (0.81–2.33) µmol/g flour** (derived (B2): `05:Boudaoud21` 0.30 (0.18–0.52) mg/g DM × flour dry matter 0.87 ÷ 194.18 g/mol) and the free share of § 6.1 (corrected above). 4-vinylguaiacol in Pof⁺ members of a 5-day 15 °C dough reaches ~19 mg/kg: the release prior treats flour ferulate as yeast-accessible. Plausible tier, no target; `05:Boudaoud21` Table 3 (total ferulic acid in doughs 0.24–0.28 vs inner bread 0.22–0.25 mg/g DM) bounds a short dough's loss to ≲ 15 %, which the model respects (≈ 3 % in 3 h at 26 °C).
+- **Chained phases.** `aroma.evaluate` takes segments (one per solve). A bake plan's levain, dough and proof each run on their own parameters and clock; at a mix every tracer and internal state (α-acetolactate, bound and free ferulic acid) starts at carry × the previous end plus the fresh flour pools, the engine's own mixing rule (`SourdoughModel._mix`). The carried state is the last point before the mix (≤ 6 min early). Engine-pool compounds are read per segment, not carried. `simulate_z` is unchanged: bake forecasts read `_run_chain`'s phase traces, which already keep raw states.
+- **Values added:** default sourdough recipe 0.54 white wheat flour (derived (B2): the profile's typical levain, 370 g/kg starch = 536 g T65 flour); catalogue flours map to ingredients by grain and ash (rye → Rye flour, wheat ash ≥ 1.1 % → Whole wheat flour, else White wheat flour); test 15 recipe 1:1 flour:water (DY 200, est.: `02:S3`'s dough yield not opened).
+- **Baker's yeast** ("Baker's yeast (S. cerevisiae)") now counts as *S. cerevisiae* (match on "cerevisiae").
+- **§ 7 tests:** 14 passes (levain 24 h, 26 °C: 3-methylbutanal 0 → 8, 3-methylbutanol 0 → 3 500, diacetyl 0 → 440, hexanal 215 → 161, (E)-2-nonenal 67 → 53 µg/kg). 15 passes for both LAB partners (3-methylbutanol 4 500–4 800, hexanal 97–111, every reported window and the other upper bounds), except two strict xfails:
+  - isoamyl acetate ≤ 20 µg/kg: the wine ratio of § 5.2 (0.0062–0.015 mol/mol) gives ~65 µg/kg, while `02:S3`'s dough has ≤ 0.008 (mass) against its 3-methylbutanol; no dough esterase or ester loss is modelled;
+  - methional ≥ 10 µg/kg: the sourdough engine has no free amino-acid pool (flour proteases not modelled), so yeast forms no methional, and aldehyde reduction removes the flour's methional within days (0.02 µg/kg at 120 h).
+- **Timing** (uncached, warm process, medians of 5 interleaved runs with aroma on/off; this machine varies ×2 between sessions): sourdough batch 24 h 0.75 s vs 0.28 s (+0.47 s); lacto-ferment 28 d 0.65–0.70 s vs 0.27–0.30 s (+0.34–0.43 s; B1 measured +0.77 s in the same session, so B2 did not slow it); bake plan (levain + dough + 12 h retard, 0.1 h grid) 1.88 s vs 1.14 s (+0.73 s, of which diagnostics ~0.3 s).
+- **UI:** the sourdough planner keeps aroma charts out of its pro view (they belong to the batch's Taste & aroma lens), like taste and nutrition.
+
 ## 11. Implications for the increment-B plan
 
 ### 11.1 What to build
@@ -934,8 +951,8 @@ B1 (plan `docs/superpowers/plans/2026-10-06-aroma-b1.md`) built the infrastructu
 
 **Re-ordered by the owner on 2026-10-06:** the targets are lacto-ferment, miso, sourdough, vinegar, koji and garum, and the aroma view previews what a batch can smell of as groundwork for building recipes from ingredients.
 - **B1 (done):** infrastructure, the generic T1/T2/T3/T5/T12 templates, the lacto T4-sugar/T6/T7/T8 templates, the ingredient precursor map with per-compound routes (ingredient, organism, chemistry), and the palette, strip and drill-down UI.
+- **B2 (done, § 10.4):** sourdough: flour pools, T10, the α-acetolactate sugar route, chained bake phases; tests 14–15 (two strict xfails).
 - **Next, in order:**
-  - B2 sourdough (steps 6 below);
   - B3 vinegar + koji (7, 8);
   - B4 miso + garum (4, 9);
   - B5 kombucha + kefir and the T4 citrate chain (2, 3);
