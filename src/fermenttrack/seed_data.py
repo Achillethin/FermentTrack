@@ -85,6 +85,22 @@ RETIRED_V3: list[str] = [
     "Fish",
 ]
 
+# Added 2026-10-06 (migration 0017): ingredients whose aroma precursors are curated (aroma
+# increment B6), groundwork for building recipes from aromas. No FDC rows yet: the frozen
+# snapshot needs the FDC API key (scripts/fetch_fdc_snapshot.py), so they count as "no
+# reference data" in a recipe's composition, like starters and tea leaves.
+INGREDIENT_SEED_DATA_V4: list[tuple[str, str, list[str]]] = [
+    ("Napa cabbage", "base", ["lacto_ferment"]),
+    ("Cucumber", "base", ["lacto_ferment"]),
+    ("Radish", "base", ["lacto_ferment"]),
+    ("Carrot", "base", ["lacto_ferment"]),
+    ("Garlic", "flavoring", ["lacto_ferment"]),
+    ("Onion", "flavoring", ["lacto_ferment"]),
+    ("Caraway seeds", "flavoring", ["lacto_ferment"]),
+    ("Dill", "flavoring", ["lacto_ferment"]),
+    ("Lemongrass", "flavoring", ["kombucha", "kefir", "lacto_ferment"]),
+]
+
 # Brine ferments (e.g. chilies in brine) log water as a base ingredient.
 WATER_SYSTEMS_V3: list[str] = ["kombucha", "sourdough", "lacto_ferment"]
 

@@ -86,3 +86,16 @@ def test_rice_grain_soybean_is_retired() -> None:
 def test_flours_are_v3_sourdough_ingredients() -> None:
     v3 = {n: s for n, _r, s in INGREDIENT_SEED_DATA_V3}
     assert FLOURS and all("sourdough" in v3[f] for f in FLOURS)
+
+
+def test_v4_names_unique_new_and_valid() -> None:
+    from fermenttrack.seed_data import INGREDIENT_SEED_DATA_V4
+
+    old = {
+        n for n, _r, _s in INGREDIENT_SEED_DATA + INGREDIENT_SEED_DATA_V2 + INGREDIENT_SEED_DATA_V3
+    }
+    new = [n for n, _r, _s in INGREDIENT_SEED_DATA_V4]
+    assert len(new) == len(set(new)) and not (set(new) & old)
+    for name, role, systems in INGREDIENT_SEED_DATA_V4:
+        assert role in VALID_ROLES and systems, name
+    assert {"Napa cabbage", "Cucumber", "Radish", "Garlic", "Carrot"} <= set(new)
