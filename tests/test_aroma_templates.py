@@ -28,11 +28,26 @@ def _run(
 
 def test_ingredient_shares() -> None:
     items = [("Cabbage", 490.0, "base"), ("Water", 490.0, "base"), ("Salt", 20.0, "additive")]
-    shares, no_data = aroma.ingredient_shares(items, "lacto_ferment")
-    assert shares["Cabbage"] == pytest.approx(0.49) and no_data == []
-    assert aroma.ingredient_shares([], "lacto_ferment") == ({"Cabbage": 0.98}, [])
-    _, no_data = aroma.ingredient_shares([("Chilies", 500.0, "base")], "lacto_ferment")
+    shares, no_data, notes = aroma.ingredient_shares(items, "lacto_ferment")
+    assert shares["Cabbage"] == pytest.approx(0.49) and no_data == [] and notes == []
+    assert aroma.ingredient_shares([], "lacto_ferment") == ({"Cabbage": 0.98}, [], [])
+    _, no_data, _ = aroma.ingredient_shares([("Chilies", 500.0, "base")], "lacto_ferment")
     assert no_data == ["Chilies"]
+
+
+def test_unweighed_recipe_never_falls_back_to_the_default_cabbage() -> None:
+    shares, no_data, notes = aroma.ingredient_shares(
+        [("Chilies", None, "base"), ("Salt", None, "additive")], "lacto_ferment"
+    )
+    assert "Cabbage" not in shares and shares == {"Chilies": pytest.approx(0.98)}
+    assert no_data == ["Chilies"] and notes
+
+
+def test_an_unweighed_ingredient_is_named_not_dropped_silently() -> None:
+    items = [("Cabbage", None, "base"), ("Carrot", 200.0, "base"), ("Salt", 20.0, "additive")]
+    shares, no_data, notes = aroma.ingredient_shares(items, "lacto_ferment")
+    assert "Cabbage" not in shares and no_data == ["Carrot"]
+    assert any("Cabbage" in n for n in notes)
 
 
 def test_cabbage_brings_pungent_sulfurous_and_green() -> None:
@@ -81,3 +96,18 @@ def test_all_tracers_finite_and_non_negative() -> None:
     _, c, _, _ = _run()
     for k, v in c.items():
         assert np.all(np.isfinite(v)) and np.all(v >= 0.0), k
+
+
+@pytest.mark.parametrize("veg", ["Cabbage", "Napa cabbage (salted)"])
+def test_every_compound_made_says_where_it_comes_from(veg: str) -> None:
+    _, c, routes, _ = _run({veg: 0.975})
+    for k, v in c.items():
+        if not k.startswith("_") and np.max(v) > 0.0:
+            assert routes.get(k), k
+
+
+def test_a_reduced_aldehyde_is_not_called_carried_in() -> None:
+    _, c, routes, _ = _run({"Napa cabbage (salted)": 0.975})
+    pe = routes["phenylethanol_2"]
+    assert ("ingredient", "Napa cabbage (salted)", "carried in") not in pe
+    assert any("phenylacetaldehyde" in r[2] for r in pe if r[0] == "ingredient")

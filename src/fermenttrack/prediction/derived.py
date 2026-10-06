@@ -9,6 +9,7 @@ Design: docs/superpowers/specs/2026-10-02-flavour-nutrition-design.md § 2, 3, 7
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,9 @@ from fermenttrack.prediction.profiles import FermentProfile, Milestone, TasteSpe
 
 if TYPE_CHECKING:
     from fermenttrack.prediction.aroma import AromaResult
+
+logger = logging.getLogger(__name__)
+_NO_AROMA: dict[str, Any] = {"aroma_series": [], "compounds": [], "not_modelled_aroma": None}
 
 DERIVED_VERSION = "sensory-v2"
 DISCLAIMER = (
@@ -224,7 +228,13 @@ def evaluate(
         {f"taste:{k}": np.log10(np.maximum(a, 10.0**FLOOR)) for k, a in activity.items()}
     )
     if aroma is not None:
-        values.update(_aroma_values(aroma))
+        try:  # aroma must never take taste and nutrition down with it
+            values.update(_aroma_values(aroma))
+        except Exception:
+            logger.exception("aroma values failed; aroma dropped")
+            aroma_keys = ("odor:", "aroma:", "conc:")
+            values = {k: v for k, v in values.items() if not k.startswith(aroma_keys)}
+            aroma = None
     if spec is None:
         return Derived(values, rows, lower, activity, aroma=aroma)
     acids = p("lactic_acid") + p("acetic_acid") + p("gluconic_acid")
@@ -285,7 +295,12 @@ def series_out(
 ) -> list[dict[str, Any]]:
     """PredictionSeriesOut-shaped bands on the display grid (`idx` into the trajectory)."""
     out: list[dict[str, Any]] = []
-    for key, (label, group, unit) in {**META, **_aroma_meta(der.aroma)}.items():
+    try:
+        aroma_meta = _aroma_meta(der.aroma)
+    except Exception:  # aroma must never break the other bands
+        logger.exception("aroma series metadata failed; aroma dropped")
+        aroma_meta, der.aroma = {}, None  # the sensory block then shows no aroma either
+    for key, (label, group, unit) in {**META, **aroma_meta}.items():
         v = der.values.get(key)
         if v is None:
             continue
@@ -357,8 +372,18 @@ def sensory_block(
         "nutrition_label": label,
         "noticeable": noticeable,
         "assumptions": list(ASSUMPTIONS),
-        **_aroma_block(der.aroma, t[idx], wn, idx),
+        **_safe_aroma_block(der.aroma, t[idx], wn, idx),
     }
+
+
+def _safe_aroma_block(
+    ar: AromaResult | None, t_grid: FloatArray, wn: FloatArray, idx: NDArray[np.intp]
+) -> dict[str, Any]:
+    try:
+        return _aroma_block(ar, t_grid, wn, idx)
+    except Exception:  # aroma must never break the sensory block
+        logger.exception("aroma block failed; aroma dropped")
+        return dict(_NO_AROMA)
 
 
 def _aroma_block(
@@ -366,16 +391,20 @@ def _aroma_block(
 ) -> dict[str, Any]:
     """sensory.aroma_series, .compounds and .not_modelled_aroma (empty without aroma)."""
     if ar is None:
-        return {"aroma_series": [], "compounds": [], "not_modelled_aroma": None}
+        return dict(_NO_AROMA)
 
-    def chance(above: NDArray[np.bool_]) -> tuple[list[float], float, float]:
-        p = wn @ above
-        i = int(np.argmax(p))
+    def chance(log_v: FloatArray) -> tuple[list[float], float, float]:
+        """P(above threshold) per grid point (log_v: log10 activity, (N, T)); the peak is
+        its maximum, and its time the strongest (mean log activity) among the near-ties, so
+        a chance that saturates at 1 points at the strongest day, not the first."""
+        p = wn @ (log_v > 0.0)
+        top = p >= p.max() - 0.005
+        i = int(np.argmax(np.where(top, wn @ log_v, -np.inf)))
         return [round(float(x), 3) for x in p], round(float(p[i]), 3), round(float(t_grid[i]), 3)
 
     series: list[dict[str, Any]] = []
     for s, v in ar.series.items():
-        noticeable, s_peak, s_peak_t = chance(v[:, idx] > 0.0)
+        noticeable, s_peak, s_peak_t = chance(v[:, idx])
         series.append({
             "key": s, "label": s.capitalize(), "compounds": ar.members[s],
             "noticeable": noticeable, "peak_noticeable": s_peak, "peak_t_h": s_peak_t,
@@ -388,7 +417,7 @@ def _aroma_block(
         peak: float | None = None
         peak_t: float | None = None
         if key in ar.oav:
-            _, peak, peak_t = chance(ar.oav[key][:, idx] > 1.0)
+            _, peak, peak_t = chance(np.log10(np.maximum(ar.oav[key][:, idx], 10.0**FLOOR)))
         thr = c.threshold
         compounds.append({
             "key": key, "name": c.name, "pubchem": c.pubchem, "chebi": c.chebi,

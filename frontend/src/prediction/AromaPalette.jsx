@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { timeLabel } from "./format.js";
-import { AROMA_HEX, paletteSeries, paletteSources } from "./sensory.js";
+import { AROMA_HEX, concOnly, paletteSeries, paletteSources } from "./sensory.js";
 
 const KIND_LABEL = { ingredient: "ingredient", organism: "microbe", chemistry: "chemistry" };
 const CHIP = "rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300";
@@ -151,6 +151,11 @@ export default function AromaPalette({ sensory, series, timeUnit, openSeries, on
         </ul>
       )}
 
+      {concOnly(sensory).length > 0 && (
+        <p className="text-xs text-slate-400">
+          Also made, no odour threshold known: {concOnly(sensory).join(", ")}.
+        </p>
+      )}
       {nm?.ingredients?.length > 0 && (
         <p className="text-xs text-slate-400">No aroma data yet for: {nm.ingredients.join(", ")}.</p>
       )}

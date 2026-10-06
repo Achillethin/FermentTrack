@@ -998,12 +998,12 @@ def _forecast(
     values = _series_values(tr, spec, z, want_density)
     ar: aroma.AromaResult | None = None
     try:
-        shares, no_data = aroma.ingredient_shares(
+        shares, no_data, notes = aroma.ingredient_shares(
             [(r.name, to_grams(r.quantity, r.unit), r.role) for r in inputs.recipe], profile.type
         )
         ar = aroma.evaluate(
             spec.params(z[:, : spec.dim]), tr, profile, shares, no_data, seed + 2,
-            profile.co2_escapes,
+            profile.co2_escapes, notes,
         )  # fmt: skip
     except Exception:  # aroma must never break a forecast, nor taste and nutrition
         logger.exception("aroma layer failed for a %s batch", profile.type)

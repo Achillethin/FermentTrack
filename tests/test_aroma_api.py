@@ -74,3 +74,37 @@ def test_aroma_values_are_finite_and_non_negative() -> None:
     for k, v in values.items():
         if k.startswith("conc:"):
             assert np.all(np.isfinite(v)) and np.all(v >= 0.0), k
+
+
+@pytest.mark.parametrize("step", ["_aroma_values", "_aroma_meta", "_aroma_block"])
+def test_an_aroma_failure_keeps_the_forecast_taste_and_nutrition(
+    step: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fermenttrack.prediction import derived
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("aroma bug")
+
+    monkeypatch.setattr(derived, step, boom)
+    body = predict(_inputs("lacto_ferment", 20.0), horizon_h=21 * 24)
+    s = body["sensory"]
+    assert s["nutrition_label"] and s["taste_phases"]
+    assert any(x["key"].startswith("taste:") for x in body["series"])
+    assert s["aroma_series"] == [] and s["compounds"] == []
+    if step != "_aroma_block":  # the block is built after the bands (harmless leftovers)
+        assert not any(x["group"] == "aroma" for x in body["series"])
+
+
+def test_peak_day_is_the_strongest_when_the_chance_saturates() -> None:
+    from fermenttrack.prediction import derived
+    from fermenttrack.prediction.aroma import AromaResult
+
+    v = np.log10(np.array([[2.0, 20.0, 200.0, 50.0], [3.0, 30.0, 300.0, 60.0]]))  # all > 1
+    ar = AromaResult(
+        conc={}, oav={}, series={"fruity": v}, members={"fruity": []}, compounds=[], routes={},
+        tiers={}, not_modelled={"notes": [], "organisms": [], "ingredients": []},
+    )  # fmt: skip
+    t = np.array([0.0, 24.0, 48.0, 72.0])
+    block = derived._aroma_block(ar, t, np.array([0.5, 0.5]), np.arange(4))
+    row = block["aroma_series"][0]
+    assert row["peak_noticeable"] == 1.0 and row["peak_t_h"] == 48.0

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { fmtValue, timesThreshold, unitSuffix } from "./format.js";
 import {
-  aromaBin, aromaChance, aromaRows, cellText, changeText, indexAt, jarSummary, lensOf, mixHex,
+  aromaBin, aromaChance, aromaRows, cellText, concOnly, changeText, indexAt, jarSummary, lensOf, mixHex,
   paletteSeries, paletteSources, phaseColor, phaseRuns, phaseSpans, stripColumns, topCompounds,
 } from "./sensory.js";
 
@@ -84,4 +84,9 @@ assert.deepEqual(stripColumns(Array(161).fill(0), 41).slice(0, 2), [0, 4]);
 assert.equal(stripColumns(Array(161).fill(0), 41).length, 41);
 assert.equal(stripColumns(Array(161).fill(0), 41).at(-1), 160);
 assert.deepEqual(topCompounds(aromaRows(aromaSensory, aromaBands)[0], aromaBands, 1), ["ethyl butanoate", "ethyl lactate"]);
+assert.deepEqual(concOnly(undefined), []);
+assert.deepEqual(
+  concOnly({ compounds: [{ key: "a", name: "allyl cyanide", threshold: null }, { key: "b", name: "hexanal", threshold: { p50: 2.4 } }] }),
+  ["allyl cyanide"],
+);
 console.log("sensory.check: ok");

@@ -176,3 +176,7 @@ export function topCompounds(row, series, i, k = 3) {
     .slice(0, k)
     .map((b) => b.label);
 }
+
+// Compounds made but without an odour threshold: shown by name, never in the sums.
+export const concOnly = (sensory) =>
+  (sensory?.compounds || []).filter((c) => c.threshold == null).map((c) => c.name);

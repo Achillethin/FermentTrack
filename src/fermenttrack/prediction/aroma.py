@@ -82,7 +82,7 @@ def draws(n: int, seed: int) -> Draws:
         v = np.asarray(p.value(z[:, j]))
         # Split-normal tails can cross 0 (lin rates) or 1 (shares, either scale). Shares
         # stop at 0.95 so that s / (1 - s) stays finite in the templates.
-        if k.startswith(("share_", "excr_")):
+        if k.startswith(("share_", "excr_", "itc_fraction")):
             v = np.clip(v, 0.0, 0.95)
         elif p.scale == "lin":
             v = np.maximum(v, 0.0)
@@ -140,21 +140,30 @@ def organism_class(kin: OrganismKinetics) -> str:
 
 def ingredient_shares(
     items: list[tuple[str, float | None, str]], ferment: str
-) -> tuple[dict[str, float], list[str]]:
-    """Mass share of each logged ingredient (name, grams, role), and the ingredients that
-    carry no aroma data. No quantified item: the type's default ingredients."""
-    weighed = [(n, g, r) for n, g, r in items if g is not None and g > 0.0]
-    total = sum(g for _, g, _ in weighed)
-    if total <= 0.0:
-        return dict(A.DEFAULT_INGREDIENTS.get(ferment, {})), []
+) -> tuple[dict[str, float], list[str], list[str]]:
+    """Mass share of each logged ingredient (name, grams or None, role), the ingredients
+    that carry no aroma data, and notes. Only an empty recipe uses the type's default
+    ingredients: logged ingredients are never replaced by a guess."""
+    if not items:
+        return dict(A.DEFAULT_INGREDIENTS.get(ferment, {})), [], []
+    named = list(dict.fromkeys(
+        n for n, _, r in items if n not in _NOT_AROMA and r not in ("starter", "additive")
+    ))  # fmt: skip
+    no_data = [n for n in named if n not in A.AROMA_INGREDIENTS]
+    weighed = [(n, g) for n, g, _ in items if g is not None and g > 0.0]
+    total = sum(g for _, g in weighed)
+    if total <= 0.0:  # nothing weighed: the named ingredients share the usual mass equally
+        if not named:
+            return {}, no_data, []
+        usual = sum(A.DEFAULT_INGREDIENTS.get(ferment, {}).values()) or 1.0
+        note = "No quantities logged: aroma assumes equal shares of the ingredients."
+        return {n: usual / len(named) for n in named}, no_data, [note]
     shares: dict[str, float] = {}
-    for n, g, _ in weighed:
+    for n, g in weighed:
         shares[n] = shares.get(n, 0.0) + g / total
-    no_data = [
-        n for n, _, r in weighed
-        if n not in A.AROMA_INGREDIENTS and n not in _NOT_AROMA and r not in ("starter", "additive")
-    ]  # fmt: skip
-    return shares, list(dict.fromkeys(no_data))
+    unweighed = [n for n in named if n not in shares and n in A.AROMA_INGREDIENTS]
+    notes = [f"{', '.join(unweighed)}: no quantity logged, so not counted for aroma."]
+    return shares, no_data, notes if unweighed else []
 
 
 @dataclass
@@ -371,14 +380,13 @@ def concentrations(
     }
     s_acid, s_ald = d["share_fusel_acid"], d["share_fusel_ald"]
     for a, ald, acid in _ALC_ALD_ACID:
+        makers = YEAST | LAB if a.startswith("methylbutanol") else YEAST  # b_mb_lab (§ 5.1)
         if tr.add(a, alc[a]):
-            tr.organisms(a, YEAST, EHRLICH)
-            if a.startswith("methylbutanol"):
-                tr.organisms(a, LAB, EHRLICH)
+            tr.organisms(a, makers, EHRLICH)
         if tr.add(ald, alc[a] * s_ald / (1.0 - s_acid) * mw[ald] / mw[a]):
-            tr.organisms(ald, YEAST, EHRLICH)
+            tr.organisms(ald, makers, EHRLICH)
         if acid and tr.add(acid, alc[a] * s_acid / (1.0 - s_acid) * mw[acid] / mw[a]):
-            tr.organisms(acid, YEAST, EHRLICH)
+            tr.organisms(acid, makers, EHRLICH)
     aa = ctx.pools[:, :, PI["amino_acids"]] * 1e6 / ctx.left  # µg/kg free amino acids
     met = d["kmax_met_yeast"] / 24.0 * _gate(ctx, YEAST) * aa * d["share_met"]
     if tr.add("methionol", met * d["share_methionol"] * mw["methionol"] / mw["methionine"]):
@@ -405,8 +413,10 @@ def concentrations(
         if ald in tr.src or ald in tr.c0:
             c_ald = tr.solve(ald)
             if tr.add(a, k_red * c_ald * mw[a] / mw[ald]):
-                for r in tr.routes.get(ald, []):
-                    tr.route(a, r)
+                via = f"{A.COMPOUNDS[ald].name}, reduced by microbes"
+                for kind, name, how in tr.routes.get(ald, []):
+                    tr.route(a, (kind, name, via if kind == "ingredient" else how))
+                tr.organisms(a, YEAST | LAB, f"reduces {A.COMPOUNDS[ald].name}")
     for a in (*alc, "methionol", "methylbutanoic_3", "methylbutanoic_2", "methylpropanoic_2"):
         if a in tr.src or a in tr.c0:
             tr.solve(a)
@@ -612,6 +622,7 @@ def _empty(note: str, no_data: list[str]) -> AromaResult:
 def evaluate(
     params: EnsembleParams, tr: Trajectories, profile: FermentProfile,
     shares: dict[str, float], no_data: list[str], seed: int, co2_escapes: bool,
+    notes: list[str] | None = None,
 ) -> AromaResult:  # fmt: skip
     """Aroma for every member at every time: concentrations, odour activities and series
     sums (every active compound with a threshold counts: owner decision 2026-10-06)."""
@@ -638,7 +649,7 @@ def evaluate(
     }
     rank = {"calibrated": 0, "reported": 1, "plausible": 2, "engine": 3}
     tiers = {k: evidence.get(k, ("plausible", "", ())) for k in made}
-    notes: dict[str, list[str]] = {}
+    recipe_notes, gaps = notes, dict[str, list[str]]()
     for key in evidence:
         c = A.COMPOUNDS[key]
         if key in made and float(np.max(conc[key])) > 0.0:
@@ -647,13 +658,14 @@ def evaluate(
             "no organism in the model makes it yet" if c.status == "inactive"
             else _LATER.get(key, "no route in this recipe")
         )  # fmt: skip
-        notes.setdefault(why, []).append(c.name)
+        gaps.setdefault(why, []).append(c.name)
     return AromaResult(
         conc={k: conc[k] for k in made}, oav=oav, series=series, members=members,
         compounds=sorted(made, key=lambda k: (rank[tiers[k][0]], k)), routes=routes,
         tiers=tiers,
         not_modelled={
-            "notes": [f"{', '.join(names)}: {why}." for why, names in notes.items()],
+            "notes": [*(recipe_notes or []),
+                      *(f"{', '.join(n)}: {why}." for why, n in gaps.items())],
             "organisms": [n for n, c in zip(ctx.names, ctx.classes, strict=True) if c == "unknown"],
             "ingredients": no_data,
         },

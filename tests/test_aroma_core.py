@@ -54,7 +54,8 @@ def test_neutral_fraction() -> None:
 def test_draws_stay_physical() -> None:
     d = aroma.draws(4000, 0)
     assert all(np.all(v >= 0.0) for v in d.values())
-    assert all(np.all(v <= 1.0) for k, v in d.items() if k.startswith(("share_", "excr_")))
+    fractions = ("share_", "excr_", "itc_fraction")  # a fraction above 1 makes a negative branch
+    assert all(np.all(v <= 1.0) for k, v in d.items() if k.startswith(fractions))
     assert d["matrix"].shape == (4000, 1) and "ing:Cabbage:@sinigrin" in d
 
 
