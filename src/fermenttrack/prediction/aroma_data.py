@@ -135,6 +135,16 @@ PARAMS: dict[str, Prior] = {
     # Milk fat lactones (§ 5.8): fat-bound precursor = x times the free lactone, released
     "lactone_precursor_x": Prior(5.0, 1.0, 20.0),  # est. (03:S23 shape)
     "lactone_release": Prior(0.7, 0.1, 2.4),  # 1/d; est. (03:S23 shape)
+    # T9 tea terpenoids (§ 5.9): bound glycosides released by yeast and acid; losses at 30 °C
+    # (q10_default)
+    "kmax_bound_release": Prior(0.1, 0.02, 0.5),  # 1/d, yeast beta-glucosidase; est. (02:K2, K4)
+    "acid_bound_release": Prior(0.002, 0.0005, 0.01),  # 1/d; est. (05:Yan24)
+    "split_linalool": _lin(0.4, 0.2, 0.6),  # of the released terpenes; est. (05:Zhou26tea)
+    "split_geraniol": _lin(0.3, 0.1, 0.5),  # est.; methyl salicylate takes the rest
+    "loss_geraniol": Prior(0.03, 0.01, 0.1),  # 02:K1, derived
+    "loss_limonene": Prior(0.15, 0.07, 0.5),  # 02:K1, derived
+    "loss_msal_ionone": Prior(0.3, 0.15, 1.0),  # methyl salicylate, beta-ionone; 02:K1, derived
+    "loss_damascenone_citronellol": Prior(0.05, 0.01, 0.3),  # est.
     # T10 hydroxycinnamic acids (§ 5.10, § 6.1)
     # free share of flour ferulic acid: 05:Boudaoud21 § 3.2.2 (PMC8116856), free = 0.5 % of
     # total in wheat bran, "does not exceed 0.5-1 % in cereals"; range est. (B2). § 6.1's
@@ -215,6 +225,7 @@ PARAMS: dict[str, Prior] = {
     # T12 open surface (§ 5.12): k0 = k_surf x K_aw, 1/d
     "k_surf_vinegar": Prior(20.0, 5.0, 80.0),  # surface culture; 02:V3, derived
     "k_surf_koji": Prior(50.0, 10.0, 200.0),  # koji bed; est. (05:E19)
+    "k_surf_kombucha": Prior(10.0, 2.0, 50.0),  # est. (05:E19)
     # T12 volatility (§ 5.12) and shared
     "kaw_eta": _lin(0.35, 0.15, 0.7),  # 05:Godillot23, derived
     "kaw_tfactor": _lin(2.1, 1.9, 2.3),  # per +10 °C; 05:Sander23, derived
@@ -291,7 +302,10 @@ PRECURSOR_LABEL: dict[str, str] = {
     "@hexenol_residual": "green-leaf volatile precursors",
     "@ferulic": "ferulic acid",
     "@citrate": "citrate",
+    "@tea_bound": "bound terpenes (glycosides)",
 }
+# precursors held as µg/kg (mass) rather than µmol/g of fresh ingredient
+MASS_PRECURSORS = frozenset({"@hexenol_residual", "@tea_bound"})
 
 # Ingredient -> initial compound (µg/kg of ingredient) or "@" precursor (µmol/g fresh
 # weight; @hexenol_residual in µg/kg). Names as in seed_data; the napa cabbage and the
@@ -381,6 +395,19 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
         "dimethylpyrazine_25": Prior(40.0, 13.0, 400.0),
         "trimethylpyrazine": Prior(40.0, 13.0, 400.0),
     },
+    # tea leaves (§ 6.2), per kg of leaves: derived (B5) from the per-batch values at the
+    # default 5 g/kg (x200). Free: linalool 10 (3-30) µg/kg batch (02:K4 anchor); the others as
+    # 02:K1's ratios to linalool, each x/÷4. Bound glycosides 105-366 µg/g (05:Zhou26tea).
+    **{tea: {
+        "linalool": Prior(2_000.0, 600.0, 6_000.0),
+        "geraniol": Prior(500.0, 125.0, 2_000.0),
+        "methyl_salicylate": Prior(480.0, 120.0, 1_920.0),
+        "ionone_beta": Prior(80.0, 20.0, 320.0),
+        "limonene": Prior(540.0, 135.0, 2_160.0),
+        "hexanal": Prior(90.0, 22.5, 360.0),
+        "nonanal": Prior(320.0, 80.0, 1_280.0),
+        "@tea_bound": Prior(196_000.0, 105_000.0, 366_000.0),
+    } for tea in ("Black tea leaves", "Green tea leaves", "Black/green tea")},
     # whole milk, pasteurised (§ 6.2; 03:S34 Table 2, external standard; each x/÷2) and its
     # citrate (D4: 9.0 (6.3-11.7) mmol/kg, 05:Grelet16, 05:Chen24)
     "Milk": {
@@ -421,14 +448,18 @@ DEFAULT_INGREDIENTS: dict[str, dict[str, float]] = {
     # derived (B4): typical recipe 140 g/kg protein / 20.4 % anchovy protein (FDC)
     "garum": {"Anchovies": 0.69},
     "kefir": {"Milk": 0.97},  # 3 % grains (profile note: 2-5 %); est. (B5)
+    "kombucha": {"Black tea leaves": 0.005},  # § 6.1: 5 g/kg tea (est.)
     "cheese": {"Milk": 1.0},
 }
 
 AROMA_TYPES = frozenset({
     "lacto_ferment", "sourdough", "vinegar", "koji", "miso", "garum", "kefir", "cheese",
+    "kombucha",
 })  # fmt: skip
 # Open vessels: ferment type -> its surface-loss parameter (§ 5.12); closed jars and dough: 0
-K_SURF: dict[str, str] = {"vinegar": "k_surf_vinegar", "koji": "k_surf_koji"}
+K_SURF: dict[str, str] = {
+    "vinegar": "k_surf_vinegar", "koji": "k_surf_koji", "kombucha": "k_surf_kombucha",
+}
 
 # Per-member strain flags (Bernoulli): the chance that the member's strain has the trait
 FLAGS: dict[str, float] = {
@@ -664,6 +695,51 @@ EVIDENCE: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {
         "acetic": ("engine", "abs", ("forecast",)),
         "ethanol": ("engine", "abs", ("forecast",)),
     },
+    "kombucha": {  # § 4.1
+        "methylbutanol_3": (_CAL, "abs", ("02:K1", "02:K2", "02:K3")),
+        "methylbutanol_2": (_REP, "presence", ("02:K6",)),
+        "methylpropanol_2": (_REP, "abs", ("02:K3", "02:K2")),
+        "phenylethanol_2": (_CAL, "shape", ("02:K1", "02:K2")),
+        "methylbutanal_3": (_REP, "presence", ("02:K3", "02:K6")),
+        "methylbutanal_2": (_REP, "presence", ("02:K3", "02:K6")),
+        "phenylacetaldehyde": (_REP, "presence", ("02:K1",)),
+        "methionol": (_REP, "presence", ("02:K4",)),
+        "methylbutanoic_3": (_CAL, "shape", ("02:K1", "02:K2")),
+        "methylpropanoic_2": (_CAL, "shape", ("02:K1", "02:K2")),
+        "methylbutanoic_2": (_REP, "presence", ("02:K6",)),
+        "ethyl_acetate": (_CAL, "abs", ("02:K2", "02:K3", "02:K4")),
+        "isoamyl_acetate": (_CAL, "semi", ("02:K2",)),
+        "phenylethyl_acetate": (_CAL, "semi", ("02:K1", "02:K2")),
+        "ethyl_hexanoate": (_CAL, "semi", ("02:K1", "02:K2")),
+        "ethyl_octanoate": (_REP, "presence", ("02:K6", "02:K4")),
+        "ethyl_decanoate": (_CAL, "semi", ("02:K2",)),
+        "ethyl_2methylpropanoate": (_REP, "presence", ("02:K3",)),
+        **{k: (_CAL, "shape", ("02:K1",)) for k in ("hexanoic", "octanoic", "decanoic")},
+        **{k: (_REP, "presence", ("02:K3", "02:K6")) for k in (
+            "acetaldehyde", "diacetyl", "acetoin",
+        )},  # fmt: skip
+        "hexanal": (_CAL, "shape", ("02:K1",)),
+        "nonanal": (_CAL, "semi", ("02:K1", "02:K2")),
+        "octen3ol": (_REP, "presence", ("02:K3",)),
+        "linalool": (_CAL, "abs", ("02:K1", "02:K2", "02:K4")),
+        "geraniol": (_CAL, "shape", ("02:K1",)),
+        "citronellol": (_REP, "presence", ("02:K4", "02:K6")),
+        "damascenone": (_REP, "presence", ("02:K4", "02:K6")),
+        "methyl_salicylate": (_CAL, "semi", ("02:K1", "02:K2")),
+        "ionone_beta": (_CAL, "semi", ("02:K1", "02:K2")),
+        "limonene": (_CAL, "shape", ("02:K1",)),
+        "vinylguaiacol_4": (_REP, "presence", ("02:K4",)),
+        "dms": (_REP, "presence", ("02:K4",)),
+        "ethylguaiacol_4": (_CAL, "semi", ("02:K1", "02:K2")),
+        "ethylphenol_4": (_CAL, "semi", ("02:K2",)),
+        **{k: ("plausible", "", ()) for k in (
+            "methylpropanal_2", "methional", "isobutyl_acetate", "ethyl_butanoate",
+            "ethyl_2methylbutanoate", "pentanedione_23", "butanediol_23", "ethyl_lactate",
+            "methanethiol", "dmds", "dmts",
+        )},  # fmt: skip
+        "acetic": ("engine", "abs", ("forecast",)),
+        "ethanol": ("engine", "abs", ("forecast",)),
+    },
     "kefir": {  # § 4.6
         "acetaldehyde": (_CAL, "abs", ("03:S19", "03:S20", "03:S18", "03:S26")),
         "diacetyl": (_CAL, "shape", ("03:S21", "03:S18", "03:S19", "03:S22")),
@@ -752,6 +828,15 @@ PENDING: dict[str, dict[str, str]] = {
         "vinylphenol_4": "soy hydroxycinnamic acids are not curated yet",
         "sotolon": "the soybean's sotolon is not curated yet",
         "acetylpyrroline_2": "the rice's 2-acetyl-1-pyrroline is not curated yet",
+    },
+    "kombucha": {
+        "vinylguaiacol_4": "the tea's ferulic acid is not curated yet",
+        **{k: "the tea's sulfur precursors are not curated yet" for k in (
+            "dms", "methanethiol", "dmds", "dmts",
+        )},  # fmt: skip
+        "citronellol": "the tea's citronellol is not curated yet",
+        "damascenone": "the tea's β-damascenone is not curated yet",
+        "octen3ol": "the tea's 1-octen-3-ol is not curated yet",
     },
     "kefir": {
         "heptanone_2": "UHT milk (2-heptanone) is not a catalogue ingredient yet",

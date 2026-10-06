@@ -299,3 +299,21 @@ def test_milk_lactones_grow_from_their_fat_bound_precursor() -> None:
     _, c, routes, _ = _run({"Milk": 0.97}, None, ferment="kefir")
     assert np.all(c["decalactone_delta"][:, -1] > c["decalactone_delta"][:, 0])
     assert ("ingredient", "Milk", "milk fat (lactone precursors)") in routes["decalactone_delta"]
+
+
+TEA = {"Black tea leaves": 0.005}
+KOMBUCHA = ["Saccharomyces cerevisiae", "Acetobacter aceti", "Gluconacetobacter xylinus"]
+
+
+def test_tea_bound_terpenes_release_within_the_pool() -> None:
+    _, c, routes, d = _run(TEA, KOMBUCHA, ferment="kombucha", temp=30.0)
+    b0 = 0.005 * d["ing:Black tea leaves:@tea_bound"][:, 0]
+    assert np.all(np.diff(c["_tea_bound"], axis=1) <= 1e-9)
+    assert np.all(c["_tea_bound"][:, -1] < b0) and np.all(c["_tea_bound"] >= 0.0)
+    assert ("ingredient", "Black tea leaves", "bound terpenes (glycosides)") in routes["linalool"]
+
+
+def test_kombucha_surface_strips_volatiles() -> None:
+    assert "kombucha" in A.K_SURF
+    _, c, _, _ = _run(TEA, KOMBUCHA, ferment="kombucha", temp=30.0)
+    assert np.all(c["hexanal"][:, -1] < c["hexanal"][:, 0])

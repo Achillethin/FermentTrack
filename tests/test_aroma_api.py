@@ -34,8 +34,9 @@ def test_lacto_has_palette_series_and_routes() -> None:
     assert any(x["key"].startswith("odor:") for x in body["series"])
 
 
-def test_types_without_b1_aroma_say_so() -> None:
-    body = predict(_inputs("kombucha", 24.0), horizon_h=14 * 24)
+def test_types_without_aroma_templates_say_so() -> None:
+    # every curated type has aroma since B5: a free-string type (generic profile) has none
+    body = predict(_inputs("generic", 22.0, (), ["Lactobacillus plantarum"]), horizon_h=14 * 24)
     s = body["sensory"]
     assert s["aroma_series"] == [] and s["compounds"] == []
     assert any("later" in n for n in s["not_modelled_aroma"]["notes"])

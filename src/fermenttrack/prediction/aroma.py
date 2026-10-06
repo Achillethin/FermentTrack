@@ -413,7 +413,7 @@ def concentrations(
         for key in A.AROMA_INGREDIENTS.get(name, {}):
             v = scale_in * d[f"ing:{name}:{key}"][:, 0]
             if key.startswith("@"):
-                scale = 1.0 if key == "@hexenol_residual" else 1000.0  # µmol/g -> µmol/kg
+                scale = 1.0 if key in A.MASS_PRECURSORS else 1000.0  # µmol/g -> µmol/kg
                 pre[key] = pre.get(key, 0.0) + v * scale
                 pre_from.setdefault(key, []).append(name)
             else:
@@ -746,6 +746,29 @@ def concentrations(
         if tr.add("z3_hexenol", r_rel * residual):
             from_precursor("z3_hexenol", "@hexenol_residual")
     tr.loss("linalool", d["loss_linalool"] / 24.0 * q("q10_default", 30.0))
+    # T9 tea terpenoids (§ 5.9): bound glycosides (µg/kg) released by yeast beta-glucosidase
+    # and slowly by acid, split between linalool, geraniol and methyl salicylate
+    bound0 = tr.start("_tea_bound") + pre.get("@tea_bound", tr.zero[:, 0])
+    if np.any(bound0 > 0.0):
+        k_b = d["kmax_bound_release"] / 24.0 * _gate(ctx, YEAST) + d["acid_bound_release"] / 24.0
+        bound = integrate(ctx.t, tr.zero, k_b, bound0)
+        tr.conc["_tea_bound"] = bound
+        s_l, s_g = d["split_linalool"], d["split_geraniol"]
+        for key, part in (
+            ("linalool", s_l), ("geraniol", s_g),
+            ("methyl_salicylate", np.maximum(1.0 - s_l - s_g, 0.0)),
+        ):  # fmt: skip
+            if tr.add(key, part * k_b * bound):
+                from_precursor(key, "@tea_bound")
+                tr.organisms(key, YEAST, "β-glucosidase releases bound terpenes")
+    q30 = q("q10_default", 30.0)
+    for key, loss in (
+        ("geraniol", "loss_geraniol"), ("limonene", "loss_limonene"),
+        ("methyl_salicylate", "loss_msal_ionone"), ("ionone_beta", "loss_msal_ionone"),
+        ("damascenone", "loss_damascenone_citronellol"),
+        ("citronellol", "loss_damascenone_citronellol"),
+    ):  # fmt: skip
+        tr.loss(key, d[loss] / 24.0 * q30)
     # milk-fat δ-lactones (§ 5.8): a fat-bound precursor (x times the free lactone the milk
     # brings) released first-order
     for key in ("decalactone_delta", "dodecalactone_delta"):
@@ -879,7 +902,7 @@ def _empty(note: str, no_data: list[str]) -> AromaResult:
 
 _STATES = (  # internal states carried across a mix
     "_acetolactate", "_ferulic_bound", "_ferulic_free", "_hemf_precursor", "_citrate",
-    "_lactone:decalactone_delta", "_lactone:dodecalactone_delta",
+    "_lactone:decalactone_delta", "_lactone:dodecalactone_delta", "_tea_bound",
 )  # fmt: skip
 
 
