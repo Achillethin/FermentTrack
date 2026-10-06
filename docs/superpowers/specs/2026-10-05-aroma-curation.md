@@ -143,20 +143,20 @@ Each row changes or sharpens spec 2026-10-02 § 4.
 | methyl_salicylate | methyl salicylate | 4133 · 31832 · C12305 | peppermint (herbal) | 40, 8.0, 200 | measured · LEF only · median: LEF | — | T9 | active |
 | damascenone | (E)-β-damascenone | 5366074 · 67251 · — | baked apple-like (fruity) | 0.0060, 0.0020, 0.018 | measured · CZ, LSB, LEF · median: LSB TW | — | T9 | active |
 | ionone_beta | (E)-β-ionone | 638014 · 32325 · C12287 | flowery, violet-like (floral) | 0.021, 0.0070, 3.5 | measured · CZ 3.5 vs LSB 0.021 (170×, § 9) · median: LSB TW | — | T9 | active |
-| geranial | geranial | 638011 · 16980 · C01499 | citrus-like (fruity) | 25, 8.3, 75 | measured · LSB, LEF · median: LSB TW | — | T9 | active, P0 pending (lemongrass, citrus, ginger) |
-| neral | neral | 643779 · 29020 · C09847 | citrus-like, soapy (fruity) | 100, 30, 300 | measured · LSB, LEF · median: LSB TW | — | T9 | active, P0 pending |
+| geranial | geranial | 638011 · 16980 · C01499 | citrus-like (fruity) | 25, 8.3, 75 | measured · LSB, LEF · median: LSB TW | — | T9 | active (est. P0, B6: ginger, lemongrass, lemon) |
+| neral | neral | 643779 · 29020 · C09847 | citrus-like, soapy (fruity) | 100, 30, 300 | measured · LSB, LEF · median: LSB TW | — | T9 | active (est. P0, B6: ginger, lemongrass, lemon) |
 | zingiberene | (−)-zingiberene | 92776 · 10115 · C09750 | spice, fresh, sharp (herbal) | none | none | — | — | drop (§ 8) |
-| carvone | carvone | 7439 · 38265 · C01767 (R) / C11383 (S) | mint- (R), caraway-like (S) (herbal) | 95, 31, 290 | measured · LSB (S), LEF (R) · median: LSB row Sellami 2018, (S) | — | T9 | active, P0 pending (caraway, dill, mint) |
+| carvone | carvone | 7439 · 38265 · C01767 (R) / C11383 (S) | mint- (R), caraway-like (S) (herbal) | 95, 31, 290 | measured · LSB (S), LEF (R) · median: LSB row Sellami 2018, (S) | — | T9 | active (est. P0, B6: caraway, dill, mint) |
 | limonene | limonene | 22311 · 15384 · C06078 | citrus-like (fruity, herbal) | 8.0, 2.6, 24 | measured · LSB (R, S), LEF · median: LSB row Xu 2025, (S) | — | T9 | active |
 | vinylguaiacol_4 | 4-vinylguaiacol | 332 · 42438 · C17883 | clove-like, smoky (phenolic) | 21, 3.0, 63 | measured · CZ, LSB, LEF · median: LSB TW | — | T10 | active |
-| vinylphenol_4 | 4-vinylphenol | 62453 · 1883 · C05627 | phenolic, earthy (phenolic) | 78, 10, 240 | measured · LSB, LEF · median: LSB TW | — | T10 | active, P0 pending (p-coumaric acid) |
+| vinylphenol_4 | 4-vinylphenol | 62453 · 1883 · C05627 | phenolic, earthy (phenolic) | 78, 10, 240 | measured · LSB, LEF · median: LSB TW | — | T10 | active (est. P0, B6: cabbage and cucumber p-coumaric acid) |
 | ethylguaiacol_4 | 4-ethylguaiacol | 62465 · 179252 · C23176 | smoky, gammon-like (phenolic) | 50, 4.4, 150 | measured · CZ, LSB, LEF · median: LSB row Grosch 1995 | — | T10 | **inactive** (*Brettanomyces*/*Candida*) |
 | ethylphenol_4 | 4-ethylphenol | 31242 · 49584 · C13637 | phenolic (phenolic) | 13, 2.6, 65 | measured · CZ only · median: CZ D | — | T10 | **inactive** (*Brettanomyces*/*Candida*) |
 | hemf | HEMF (homofuraneol, both tautomers as one) | 33931 / 93111 · 137995 · — | caramel-like (caramel) | 17, 5.6, 51 | measured · LSB, LEF (`01:Schwab13` 0.04–21 excluded, § 9) · median: LSB TW | — | T11 | active |
 | furaneol | furaneol (HDMF) | 19309 · 76247 · C20717 | caramel-like (caramel) | 87, 25, 270 | measured · CZ, LSB rows · median: LSB TW | — | T11 | active |
 | norfuraneol | norfuraneol | 4564493 · 74456 · — | caramel-like (caramel) | 6900, 2100, 23000 | measured (secondary only) · `01:Schwab13` · median: Schwab13 (only source) | — | T11 | active |
 | maltol | maltol | 8369 · 69438 · C11918 | caramel-like (caramel) | 5000, 1600, 35000 | measured · LSB, LEF · median: LSB TW | — | T11 | active |
-| sotolon | sotolon | 62835 · 67890 · — | seasoning-like, fenugreek (caramel, herbal) | 1.7, 0.49, 5.1 | measured · CZ, LSB (LEF excluded as doubtful, § 9) · median: LSB TW | — | T11 | active, P0 pending (flour) |
+| sotolon | sotolon | 62835 · 67890 · — | seasoning-like, fenugreek (caramel, herbal) | 1.7, 0.49, 5.1 | measured · CZ, LSB (LEF excluded as doubtful, § 9) · median: LSB TW | — | T11 | active (est. P0, B6: flour) |
 | dimethylpyrazine_25 | 2,5-dimethylpyrazine | 31252 · 89762 · — | earthy, nutty (roasty) | 140, 46, 1800 | measured · LSB, LEF · median: LSB TW | — | T11 | active |
 | trimethylpyrazine | 2,3,5-trimethylpyrazine | 26808 · 190131 · — | earthy (roasty) | 11, 3.6, 1800 | measured · LSB, LEF (160×, § 9) · median: LSB TW | — | T11 | active |
 | decalactone_delta | δ-decalactone | 12810 · 87327 · — | coconut-like (fruity, buttery) | 31, 10, 100 | measured · CZ, LEF · median: CZ D | — | T8 | active |
@@ -165,7 +165,7 @@ Each row changes or sharpens spec 2026-10-02 § 4.
 | heptanone_2 | 2-heptanone | 8051 · 5672 · C08380 | fruity, soapy (fruity, cheesy) | 650, 130, 3300 | measured · LEF range only · median: LEF mid | — | T8 | active |
 | nonanone_2 | 2-nonanone | 13187 · 77927 · — | fruity, musty (fruity) | 32, 5.0, 200 | measured · LEF range only · median: LEF mid | — | T8 | active |
 | trimethylamine | trimethylamine | 1146 · 18139 · C00565 | ammonia-, fish-like (fishy) | 1.2, 0.37, 3.6 (free base) | measured · LSB, LEF · median: LSB TW | base 9.8 | TMAO precursor | **inactive** (TMAO-reducing bacteria) |
-| acetylpyrroline_2 | 2-acetyl-1-pyrroline | 522834 · 67125 · — | popcorn-like, roasty (roasty) | 0.053, 0.010, 0.27 | measured · CZ only · median: CZ D | — | T11 (rice initial pool) | active, P0 pending (rice) |
+| acetylpyrroline_2 | 2-acetyl-1-pyrroline | 522834 · 67125 · — | popcorn-like, roasty (roasty) | 0.053, 0.010, 0.27 | measured · CZ only · median: CZ D | — | T11 (rice initial pool) | active (est. P0, B6: rice) |
 | acetic | acetic acid | 176 · 15366 · C00033 | vinegar-like (vinegary) | 5600, 1800, 99000 | measured · CZ 99 000 vs LSB 5 600 (18×) · median: LSB TW | acid 4.76 | engine | active |
 | ethanol | ethanol | 702 · 16236 · C00469 | ethanol-like (solvent) | 990000, 100000, 3000000 | measured · CZ, LEF · median: CZ D | — | engine | active |
 

@@ -59,20 +59,20 @@ citronellol,citronellol,8842,50462,,"soapy, rose-like",floral,10,3.3,40,measured
 methyl_salicylate,methyl salicylate,4133,31832,C12305,peppermint,herbal,40,8.0,200,measured,,,T9,active,0,0
 damascenone,(E)-β-damascenone,5366074,67251,,baked apple-like,fruity,0.0060,0.0020,0.018,measured,,,T9,active,0,0
 ionone_beta,(E)-β-ionone,638014,32325,C12287,"flowery, violet-like",floral,0.021,0.0070,3.5,measured,,,T9,active,0,0
-geranial,geranial,638011,16980,C01499,citrus-like,fruity,25,8.3,75,measured,,,T9,active,0,1
-neral,neral,643779,29020,C09847,"citrus-like, soapy",fruity,100,30,300,measured,,,T9,active,0,1
+geranial,geranial,638011,16980,C01499,citrus-like,fruity,25,8.3,75,measured,,,T9,active,0,0
+neral,neral,643779,29020,C09847,"citrus-like, soapy",fruity,100,30,300,measured,,,T9,active,0,0
 zingiberene,(−)-zingiberene,92776,10115,C09750,"spice, fresh, sharp",herbal,,,,none,,,,drop,0,0
-carvone,carvone,7439,38265,C01767,"mint- (R), caraway-like (S)",herbal,95,31,290,measured,,,T9,active,0,1
+carvone,carvone,7439,38265,C01767,"mint- (R), caraway-like (S)",herbal,95,31,290,measured,,,T9,active,0,0
 limonene,limonene,22311,15384,C06078,citrus-like,fruity;herbal,8.0,2.6,24,measured,,,T9,active,0,0
 vinylguaiacol_4,4-vinylguaiacol,332,42438,C17883,"clove-like, smoky",phenolic,21,3.0,63,measured,,,T10,active,0,0
-vinylphenol_4,4-vinylphenol,62453,1883,C05627,"phenolic, earthy",phenolic,78,10,240,measured,,,T10,active,0,1
+vinylphenol_4,4-vinylphenol,62453,1883,C05627,"phenolic, earthy",phenolic,78,10,240,measured,,,T10,active,0,0
 ethylguaiacol_4,4-ethylguaiacol,62465,179252,C23176,"smoky, gammon-like",phenolic,50,4.4,150,measured,,,T10,inactive,0,0
 ethylphenol_4,4-ethylphenol,31242,49584,C13637,phenolic,phenolic,13,2.6,65,measured,,,T10,inactive,0,0
 hemf,"HEMF (homofuraneol, both tautomers as one)",33931,137995,,caramel-like,caramel,17,5.6,51,measured,,,T11,active,0,0
 furaneol,furaneol (HDMF),19309,76247,C20717,caramel-like,caramel,87,25,270,measured,,,T11,active,0,0
 norfuraneol,norfuraneol,4564493,74456,,caramel-like,caramel,6900,2100,23000,measured,,,T11,active,0,0
 maltol,maltol,8369,69438,C11918,caramel-like,caramel,5000,1600,35000,measured,,,T11,active,0,0
-sotolon,sotolon,62835,67890,,"seasoning-like, fenugreek",caramel;herbal,1.7,0.49,5.1,measured,,,T11,active,0,1
+sotolon,sotolon,62835,67890,,"seasoning-like, fenugreek",caramel;herbal,1.7,0.49,5.1,measured,,,T11,active,0,0
 dimethylpyrazine_25,"2,5-dimethylpyrazine",31252,89762,,"earthy, nutty",roasty,140,46,1800,measured,,,T11,active,0,0
 trimethylpyrazine,"2,3,5-trimethylpyrazine",26808,190131,,earthy,roasty,11,3.6,1800,measured,,,T11,active,0,0
 decalactone_delta,δ-decalactone,12810,87327,,coconut-like,fruity;buttery,31,10,100,measured,,,T8,active,0,0
@@ -81,6 +81,6 @@ butanoic,butanoic acid,264,30772,C00246,sweaty,cheesy,2730,240,8200,measured,aci
 heptanone_2,2-heptanone,8051,5672,C08380,"fruity, soapy",fruity;cheesy,650,130,3300,measured,,,T8,active,0,0
 nonanone_2,2-nonanone,13187,77927,,"fruity, musty",fruity,32,5.0,200,measured,,,T8,active,0,0
 trimethylamine,trimethylamine,1146,18139,C00565,"ammonia-, fish-like",fishy,1.2,0.37,3.6,measured,base,9.8,,inactive,0,0
-acetylpyrroline_2,2-acetyl-1-pyrroline,522834,67125,,"popcorn-like, roasty",roasty,0.053,0.010,0.27,measured,,,T11,active,0,1
+acetylpyrroline_2,2-acetyl-1-pyrroline,522834,67125,,"popcorn-like, roasty",roasty,0.053,0.010,0.27,measured,,,T11,active,0,0
 acetic,acetic acid,176,15366,C00033,vinegar-like,vinegary,5600,1800,99000,measured,acid,4.76,engine,active,0,0
 ethanol,ethanol,702,16236,C00469,ethanol-like,solvent,990000,100000,3000000,measured,,,engine,active,0,0

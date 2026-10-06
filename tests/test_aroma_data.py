@@ -56,3 +56,17 @@ def test_new_types_have_aroma_data() -> None:
         assert set(A.DEFAULT_INGREDIENTS[t]) == {default}, t
     for t, cells in A.PENDING.items():
         assert set(cells) <= set(A.COMPOUNDS), t
+
+
+def test_ingredient_pass_entries() -> None:
+    from fermenttrack.seed_data import INGREDIENT_SEED_DATA_V4
+
+    # their own odorants are not curated: they stay "no aroma data yet"
+    no_data = {"Garlic", "Onion", "Radish", "Carrot", "Chilies"}
+    assert not no_data & set(A.AROMA_INGREDIENTS)
+    v4 = {n for n, _r, _s in INGREDIENT_SEED_DATA_V4} - no_data
+    assert v4 <= set(A.AROMA_INGREDIENTS)
+    for spice, key in (("Caraway seeds", "carvone"), ("Lemongrass", "geranial"),
+                       ("Fresh ginger", "neral"), ("White rice", "acetylpyrroline_2"),
+                       ("Rye flour", "sotolon")):  # fmt: skip
+        assert key in A.AROMA_INGREDIENTS[spice], spice

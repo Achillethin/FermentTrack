@@ -478,9 +478,12 @@ def concentrations(
     # 3b. Strecker degradation of free amino acids (§ 5.11): a mass rate per g amino acid
     k_st = d["strecker_rate"] * 1e-6 / 24.0 * q("q10_strecker", 25.0)
     strecker = ("chemistry", "free amino acids", "Strecker degradation")
+    veg_aa = pre.get("@free_aa", tr.zero[:, 0])[:, None]  # µg/kg: chemistry only (B6)
     for _aa, aa_share, ald, _acid in _AA_ROUTE:
         if tr.add(ald, k_st * aa * d[aa_share]):
             tr.route(ald, strecker)
+        if tr.add(ald, k_st * veg_aa * d[aa_share]):
+            from_precursor(ald, "@free_aa")
 
     # 4. aldehydes, then the alcohols they are reduced to. ponytail: the yeast route's 1 %
     # aldehyde share is also inside its measured alcohol yield, so it counts twice (well
@@ -792,31 +795,36 @@ def concentrations(
                     tr.route(key, ("ingredient", n, "fish lipid oxidation"))
             tr.loss(key, d["fish_lipid_loss"] / 24.0)
 
-    # 12. T10 (§ 5.10): bound ferulic acid released by yeast feruloyl esterase; free
-    # ferulic acid decarboxylated to 4-vinylguaiacol by Pof+ yeast, or converted by padA+
-    # L. plantarum (a share to 4-vinylguaiacol, the rest reduced to odourless
-    # dihydroferulic acid). µmol/kg; 1 mol of ferulic acid gives 1 mol of 4-vinylguaiacol.
-    fer = pre.get("@ferulic", tr.zero[:, 0])
-    free_share = d["share_ferulic_free"][:, 0]
-    b0 = tr.start("_ferulic_bound") + fer * (1.0 - free_share)
-    f0 = tr.start("_ferulic_free") + fer * free_share
-    if np.any(b0 + f0 > 0.0):
+    # 12. T10 (§ 5.10): bound hydroxycinnamic acids released by yeast feruloyl esterase;
+    # free acid decarboxylated by Pof+ yeast, or converted by padA+ L. plantarum (a share to
+    # the vinylphenol, the rest reduced to the odourless dihydro acid). µmol/kg; 1 mol of
+    # acid gives 1 mol of vinylphenol. Ferulic -> 4-vinylguaiacol; p-coumaric ->
+    # 4-vinylphenol with the same enzymes and parameters (B6).
+    for p_key, state, vinyl, acid_name in (
+        ("@ferulic", "_ferulic", "vinylguaiacol_4", "ferulic acid"),
+        ("@coumaric", "_coumaric", "vinylphenol_4", "p-coumaric acid"),
+    ):  # fmt: skip
+        hca = pre.get(p_key, tr.zero[:, 0])
+        free_share = d["share_ferulic_free"][:, 0]
+        b0 = tr.start(f"{state}_bound") + hca * (1.0 - free_share)
+        f0 = tr.start(f"{state}_free") + hca * free_share
+        if not np.any(b0 + f0 > 0.0):
+            continue
         r_rel = d["kmax_ferulic_release"] / 24.0 * _gate(ctx, YEAST)
         bound = integrate(ctx.t, tr.zero, r_rel, b0)
         k_dec = d["kmax_ferulic_decarb"] / 24.0
         r_y = d["pof_yeast"] * k_dec * _gate(ctx, YEAST)
         r_lp = d["pad_lp"] * k_dec * _gate(ctx, LAB, "plantarum")
         free = integrate(ctx.t, r_rel * bound, r_y + r_lp, f0)
-        tr.conc["_ferulic_bound"], tr.conc["_ferulic_free"] = bound, free
-        vg = (r_y + d["share_vinyl"] * r_lp) * free * mw["vinylguaiacol_4"]
-        if tr.add("vinylguaiacol_4", vg):
-            from_precursor("vinylguaiacol_4", "@ferulic")
-            how = "decarboxylates ferulic acid"
+        tr.conc[f"{state}_bound"], tr.conc[f"{state}_free"] = bound, free
+        if tr.add(vinyl, (r_y + d["share_vinyl"] * r_lp) * free * mw[vinyl]):
+            from_precursor(vinyl, p_key)
+            how = f"decarboxylates {acid_name}"
             if np.any(d["pof_yeast"] > 0.0):
-                tr.organisms("vinylguaiacol_4", YEAST, how)
+                tr.organisms(vinyl, YEAST, how)
             if np.any(d["pad_lp"] > 0.0):
-                tr.organisms("vinylguaiacol_4", LAB, how, "plantarum")
-        tr.loss("vinylguaiacol_4", d["loss_4vg"] / 24.0)
+                tr.organisms(vinyl, LAB, how, "plantarum")
+        tr.loss(vinyl, d["loss_4vg"] / 24.0)
 
     # 13. T11 (§ 5.11, D13): a koji-derived pentose-Maillard precursor (needs soybean),
     # converted by Z. rouxii below pH 5.6 into HEMF, which decays chemically (steep Q10);
@@ -874,12 +882,9 @@ FLOOR = 1e-3  # odour activity floor for log10 values (a thousandth of the thres
 _LATER = {  # evidence compounds without a B1 route -> why (curation spec § 4, § 11)
     "linalool": "bound terpenes of the vegetable are not curated yet",
     "geraniol": "bound terpenes of the vegetable are not curated yet",
-    "carvone": "the spice precursor (caraway, dill, mint) is not curated yet",
-    "geranial": "the spice precursor (ginger, lemongrass, citrus) is not curated yet",
-    "neral": "the spice precursor (ginger, lemongrass, citrus) is not curated yet",
-    "vinylguaiacol_4": "the vegetable's ferulic acid is not curated yet",
-    "methional": "the vegetable's free amino acids are not tracked yet",
-    "phenylacetaldehyde": "the vegetable's free amino acids are not tracked yet",
+    "carvone": "it needs a spice such as caraway, dill or mint",
+    "geranial": "it needs ginger, lemongrass or lemon",
+    "neral": "it needs ginger, lemongrass or lemon",
 }
 
 
@@ -903,6 +908,7 @@ def _empty(note: str, no_data: list[str]) -> AromaResult:
 _STATES = (  # internal states carried across a mix
     "_acetolactate", "_ferulic_bound", "_ferulic_free", "_hemf_precursor", "_citrate",
     "_lactone:decalactone_delta", "_lactone:dodecalactone_delta", "_tea_bound",
+    "_coumaric_bound", "_coumaric_free",
 )  # fmt: skip
 
 

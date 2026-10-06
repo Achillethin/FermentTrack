@@ -317,3 +317,28 @@ def test_kombucha_surface_strips_volatiles() -> None:
     assert "kombucha" in A.K_SURF
     _, c, _, _ = _run(TEA, KOMBUCHA, ferment="kombucha", temp=30.0)
     assert np.all(c["hexanal"][:, -1] < c["hexanal"][:, 0])
+
+
+def test_spices_bring_their_terpenes() -> None:
+    _, c, routes, _ = _run({"Cabbage": 0.97, "Caraway seeds": 0.005})
+    assert np.all(c["carvone"][:, 0] > 0.0)
+    assert ("ingredient", "Caraway seeds", "carried in") in routes["carvone"]
+
+
+def test_vegetable_amino_acids_only_feed_strecker() -> None:
+    ctx, veg, routes, d = _run({"Napa cabbage": 0.975})
+    key = "ing:Napa cabbage:@free_aa"
+    plain, _ = aroma.concentrations(ctx, {**d, key: np.zeros_like(d[key])})
+    for k in ("methylbutanol_3", "phenylethanol_2"):
+        # the slow Strecker chemistry adds tens of µg/kg at most; through the microbial
+        # routes the same 2 g/kg pool would add ~59 mg/kg 3-methylbutanol (B6 probe)
+        assert np.all(np.abs(veg[k] - plain[k]) <= 50.0), k
+    assert ("ingredient", "Napa cabbage", "free amino acids (Strecker)") in routes["methional"]
+
+
+def test_coumaric_acid_gives_vinylphenol() -> None:
+    ctx, _, _, d = _run({"Cabbage": 0.98}, ["Lactobacillus plantarum", "Saccharomyces cerevisiae"])
+    d = {**d, "pad_lp": np.ones_like(d["pad_lp"]), "pof_yeast": np.ones_like(d["pof_yeast"])}
+    c, routes = aroma.concentrations(ctx, d)
+    assert np.all(c["vinylphenol_4"][:, -1] > 0.0)
+    assert ("ingredient", "Cabbage", "p-coumaric acid") in routes["vinylphenol_4"]

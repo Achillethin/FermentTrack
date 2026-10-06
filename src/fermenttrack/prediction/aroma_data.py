@@ -292,7 +292,8 @@ MW: dict[str, float] = {  # g/mol
     "acetoin": 88.11, "butanediol_23": 90.12, "allyl_itc": 99.15, "allyl_cyanide": 67.09,
     "butenyl_itc": 113.18, "methanethiol": 48.11, "dms": 62.13, "dmds": 94.20,
     "dmts": 126.26, "diacetyl": 86.09, "pentanedione_23": 100.12, "vinylguaiacol_4": 150.17,
-    "ferulic": 194.18, "octen3ol": 128.21, "octanone_3": 128.21, "octanol_3": 130.23,
+    "ferulic": 194.18, "coumaric": 164.16, "vinylphenol_4": 120.15, "octen3ol": 128.21,
+    "octanone_3": 128.21, "octanol_3": 130.23,
     "octen3one": 126.20, "heptanone_2": 114.19, "nonanone_2": 142.24, "hemf": 142.15,
     "furaneol": 128.13, "norfuraneol": 114.10, "maltol": 126.11,
 }  # fmt: skip
@@ -305,9 +306,11 @@ PRECURSOR_LABEL: dict[str, str] = {
     "@ferulic": "ferulic acid",
     "@citrate": "citrate",
     "@tea_bound": "bound terpenes (glycosides)",
+    "@free_aa": "free amino acids (Strecker)",
+    "@coumaric": "p-coumaric acid",
 }
 # precursors held as µg/kg (mass) rather than µmol/g of fresh ingredient
-MASS_PRECURSORS = frozenset({"@hexenol_residual", "@tea_bound"})
+MASS_PRECURSORS = frozenset({"@hexenol_residual", "@tea_bound", "@free_aa"})
 
 # Ingredient -> initial compound (µg/kg of ingredient) or "@" precursor (µmol/g fresh
 # weight; @hexenol_residual in µg/kg). Names as in seed_data; the napa cabbage and the
@@ -338,6 +341,16 @@ BASE_ETHANOL = 94.0  # g/kg ethanol of the base the § 6.2 pools describe (200 g
 # mass between the logged bases (§ 6.2: "scale every value by ethanol0 / 94")
 ALCOHOL_BASES = frozenset({"Red wine", "White wine", "Hard cider"})
 
+def _veg_acids(aa: float, hca: float) -> dict[str, Prior]:
+    """est. (B6) vegetable pools: free amino acids (µg/kg FW, x/÷4) and ferulic and
+    p-coumaric acid (µmol/g FW each, x/÷10)."""
+    return {
+        "@free_aa": Prior(aa, aa / 4.0, aa * 4.0),
+        "@ferulic": Prior(hca, hca / 10.0, hca * 10.0),
+        "@coumaric": Prior(hca, hca / 10.0, hca * 10.0),
+    }
+
+
 # Flour (§ 6.2), re-derived (B2) with the 2026-10-06 threshold medians: the spec's priors
 # were OAV > 100 in rye flour (02:S2) x the old medians (hexanal 3.4, (E)-2-nonenal 0.22,
 # methional 0.29); each prior is scaled by new/old median (2.4/3.4, 0.69/0.22, 0.43/0.29).
@@ -349,6 +362,9 @@ _FLOUR: dict[str, Prior] = {
     "e2_nonenal": Prior(125.0, 63.0, 470.0),
     "methional": Prior(74.0, 43.0, 445.0),
     "@ferulic": Prior(1.34, 0.81, 2.33),
+    # est. (B6): 02:S1 reports "high odour activity" of sotolon in both wheat flours (well
+    # above its 1.7 µg/kg threshold) without a number; x/÷10
+    "sotolon": Prior(20.0, 2.0, 200.0),
 }
 
 AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
@@ -360,6 +376,7 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
         # est. (B1): 1.0 (0.2-4.0) µmol/g DM x dry matter 0.09 (0.05-0.17), extremes multiplied
         "@gluconapin": Prior(0.09, 0.01, 0.68),
         "@smcso": Prior(5.7, 3.2, 10.2),  # 05:Friedrich22
+        **_veg_acids(2.0e6, 0.05),
     },
     "Napa cabbage (salted)": {  # kimchi t0, after salting (03:S10 Tables 1, 3; semi)
         "hexanal": _x3(1.9), "z3_hexenol": _x3(10.4), "methional": _x3(0.3),
@@ -373,14 +390,20 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
         # released at hexenol_release (§ 5.8 "shaped to 03:S10")
         "@hexenol_residual": _x3(1490.0),
     },
+
     "Cucumber": {  # fresh (03:S13 Table 2; § 4.5)
         "hexanal": _x3(29.0), "linalool": _x3(4.6), "e2_nonenal": Prior(5.0, 1.0, 25.0),
+        **_veg_acids(1.0e6, 0.02),
     },
     "White wheat flour": _FLOUR, "Whole wheat flour": _FLOUR, "Rye flour": _FLOUR,
     "Red wine": _WINE, "White wine": _WINE, "Hard cider": _WINE,
     # cooked rice, per kg of logged rice (assumed steamed; est. (B3)): hexanal 53.2-71.6 µg/kg
     # (Lai 2026 Foods 15:356 Table 1, PMC12840958; IS semi), geometric mid, x/÷3 for semi
-    "White rice": {"hexanal": Prior(62.0, 21.0, 190.0)},
+    "White rice": {
+        "hexanal": Prior(62.0, 21.0, 190.0),
+        # est. (B6): a non-fragrant white rice; fragrant rices hold 10-100x more; x/÷10
+        "acetylpyrroline_2": Prior(10.0, 1.0, 100.0),
+    },
     # Cooked substrates of miso (§ 6.2), per kg of the logged ingredient. App. values are
     # lower bounds (porous-polymer traps, 04:M9 p. 162): hi allows x10 for recovery, est. (B4)
     "Soybeans": {
@@ -397,6 +420,38 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
         "dimethylpyrazine_25": Prior(40.0, 13.0, 400.0),
         "trimethylpyrazine": Prior(40.0, 13.0, 400.0),
     },
+    # ── ingredient pass (B6): estimated, deliberately wide priors (no source opened), per kg
+    # of the logged ingredient. Spices: typical essential-oil yield x oil composition.
+    "Fresh ginger": {  # oil ~0.2-0.6 % FW x citral 10-30 %, geranial ~60 % of citral
+        "geranial": Prior(100_000.0, 10_000.0, 1_000_000.0),
+        "neral": Prior(60_000.0, 6_000.0, 600_000.0),
+    },
+    "Lemongrass": {  # oil 0.3-1 % FW x citral 70-85 % (geranial ~55 %, neral ~40 %); hi = ceiling
+        "geranial": Prior(2_000_000.0, 300_000.0, 5_000_000.0),
+        "neral": Prior(1_600_000.0, 240_000.0, 3_800_000.0),
+    },
+    "Lemon": {  # pulp without peel: ~0.02 % peel oil carried in (limonene ~65 %, citral ~3 %)
+        "limonene": Prior(50_000.0, 5_000.0, 500_000.0),
+        "geranial": Prior(2_000.0, 200.0, 20_000.0),
+        "neral": Prior(1_300.0, 130.0, 13_000.0),
+    },
+    "Caraway seeds": {  # oil 3-7 % x carvone 50-65 %, limonene 30-45 %
+        "carvone": Prior(20_000_000.0, 3_000_000.0, 45_000_000.0),
+        "limonene": Prior(15_000_000.0, 2_000_000.0, 35_000_000.0),
+    },
+    "Dill": {  # fresh herb: oil 0.3-1 % FW x carvone 10-40 %
+        "carvone": Prior(1_000_000.0, 100_000.0, 5_000_000.0),
+        "limonene": Prior(500_000.0, 50_000.0, 3_000_000.0),
+    },
+    "Mint": {  # spearmint: oil 0.5-1 % FW x carvone 55-70 %, limonene 10-20 %
+        "carvone": Prior(3_000_000.0, 500_000.0, 7_000_000.0),
+        "limonene": Prior(600_000.0, 100_000.0, 2_000_000.0),
+    },
+    # vegetables: free amino acids (µg/kg FW; a few g/kg) and hydroxycinnamic acids (µmol/g
+    # FW; mostly esterified, 1-100 mg/kg as ferulic/p-coumaric): est. (B6). Only vegetables
+    # whose own odorants are curated get them (radish, carrot, chilies, garlic, onion stay
+    # "no aroma data yet": their character compounds are not in the catalogue)
+    "Napa cabbage": _veg_acids(2.0e6, 0.05),
     # tea leaves (§ 6.2), per kg of leaves: derived (B5) from the per-batch values at the
     # default 5 g/kg (x200). Free: linalool 10 (3-30) µg/kg batch (02:K4 anchor); the others as
     # 02:K1's ratios to linalool, each x/÷4. Bound glycosides 105-366 µg/g (05:Zhou26tea).
@@ -423,6 +478,11 @@ AROMA_INGREDIENTS: dict[str, dict[str, Prior]] = {
     # fish: no initial pools curated; its lipids oxidise (FISH_LIPID sources, § 5.8)
     "Anchovies": {}, "Mackerel": {}, "Fish": {},
 }  # fmt: skip
+# the catalogue's napa cabbage is salted at t0 in a lacto-ferment: the post-salting kimchi
+# pools (03:S10's t0) plus its acids (B6)
+AROMA_INGREDIENTS["Napa cabbage"] = {
+    **AROMA_INGREDIENTS["Napa cabbage (salted)"], **AROMA_INGREDIENTS["Napa cabbage"]
+}
 # Miso (§ 5.11): HEMF needs soybean; furaneol forms in barley mashes. The default mash
 # (koji ratio 10: equal soybean and koji grain, 11 % salt) is the reference: est. (B4)
 FISH = frozenset({"Anchovies", "Mackerel", "Fish"})
@@ -799,7 +859,7 @@ EVIDENCE: dict[str, dict[str, tuple[str, str, tuple[str, ...]]]] = {
 # compounds whose only route is an uncurated ingredient precursor)
 _FLOUR_PENDING = (
     "nonanal", "pentylfuran_2", "octen3ol", "octanol_3", "limonene", "heptanone_2", "butanoic",
-    "octen3one", "sotolon", "z3_hexenal", "z3_hexenol", "z4_heptenal", "octanone_3",
+    "octen3one", "z3_hexenal", "z3_hexenol", "z4_heptenal", "octanone_3",
 )  # fmt: skip
 PENDING: dict[str, dict[str, str]] = {
     "sourdough": {
@@ -815,7 +875,6 @@ PENDING: dict[str, dict[str, str]] = {
     "koji": {
         **{k: f"the rice's {COMPOUNDS[k].name} is not curated yet" for k in (
             "nonanal", "pentylfuran_2", "e2_nonenal", "z3_hexenal", "z3_hexenol", "z4_heptenal",
-            "acetylpyrroline_2",
         )},  # fmt: skip
         "vinylguaiacol_4": "the rice's ferulic acid is not curated yet",
     },
@@ -829,7 +888,6 @@ PENDING: dict[str, dict[str, str]] = {
         "vinylguaiacol_4": "soy hydroxycinnamic acids are not curated yet",
         "vinylphenol_4": "soy hydroxycinnamic acids are not curated yet",
         "sotolon": "the soybean's sotolon is not curated yet",
-        "acetylpyrroline_2": "the rice's 2-acetyl-1-pyrroline is not curated yet",
     },
     "kombucha": {
         "vinylguaiacol_4": "the tea's ferulic acid is not curated yet",
