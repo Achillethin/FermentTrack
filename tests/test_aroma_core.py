@@ -106,3 +106,13 @@ def test_bakers_yeast_is_s_cerevisiae() -> None:
     assert aroma._is_sc("Baker's yeast (S. cerevisiae)")
     assert aroma._is_sc("Saccharomyces cerevisiae")
     assert not aroma._is_sc("Kazachstania humilis")
+
+
+def test_tea_terpene_release_shares_sum_to_one() -> None:
+    """Linalool and geraniol shares are drawn separately; past 1 together they are rescaled,
+    so released terpenes never exceed what was bound (review: 4 % of members reached 153 %)."""
+    s_l, s_g = np.array([[0.8], [0.4], [0.0]]), np.array([[0.7], [0.3], [0.0]])
+    parts = aroma.terpene_split(s_l, s_g)
+    total = sum(parts)
+    assert np.allclose(total, 1.0) and all(np.all(p >= 0.0) for p in parts)
+    assert np.allclose(parts[0][1], 0.4) and np.allclose(parts[2][1], 0.3)  # untouched below 1

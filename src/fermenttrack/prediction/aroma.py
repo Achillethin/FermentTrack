@@ -129,7 +129,7 @@ AAB = frozenset({"aab"})
 NONYEAST_AT = LAB | {"mould"}  # aminotransferase route of non-yeast organisms (§ 5.1)
 REDUCERS_LIPID = frozenset({"lab", "lab_hetero", "yeast"})  # § 5.8: not Lactococcus
 _LAB_GENERA = ("Lactobacillus", "Leuconostoc", "Tetragenococcus")
-_NOT_AROMA = frozenset({"Water"})  # logged, but no aroma data expected
+_NOT_AROMA = frozenset({"Water", "Cane sugar"})  # logged, but no aroma data expected
 
 
 def organism_class(kin: OrganismKinetics) -> str:
@@ -229,6 +229,14 @@ def build_context(seg: Segment, profile: FermentProfile, co2_escapes: bool) -> C
         products=[frozenset(k for ch in o.kin.channels for k in ch.products) for o in orgs],
         shares=dict(seg.shares), ferment=profile.type, co2_escapes=co2_escapes,
     )  # fmt: skip
+
+
+def terpene_split(s_l: FloatArray, s_g: FloatArray) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Bound tea terpenes released as linalool, geraniol and methyl salicylate (the rest);
+    the two drawn shares are rescaled where they sum past 1 (§ 5.9)."""
+    scale = np.maximum(s_l + s_g, 1.0)
+    s_l, s_g = s_l / scale, s_g / scale
+    return s_l, s_g, 1.0 - s_l - s_g
 
 
 def _gate(ctx: Context, cls: Iterable[str], name: str = "") -> FloatArray:
@@ -756,11 +764,8 @@ def concentrations(
         k_b = d["kmax_bound_release"] / 24.0 * _gate(ctx, YEAST) + d["acid_bound_release"] / 24.0
         bound = integrate(ctx.t, tr.zero, k_b, bound0)
         tr.conc["_tea_bound"] = bound
-        s_l, s_g = d["split_linalool"], d["split_geraniol"]
-        for key, part in (
-            ("linalool", s_l), ("geraniol", s_g),
-            ("methyl_salicylate", np.maximum(1.0 - s_l - s_g, 0.0)),
-        ):  # fmt: skip
+        shares = terpene_split(d["split_linalool"], d["split_geraniol"])
+        for key, part in zip(("linalool", "geraniol", "methyl_salicylate"), shares, strict=True):
             if tr.add(key, part * k_b * bound):
                 from_precursor(key, "@tea_bound")
                 tr.organisms(key, YEAST, "β-glucosidase releases bound terpenes")
@@ -866,6 +871,10 @@ def concentrations(
             for j, name in enumerate(ctx.names):
                 if pool in ctx.products[j] and float(np.max(ctx.flux[j])) > 0.0:
                     tr.route(key, ("organism", name, "the fermentation itself"))
+            if key == "ethanol" and np.any(v[:, 0] > 0.0):  # a wine or cider base brings it
+                for name in ctx.shares:
+                    if name in A.ALCOHOL_BASES:
+                        tr.route(key, ("ingredient", name, "carried in"))
 
     # a template whose producers are absent leaves an all-zero, routeless tracer: not made
     made_here = {

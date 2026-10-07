@@ -354,3 +354,14 @@ def test_coumaric_acid_gives_vinylphenol() -> None:
     c, routes = aroma.concentrations(ctx, d)
     assert np.all(c["vinylphenol_4"][:, -1] > 0.0)
     assert ("ingredient", "Cabbage", "p-coumaric acid") in routes["vinylphenol_4"]
+
+
+def test_sugar_is_not_an_ingredient_missing_aroma_data() -> None:
+    items = [("Cane sugar", 70.0, "base"), ("Water", 830.0, "base"), ("Black tea leaves", 5.0, "base")]
+    assert aroma.ingredient_shares(items, "kombucha")[1] == []
+
+
+def test_vinegar_ethanol_comes_from_the_wine() -> None:
+    _, c, routes, _ = _run({"Red wine": 0.9}, ["Acetobacter aceti"], ferment="vinegar")
+    assert np.all(c["ethanol"][:, 0] > 0.0)
+    assert ("ingredient", "Red wine", "carried in") in routes["ethanol"]
