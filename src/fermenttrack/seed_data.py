@@ -86,9 +86,9 @@ RETIRED_V3: list[str] = [
 ]
 
 # Added 2026-10-06 (migration 0017): ingredients whose aroma precursors are curated (aroma
-# increment B6), groundwork for building recipes from aromas. No FDC rows yet: the frozen
-# snapshot needs the FDC API key (scripts/fetch_fdc_snapshot.py), so they count as "no
-# reference data" in a recipe's composition, like starters and tea leaves.
+# increment B6), groundwork for building recipes from aromas. Their nutrients come from the
+# bundled USDA catalogue (fdc_catalog_v1, loaded by 0007) via migration 0018: see
+# INGREDIENT_FDC_IDS_V4.
 INGREDIENT_SEED_DATA_V4: list[tuple[str, str, list[str]]] = [
     ("Napa cabbage", "base", ["lacto_ferment"]),
     ("Cucumber", "base", ["lacto_ferment"]),
@@ -100,6 +100,20 @@ INGREDIENT_SEED_DATA_V4: list[tuple[str, str, list[str]]] = [
     ("Dill", "flavoring", ["lacto_ferment"]),
     ("Lemongrass", "flavoring", ["kombucha", "kefir", "lacto_ferment"]),
 ]
+
+# The USDA catalogue food behind each V4 ingredient (SR Legacy, fdc_catalog_v1): migration
+# 0018 copies its nutrients to ingredient_nutrients exactly as a USDA-search pick would.
+INGREDIENT_FDC_IDS_V4: dict[str, int] = {
+    "Napa cabbage": 169979,  # Cabbage, chinese (pe-tsai), raw
+    "Cucumber": 168409,  # Cucumber, with peel, raw
+    "Radish": 169276,  # Radishes, raw
+    "Carrot": 170393,  # Carrots, raw
+    "Garlic": 169230,  # Garlic, raw
+    "Onion": 170000,  # Onions, raw
+    "Caraway seeds": 170918,  # Spices, caraway seed
+    "Dill": 172233,  # Dill weed, fresh
+    "Lemongrass": 168573,  # Lemon grass (citronella), raw
+}
 
 # Brine ferments (e.g. chilies in brine) log water as a base ingredient.
 WATER_SYSTEMS_V3: list[str] = ["kombucha", "sourdough", "lacto_ferment"]
