@@ -6,7 +6,9 @@ import Nutrition from "./Nutrition.jsx";
 import TasteAroma from "./TasteAroma.jsx";
 import WhatIfControls, { horizonLabel } from "./WhatIfControls.jsx";
 import { axisUnit, describeMilestone, duration, parseApiDate, TEMP_SOURCE_TEXT, timeLabel } from "./format.js";
-import { fmtNum, jarSummary, LENSES, lensOf, likelihood, phaseColor } from "./sensory.js";
+import {
+  aromaGrid, aromaImpression, fmtNum, indexAt, jarSummary, LENSES, lensOf, likelihood, phaseColor,
+} from "./sensory.js";
 import { formatC } from "./temperature.js";
 import "./prediction.css";
 
@@ -259,7 +261,8 @@ function LensSwitch({ lens, onSelect }) {
 
 // "In the jar": the taste phase, noticeable tastes and three label rows, now and at
 // the end of the window. Text stays in slate ink; the swatch alone carries the phase hue.
-function JarCard({ sensory, timeUnit }) {
+function JarCard({ sensory, series, timeUnit }) {
+  const grid = aromaGrid(sensory, series);
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 sm:p-4">
       <p className="text-sm font-medium text-slate-300">In the jar · model estimate</p>
@@ -269,6 +272,8 @@ function JarCard({ sensory, timeUnit }) {
           ["end", "End of window"],
         ].map(([which, label]) => {
           const j = jarSummary(sensory, which);
+          const imp = grid.length ? aromaImpression(sensory, series, indexAt(grid, j.t_h)) : null;
+          const aroma = imp ? [...imp.leads, ...imp.extras].map((f) => f.label.toLowerCase()) : [];
           const facts = [
             j.sugars && `${fmtNum(j.sugars.p50, "g")} g sugar`,
             j.alcohol && `${fmtNum(j.alcohol.p50, "% ABV")} % ABV`,
@@ -292,6 +297,7 @@ function JarCard({ sensory, timeUnit }) {
                   </span>
                 )}
                 {j.tastes.length > 0 && <span className="text-slate-300">may be noticeable: {j.tastes.join(" · ")}</span>}
+                {aroma.length > 0 && <span className="text-slate-300">aroma may come across as: {aroma.join(" · ")}</span>}
                 {facts.length > 0 && <span className="text-slate-400">{facts.join(" · ")} per 100 g</span>}
               </dd>
             </div>
@@ -612,7 +618,7 @@ export default function PredictionPanel({ apiUrl, batchId, startedAt: batchStart
             {horizonLabel(data.horizon_h)}). Pick a longer window below to see the model up to now.
           </p>
         )}
-        {data.sensory && <JarCard sensory={data.sensory} timeUnit={timeUnit} />}
+        {data.sensory && <JarCard sensory={data.sensory} series={data.series || []} timeUnit={timeUnit} />}
         {data.sensory && <LensSwitch lens={activeLens} onSelect={setLens} />}
         <Milestones
           data={{ ...data, milestones: (data.milestones || []).filter((m) => lensOf(m) === activeLens) }}

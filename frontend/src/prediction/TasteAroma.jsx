@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import Aroma from "./Aroma.jsx";
+import AromaImpression from "./AromaImpression.jsx";
 import AromaPalette from "./AromaPalette.jsx";
 import { useWidth } from "./ForecastChart.jsx";
 import { timeLabel } from "./format.js";
@@ -120,6 +121,15 @@ export default function TasteAroma({ data, charts, renderChart, hoverIndex, onHo
       {charts.map((c) => renderChart(c, THRESHOLD_LINE))}
       {hasAroma ? (
         <>
+          <AromaImpression
+            sensory={s}
+            series={data.series || []}
+            nowH={data.now_h}
+            horizonH={data.horizon_h}
+            timeUnit={timeUnit}
+            hoverIndex={hoverIndex}
+            onHover={onHover}
+          />
           <AromaPalette
             sensory={s}
             series={data.series || []}

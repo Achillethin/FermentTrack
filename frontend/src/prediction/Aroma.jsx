@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useWidth } from "./ForecastChart.jsx";
 import { timeLabel } from "./format.js";
 import { linear, nearestIndex } from "./scale.js";
-import { AROMA_HEX, aromaBin, aromaRows, indexAt, stripColumns, topCompounds } from "./sensory.js";
+import { AROMA_HEX, aromaBin, aromaRows, indexAt, stripColumns, topCompounds, withSmell } from "./sensory.js";
 
 const M = { left: 36, right: 10 }; // aligned with ForecastChart's plot area
 const ROW = 36; // 14 px label + 20 px bars + 2 px gap
@@ -16,7 +16,7 @@ const TIER_TEXT = {
 const KIND_TEXT = { ingredient: "from", organism: "made by", chemistry: "chemistry:" };
 
 /** P(noticeable) per aroma series over time: bar height = chance, colour = median strength. */
-function AromaStrip({ rows, grid, nowH, horizonH, timeUnit, hoverIndex, onHover, series }) {
+function AromaStrip({ rows, grid, nowH, horizonH, timeUnit, hoverIndex, onHover, series, smellOf }) {
   const ref = useRef(null);
   const width = useWidth(ref);
   const innerW = Math.max(width - M.left - M.right, 10);
@@ -99,7 +99,7 @@ function AromaStrip({ rows, grid, nowH, horizonH, timeUnit, hoverIndex, onHover,
         {top.length
           ? top
               .map(({ r, p }) => {
-                const names = topCompounds(r, series, i, 2);
+                const names = topCompounds(r, series, i, 2).map((n) => withSmell(n, smellOf[n]));
                 return `${r.label} may be noticeable in ${Math.round(p * 100)} % of runs${
                   names.length ? ` (mostly ${names.join(", ")})` : ""
                 }`;
@@ -174,14 +174,13 @@ function CompoundCard({ c }) {
           ) : (
             c.name
           )}
+          {c.descriptor && <span className="font-normal text-slate-300"> · {c.descriptor}</span>}
         </p>
         <span className="rounded-full border border-slate-600 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-300">
           {c.tier}
         </span>
       </div>
-      <p className="mt-0.5 text-slate-400">
-        {c.descriptor} · {TIER_TEXT[c.tier] || c.tier}
-      </p>
+      <p className="mt-0.5 text-slate-400">{TIER_TEXT[c.tier] || c.tier}</p>
       <ul className="mt-1 space-y-0.5">
         {c.routes.map((r) => (
           <li key={`${r.kind}-${r.name}-${r.via}`}>
@@ -219,7 +218,12 @@ function Drilldown({ row, sensory, series, renderChart }) {
     .filter((x) => x.band)
     .sort((a, b) => Math.max(...b.band.p50) - Math.max(...a.band.p50))
     .slice(0, 7)
-    .map(({ c, band }, k) => ({ ...band, slot: k + 1, dashed: c.tier === "plausible" }));
+    .map(({ c, band }, k) => ({
+      ...band,
+      label: withSmell(band.label, c.descriptor),
+      slot: k + 1,
+      dashed: c.tier === "plausible",
+    }));
   const chart = {
     id: `aroma-${row.key}`,
     group: "aroma",
@@ -256,6 +260,7 @@ export default function Aroma({ sensory, series, nowH, horizonH, timeUnit, hover
   if (!rows.length) return null;
   const grid = series.find((s) => s.key === `aroma:${rows[0].key}`)?.t_h || sensory.taste_phases?.t_h || [];
   const open = rows.find((r) => r.key === openSeries);
+  const smellOf = Object.fromEntries(sensory.compounds.map((c) => [c.name, c.descriptor]));
   return (
     <div className="space-y-4">
       <AromaStrip
@@ -267,6 +272,7 @@ export default function Aroma({ sensory, series, nowH, horizonH, timeUnit, hover
         hoverIndex={hoverIndex}
         onHover={onHover}
         series={series}
+        smellOf={smellOf}
       />
       {open && <Drilldown row={open} sensory={sensory} series={series} renderChart={renderChart} />}
     </div>

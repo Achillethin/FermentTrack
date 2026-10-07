@@ -180,3 +180,117 @@ export function topCompounds(row, series, i, k = 3) {
 // Compounds made but without an odour threshold: shown by name, never in the sums.
 export const concOnly = (sensory) =>
   (sensory?.compounds || []).filter((c) => c.threshold == null).map((c) => c.name);
+
+// ── Smell interpretation: families in everyday words ──────────────────
+
+// What each aromatic family tends to bring to mind (plain-language gloss for the UI).
+export const FAMILY_GLOSS = {
+  fruity: "fruit, pineapple, pear, banana",
+  floral: "rose, honey, violet",
+  green: "cut grass, leaves",
+  buttery: "butter, cream",
+  malty: "malt, bread crust",
+  sulfurous: "cabbage, garlic, cooked potato",
+  pungent: "mustard, horseradish, sharp",
+  vinegary: "vinegar, sharp-sour",
+  cheesy: "sweaty, aged cheese",
+  solvent: "nail polish, alcohol",
+  mushroom: "mushroom, earthy",
+  caramel: "caramel, burnt sugar",
+  roasty: "popcorn, roasted nuts",
+  fishy: "fish, ammonia",
+  phenolic: "clove, smoky",
+  herbal: "mint, caraway, wintergreen",
+};
+
+// The compound's own odour word that says more than its family name ("cabbage-like").
+export function smellWord(compound, family) {
+  const terms = (compound?.descriptor || "").split(/,\s*/).map((s) => s.trim()).filter(Boolean);
+  const families = Object.keys(FAMILY_GLOSS);
+  // not the family itself, nor another family's word ("fruity", "solvent-like")
+  return terms.find((w) => !families.some((f) => w.toLowerCase().startsWith(f.slice(0, -1)))) ?? null;
+}
+
+export const withSmell = (name, descriptor) => (descriptor ? `${name} · ${descriptor}` : name);
+
+const familyScore = (p, median) => p * (1 + Math.max(median, 0));
+
+function rankedFamilies(rows, i) {
+  return rows
+    .map((r) => ({ ...r, p: r.noticeable[i] ?? 0, score: familyScore(r.noticeable[i] ?? 0, r.median[i] ?? -3) }))
+    .sort((a, b) => b.score - a.score);
+}
+
+// The leading aromatic families at grid index i (chance >= 0.5, then >= 0.2), each with
+// the smell word of its strongest compound there.
+export function aromaImpression(sensory, series, i) {
+  if (!sensory?.aroma_series?.length) return null;
+  const byKey = Object.fromEntries((sensory.compounds || []).map((c) => [c.key, c]));
+  const bands = Object.fromEntries((series || []).map((s) => [s.key, s]));
+  const ranked = rankedFamilies(aromaRows(sensory, series), i);
+  const word = (f) => {
+    const strongest = f.compounds
+      .map((k) => byKey[k])
+      .filter(Boolean)
+      .filter((c) => c.series?.[0] === f.key) // words only from the family's own compounds
+      .map((c) => ({ c, v: bands[`odor:${c.key}`]?.p50?.[i] ?? -Infinity }))
+      .sort((a, b) => b.v - a.v);
+    for (const { c } of strongest) {
+      const w = smellWord(c, f.key);
+      if (w) return w;
+    }
+    return null;
+  };
+  const leads = ranked.filter((f) => f.p >= 0.5).slice(0, 2);
+  const extras = ranked.filter((f) => f.p >= 0.2 && !leads.includes(f)).slice(0, 2);
+  const out = (f) => ({ key: f.key, label: f.label, word: word(f) });
+  return { leads: leads.map(out), extras: extras.map(out) };
+}
+
+// "mostly sulfurous (cabbage-like) and green (grassy), with fruity notes"
+export function impressionText(imp) {
+  if (!imp || (!imp.leads.length && !imp.extras.length)) return null;
+  const part = (f) => (f.word ? `${f.label.toLowerCase()} (${f.word})` : f.label.toLowerCase());
+  const join = (fs) => (fs.length === 1 ? part(fs[0]) : `${fs.slice(0, -1).map(part).join(", ")} and ${part(fs.at(-1))}`);
+  if (!imp.leads.length) return `faint ${join(imp.extras)} notes`;
+  return `mostly ${join(imp.leads)}${imp.extras.length ? `, with ${join(imp.extras)} notes` : ""}`;
+}
+
+// The time grid the aroma chances live on (the bands' grid, else the taste phases').
+export function aromaGrid(sensory, series) {
+  const first = sensory?.aroma_series?.[0]?.key;
+  return (series || []).find((s) => s.key === `aroma:${first}`)?.t_h || sensory?.taste_phases?.t_h || [];
+}
+
+// Spans of the same leading families over time (one or two, chance >= 0.5), like phase spans.
+export function aromaTimeline(sensory, series) {
+  const rows = aromaRows(sensory, series);
+  if (!rows.length) return [];
+  const grid = aromaGrid(sensory, series);
+  const spans = [];
+  grid.forEach((t_h, i) => {
+    const leads = rankedFamilies(rows, i).filter((f) => f.p >= 0.5).slice(0, 2);
+    const id = leads.map((f) => f.key).sort().join("+");
+    const last = spans[spans.length - 1];
+    if (last && last.id === id) last.end_h = t_h;
+    else
+      spans.push({
+        id,
+        keys: leads.map((f) => f.key),
+        label: leads.map((f) => f.label.toLowerCase()).join(" & ") || "faint",
+        strength: Math.max(0, ...leads.map((f) => aromaBin(f.median[i] ?? -3))),
+        start_h: t_h,
+        end_h: t_h,
+      });
+  });
+  for (let k = 0; k + 1 < spans.length; k++) spans[k].end_h = spans[k + 1].start_h;
+  // a flicker shorter than 2 % of the window joins the span after it
+  const minDur = 0.02 * ((grid.at(-1) ?? 0) - (grid[0] ?? 0));
+  const kept = [];
+  for (let k = 0; k < spans.length; k++) {
+    const s = spans[k];
+    if (k + 1 < spans.length && s.end_h - s.start_h < minDur) spans[k + 1].start_h = s.start_h;
+    else kept.push(s);
+  }
+  return kept;
+}

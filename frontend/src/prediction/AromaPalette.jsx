@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { timeLabel } from "./format.js";
-import { AROMA_HEX, concOnly, paletteSeries, paletteSources } from "./sensory.js";
+import { AROMA_HEX, concOnly, FAMILY_GLOSS, paletteSeries, paletteSources } from "./sensory.js";
 
 const KIND_LABEL = { ingredient: "ingredient", organism: "microbe", chemistry: "chemistry" };
 const CHIP = "rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300";
@@ -39,6 +39,7 @@ function SeriesRow({ r, timeUnit, open, onOpen }) {
           <span className="font-medium text-slate-100">{r.chance}</span> · {Math.round(r.peak * 100)} % of runs ·
           strongest around {timeLabel(r.peakT, timeUnit)}
         </p>
+        {FAMILY_GLOSS[r.key] && <p className="text-xs italic text-slate-400">think {FAMILY_GLOSS[r.key]}</p>}
         <p className="mt-1 flex flex-wrap gap-1">
           {r.origins.map((o) => (
             <span key={o} className={CHIP}>

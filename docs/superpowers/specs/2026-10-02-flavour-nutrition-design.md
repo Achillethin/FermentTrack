@@ -240,6 +240,7 @@ Table per 100 g: Start | Now (d5) | End (d14); charts below
 
 - `sensory.derived_version: "sensory-v1"`, `sensory.validated: false`, shown in the panel as the forecast does.
 - Wording: "may be noticeable", "above detection threshold"; never "tastes like", "smells like", "becomes". Milestone example: "Vinegar note likely noticeable ~day 10 (7–14)".
+- Aroma impression (owner decision 2026-10-07): the lens may interpret the leading aromatic families in everyday words, phrased "this batch may come across as mostly sulfurous (cabbage-like) and green (grassy), with fruity notes" (model estimate). It names families and the odour descriptors of their own compounds, plus a plain gloss per family ("think cabbage, garlic, cooked potato"); still never "smells like".
 - One new disclaimer line in the Taste & aroma lens: "Taste and aroma show which compounds may be above their detection threshold, not how it will taste to you. Spoilage off-odours are not modelled: trust your nose and your pH reading over this view."
 - Nutrition: "Model estimate, not a lab analysis; not for labelling products for sale" (repeated next to the ABV line).
 - Nothing here feeds the Safety Advisory; the words "safe" and "spoiled" never appear.
