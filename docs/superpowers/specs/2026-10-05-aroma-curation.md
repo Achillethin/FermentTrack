@@ -995,7 +995,7 @@ B5 (plan `docs/superpowers/plans/2026-10-06-aroma-b5.md`):
 
 B6 (plan `docs/superpowers/plans/2026-10-06-aroma-b6.md`) is groundwork for the owner's recipe builder (aroma → ingredients and organisms), which it does not build:
 
-- **Catalogue (migration 0017, `seed_data.INGREDIENT_SEED_DATA_V4`):** napa cabbage, cucumber, radish, carrot (lacto-ferment bases), garlic, onion, caraway seeds, dill (flavourings), lemongrass (kombucha, kefir, lacto-ferment). **No FDC nutrient rows:** the frozen snapshot (`scripts/fetch_fdc_snapshot.py`) needs an FDC API key, so that part was skipped; the new rows count as "no reference data" in a recipe's composition (a napa-only kimchi falls back to the typical recipe's sugars). A follow-up with a key adds `fdc_nutrients_v2.csv` and a migration.
+- **Catalogue (migration 0017, `seed_data.INGREDIENT_SEED_DATA_V4`):** napa cabbage, cucumber, radish, carrot (lacto-ferment bases), garlic, onion, caraway seeds, dill (flavourings), lemongrass (kombucha, kefir, lacto-ferment). **Nutrients:** 0017 shipped them without nutrient rows (on the wrong premise that an FDC API key was needed); migration 0018 (2026-10-07) copies them from the bundled USDA catalogue (`fdc_catalog_v1`, loaded by 0007) exactly as a USDA-search pick does (`seed_data.INGREDIENT_FDC_IDS_V4`).
 - **Estimated precursor priors** (all est. (B6), no source opened, deliberately wide; per kg of the logged ingredient):
   - geranial / neral: fresh ginger 100 000 (10 000–1 000 000) / 60 000 (6 000–600 000) µg/kg (oil ~0.2–0.6 % FW × citral 10–30 %, geranial ~60 % of citral); lemongrass 2 000 000 (300 000–5 000 000) / 1 600 000 (240 000–3 800 000) (oil 0.3–1 % FW × citral 70–85 %; hi = the physical ceiling); lemon pulp 2 000 (200–20 000) / 1 300 (130–13 000), limonene 50 000 (5 000–500 000) (~0.02 % peel oil carried in);
   - carvone / limonene: caraway seeds 20 000 000 (3 000 000–45 000 000) / 15 000 000 (2 000 000–35 000 000) (oil 3–7 % × carvone 50–65 %, limonene 30–45 %); dill 1 000 000 (100 000–5 000 000) / 500 000 (50 000–3 000 000); spearmint 3 000 000 (500 000–7 000 000) / 600 000 (100 000–2 000 000);
@@ -1006,6 +1006,32 @@ B6 (plan `docs/superpowers/plans/2026-10-06-aroma-b6.md`) is groundwork for the 
 - The catalogue's napa cabbage uses the post-salting kimchi pools (a lacto-ferment salts it at t0, as `03:S10`'s t0); "Napa cabbage (salted)" stays as its alias.
 - § 3's six "P0 pending" status cells now read "est. P0, B6"; the frozen CSV was rebuilt from them (`p0_pending` = 0).
 - **Timing:** a 28-day sauerkraut with 0.5 % caraway, 1.79 vs 0.53 s uncached with and without aroma (+1.26 s, interleaved medians of 5; this machine varies ×2 between sessions). Caraway's carvone may be noticeable from day 0, routed to the ingredient.
+
+### 10.9 Independent review of B2–B6 and its fixes (2026-10-07)
+
+An independent review (range 2c02f46..39ab43c) found the core sound. It confirmed the following, and found no critical issue:
+- non-aroma output byte-identical on 12 cases;
+- tracers carried across sourdough mixes exactly;
+- draws deterministic and independent;
+- calibration honest.
+
+Fixed:
+- **Nutrient rows for the nine 0017 ingredients** (migration 0018). Without them a napa-cabbage kimchi forecast barely acidified (pH 5.8 vs ~4.2 at day 7).
+- **The sourdough planner no longer computes aroma, which it never shows.** The `BakeInputs.aroma` flag gets its own cache key; the seed is unchanged, so the curves are identical. Cost before: 2–3× and up to +134 MB on long retards.
+- **Pof⁺ decarboxylation is limited to *S. cerevisiae*** (§ 5.10). K. humilis starters showed a clove note before.
+- **Minors:**
+  - tea terpene release shares rescaled where they sum past 1;
+  - vinegar ethanol routed to the logged wine/cider base;
+  - cane sugar not listed as "no aroma data".
+
+Deferred (open):
+- **Calibration robustness:** run the calibrated § 7 suites over 3–5 aroma seeds, or report the median's Monte Carlo error. B2's re-keying alone moved kimchi test 22.
+- **4-vinylguaiacol median on a knife-edge** (Pof⁺ share near 0.5 with N = 128). Stratified flag draws, or no p50 for flag-driven compounds.
+- **Geranial and neral lack an acid-lability loss** (citral).
+- **The *Leuconostoc* citrate gate reads hexoses only** (lactose ignored; negligible today).
+- **Kimchi tests 18–23 run on the stand-in "Napa cabbage (salted)"** rather than the catalogue row (same pattern); test 23's reason is stale since B6.
+- **Tea:** check whether `05:Zhou26tea`'s 105–366 µg/g is glycoside mass (aglycone ≈ ×0.35), which may resolve the tea xfails.
+- **"Fresh ginger" is not enabled for lacto-ferments** (kimchi).
 
 ## 11. Implications for the increment-B plan
 
@@ -1029,7 +1055,7 @@ B6 (plan `docs/superpowers/plans/2026-10-06-aroma-b6.md`) is groundwork for the 
 - **B3 (done, § 10.5):** vinegar and koji: open-surface loss, the AAB sink, the wine/cider base, *A. oryzae* a-terms; tests 11–13, 16–18 (five strict-xfail cells).
 - **B4 (done, § 10.6):** miso and garum: Strecker, HEMF, furanones, maltol, pyrazines, koji carry-over, fish lipids; tests 38–51 (23 cells pass, 31 strict xfails with the structural gaps listed).
 - **B5 (done, § 10.7):** one mass basis; kombucha, kefir and cheese: the citrate chain, milk pools and lactones, tea terpenes; tests 1–10, 26–37 (47 cells pass, 18 strict xfails).
-- **B6 (done, § 10.8):** the ingredient pass: estimated P0 precursor priors and nine catalogue ingredients (no FDC rows: API key).
+- **B6 (done, § 10.8):** the ingredient pass: estimated P0 precursor priors and nine catalogue ingredients (nutrients via migration 0018).
 - **Next:** the owner's recipe builder on the route data; the re-derivations the strict xfails point to (§ 5.1's microbial amino-acid routes, the tea bound-pool split, fish lipolysis, alcohol losses in closed jars, koji acids for the miso pH).
 
 The original order, by data quality (each step ends with its § 7 tests green):

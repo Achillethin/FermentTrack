@@ -357,7 +357,8 @@ def test_coumaric_acid_gives_vinylphenol() -> None:
 
 
 def test_sugar_is_not_an_ingredient_missing_aroma_data() -> None:
-    items = [("Cane sugar", 70.0, "base"), ("Water", 830.0, "base"), ("Black tea leaves", 5.0, "base")]
+    items = [("Cane sugar", 70.0, "base"), ("Water", 830.0, "base"),
+             ("Black tea leaves", 5.0, "base")]  # fmt: skip
     assert aroma.ingredient_shares(items, "kombucha")[1] == []
 
 
