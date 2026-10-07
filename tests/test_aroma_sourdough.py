@@ -77,6 +77,24 @@ def test_a_plan_gets_aroma() -> None:
     assert s["aroma_series"] and any(x["group"] == "aroma" for x in out["series"])
 
 
+def test_the_planner_skips_aroma_without_changing_the_forecast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The planner hides aroma, so it does not pay for it; same seed, same curves; the cache
+    keeps the two apart (a batch view right after still gets aroma)."""
+    calls: list[int] = []
+    real = aroma.evaluate
+    monkeypatch.setattr(aroma, "evaluate", lambda *a, **k: calls.append(1) or real(*a, **k))
+    d = _plan(proof=None)
+    lite = forecast(plan_from_dict(d), BakeInputs(plan=d, aroma=False))
+    assert calls == [] and lite["sensory"]["aroma_series"] == []
+    assert not any(x["group"] == "aroma" for x in lite["series"])
+    full = forecast(plan_from_dict(d), BakeInputs(plan=d))
+    assert calls == [1] and full["sensory"]["aroma_series"]
+    other = [x for x in full["series"] if x["group"] != "aroma"]
+    assert other == lite["series"]
+
+
 def test_a_bake_survives_an_aroma_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(*_a: object, **_k: object) -> None:
         raise RuntimeError("aroma bug")

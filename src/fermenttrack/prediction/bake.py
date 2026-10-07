@@ -105,6 +105,7 @@ class BakeInputs:
     extra_organisms: tuple[str, ...] = ()  # custom attachments to model too
     population_priors: dict[str, dict[str, Prior]] = field(default_factory=dict)
     finished: bool = False
+    aroma: bool = True  # False: the planner, which never shows aroma (not in the fingerprint)
 
     def fingerprint(self) -> str:
         d = {
@@ -129,14 +130,15 @@ _POSTERIORS: _LRU = _LRU(16)
 
 
 def forecast(plan: Plan, inputs: BakeInputs) -> dict[str, Any]:
-    fp = inputs.fingerprint()
-    hit = _OUTPUTS.get(fp)
+    fp = inputs.fingerprint()  # seeds the solve: the same with or without aroma
+    key = fp if inputs.aroma else f"{fp}:noaroma"
+    hit = _OUTPUTS.get(key)
     if hit is None:
         with _SOLVE_LOCK:
-            hit = _OUTPUTS.get(fp)
+            hit = _OUTPUTS.get(key)
             if hit is None:
                 hit = _forecast(plan, inputs, fp)
-                _OUTPUTS.put(fp, hit)
+                _OUTPUTS.put(key, hit)
     return dict(hit)
 
 
@@ -414,8 +416,9 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str, keep: dict[str, Any] | No
     sd_profile = profile_for("sourdough")
     ar: aroma.AromaResult | None = None
     try:  # aroma must never break a bake forecast, nor taste and nutrition
-        segs = _aroma_segments(full, chain.traces, z)
-        ar = aroma.evaluate(segs, sd_profile, [], seed + 2, co2_escapes=False)
+        if inputs.aroma:
+            segs = _aroma_segments(full, chain.traces, z)
+            ar = aroma.evaluate(segs, sd_profile, [], seed + 2, co2_escapes=False)
     except Exception:
         logger.exception("aroma layer failed for a sourdough plan")
     der: derived.Derived | None = None

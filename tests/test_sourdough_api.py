@@ -38,6 +38,7 @@ async def test_plan_forecast_has_phases_rise_and_acidity(client: AsyncClient) ->
     assert {"levain_peak", "levain_doubled", "bulk_target"} <= ms
     assert abs(body["summary"]["salt_pct_of_flour"] - 2.0) < 0.05  # incl. the levain's flour
     assert body["status"] == "prior_only" and body["initial"]["source"] == "plan"
+    assert "aroma" not in set(groups.values())  # the planner skips aroma (it never shows it)
 
 
 async def test_invalid_plans_are_422(client: AsyncClient) -> None:

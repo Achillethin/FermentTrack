@@ -106,7 +106,8 @@ async def plan_forecast(
     style = STYLES[plan.style]
     organisms = style_organisms(style, bool(plan.dough and plan.dough.yeast_g > 0))
     priors = await starter_priors(db, user_id, payload.culture_id, plan.style, organisms)
-    inputs = BakeInputs(plan=plan_to_dict(plan), population_priors=priors)
+    # the planner shows no aroma: skip its cost (2-3x on long retards, spec 2026-10-07 review)
+    inputs = BakeInputs(plan=plan_to_dict(plan), population_priors=priors, aroma=False)
     try:
         body = await run_in_threadpool(forecast, plan, inputs)
     except PredictionUnavailable as exc:
