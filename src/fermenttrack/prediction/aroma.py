@@ -813,7 +813,7 @@ def concentrations(
         r_rel = d["kmax_ferulic_release"] / 24.0 * _gate(ctx, YEAST)
         bound = integrate(ctx.t, tr.zero, r_rel, b0)
         k_dec = d["kmax_ferulic_decarb"] / 24.0
-        r_y = d["pof_yeast"] * k_dec * _gate(ctx, YEAST)
+        r_y = d["pof_yeast"] * k_dec * _gate(ctx, YEAST, "cerevisiae")  # Pof+ S. cerevisiae
         r_lp = d["pad_lp"] * k_dec * _gate(ctx, LAB, "plantarum")
         free = integrate(ctx.t, r_rel * bound, r_y + r_lp, f0)
         tr.conc[f"{state}_bound"], tr.conc[f"{state}_free"] = bound, free
@@ -821,7 +821,7 @@ def concentrations(
             from_precursor(vinyl, p_key)
             how = f"decarboxylates {acid_name}"
             if np.any(d["pof_yeast"] > 0.0):
-                tr.organisms(vinyl, YEAST, how)
+                tr.organisms(vinyl, YEAST, how, "cerevisiae")
             if np.any(d["pad_lp"] > 0.0):
                 tr.organisms(vinyl, LAB, how, "plantarum")
         tr.loss(vinyl, d["loss_4vg"] / 24.0)

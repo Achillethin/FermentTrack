@@ -144,6 +144,18 @@ def test_no_pof_no_vinylguaiacol() -> None:
     assert np.allclose(c.get("vinylguaiacol_4", 0.0), 0.0)
 
 
+def test_pof_is_a_saccharomyces_trait() -> None:
+    """§ 5.10: decarboxylation by Pof+ *S. cerevisiae*; a K. humilis starter releases the
+    bound acid (feruloyl esterase is all-yeast) but makes no 4-vinylguaiacol."""
+    sf = ["Kazachstania humilis", "Lactobacillus sanfranciscensis"]
+    ctx, _, _, d = _run({"White wheat flour": 0.54}, sf, ferment="sourdough")
+    d = {**d, "pof_yeast": np.ones_like(d["pof_yeast"]), "pad_lp": np.zeros_like(d["pad_lp"])}
+    c, routes = aroma.concentrations(ctx, d)
+    assert np.allclose(c.get("vinylguaiacol_4", 0.0), 0.0)
+    assert not any("decarboxylates" in r[2] for r in routes.get("vinylguaiacol_4", []))
+    assert np.all(c["_ferulic_bound"][:, -1] < c["_ferulic_bound"][:, 0])
+
+
 def test_sugar_route_goes_through_acetolactate() -> None:
     _, c, routes, _ = _run()  # cabbage, LAB
     assert np.all(c["diacetyl"][:, -1] > 0.0) and np.all(c["pentanedione_23"][:, -1] > 0.0)
