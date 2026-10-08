@@ -4,6 +4,7 @@ import BatchView from "./BatchView.jsx";
 import Batches from "./Batches.jsx";
 import Compare from "./Compare.jsx";
 import ExportButton from "./ExportButton.jsx";
+import Ideas from "./ideas/Ideas.jsx";
 import Logbook from "./Logbook.jsx";
 import Planner from "./sourdough/Planner.jsx";
 import Today from "./Today.jsx";
@@ -30,6 +31,7 @@ const PAGES = {
   today: Today,
   logbook: Logbook,
   batches: Batches,
+  ideas: Ideas,
   compare: Compare,
   account: Account,
   admin: AdminLog,
@@ -38,12 +40,13 @@ const NAV = [
   ["today", "Today"],
   ["logbook", "Logbook"],
   ["batches", "Batches"],
+  ["ideas", "Ideas"],
   ["compare", "Compare"],
   ["levain", "Planner"],
   ["account", "Account"],
 ];
 
-// #/batch/<id> | #/today | #/logbook | #/batches | #/compare | #/levain[?p=<shared plan>]
+// #/batch/<id> | #/today | #/logbook | #/batches | #/ideas | #/compare | #/levain[?p=<shared plan>]
 // | #/account | #/admin; anything else → today.
 function parseHash(hash) {
   const m = hash.match(/^#\/batch\/([^/?]+)\/?$/);
