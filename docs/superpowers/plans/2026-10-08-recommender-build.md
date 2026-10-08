@@ -49,7 +49,7 @@ $wt = "<repo>\.worktrees\recommender"; $env:PYTHONPATH = "$wt\src"; Set-Location
 **Safety invariants** (every phase):
 - the gate (design § 7) is applied before anything is served;
 - predicted pH is never presented as clearance;
-- cards for lactic and koji types always carry the mandatory pH lines.
+- every card always carries its mandatory safety lines (design § 7, by safety barrier): pH lines on acid-safety types, the temperature line on koji, the salt line on miso and garum.
 
 **Baseline:** the test suite, ruff and mypy results on `master@c438cd9` are recorded in § 3. A phase may not add failures. Pre-existing ones are not that phase's job.
 
@@ -168,7 +168,13 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
    - SALT-001/002 scoped to `lacto_ferment`, on % w/w of the total from the ingredient rows;
    - TEMP-001 for lactic types;
    - KOJI-001 and KOJI-002, including the certified-starter exception;
-   - mandatory `safety_lines` for lactic and koji types: the pH-by-48 h line, and the vinegar acidity lines from the curation spec (vinegar is not a gate rule).
+   - mandatory `safety_lines` **by safety barrier** (design § 7, updated 2026-10-08):
+     - acid-safety types (`lacto_ferment`, `kombucha`, `kefir`, `cheese`, `vinegar`) get the pH-by-48 h lines, and vinegar adds the acidity lines from the curation spec (vinegar acidity is not a gate rule);
+     - koji gets the bed-temperature line (plus tane-koji);
+     - miso and garum get the salt line;
+     - sourdough gets none (baking is the barrier).
+
+     `needs_ph_reminder(type)` tells B5 when to create the pH reminder.
 
    "Lactic types" = every profile except koji, which follows `safety/service.py`'s mapping; the salt rules are restricted to `lacto_ferment` as the design says.
 2. **`score.py`**, pure numpy:
@@ -236,7 +242,7 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
 3. **`POST /batches/from-recommendation`**: one transaction that:
    - creates or selects the culture (owned);
    - creates the batch with expected temperature (or schedule, stored in a way the forecast reads; document which) and `BatchIngredient` rows (catalogue names only; optional `new` rows are skipped and listed in the response);
-   - creates the pH reminder for lactic and koji types;
+   - creates the pH reminder when `gate.needs_ph_reminder(type)` (acid-safety types);
    - writes `recommendation_links` (§ 11.2 columns).
 
    Sourdough is rejected with 409 and `planner_link`.

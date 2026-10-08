@@ -182,7 +182,8 @@ The pipeline mirrors the aroma catalogue exactly:
 - **`active`** requires every number on the card to be sourced, or derived with the derivation shown. A missing value (for example, no stated temperature) keeps the recipe **draft**. Draft recipes are never served.
 - **Q25 widening:** a single-value duration *d* becomes [0.7 *d*, 1.3 *d*], and a single temperature *T* becomes [*T* − 3, *T* + 3]. Both are clipped to the profile's `temp_range`, and `envelope_basis = widened_single_value`.
 - **Q26:**
-  - if the source's temperature is outside `profile.temp_range`, the card shows the source value, while the grid and windows use the nearest in-range temperature;
+  - if the source's temperature is outside `profile.temp_range`, the card shows the source value, while the grid uses the nearest in-range temperature;
+  - when the recipe's **median (served) temperature** is outside the range, the **window comes from the source alone**: taste from = *d*_lo, peak = *d*_med, stop by = *d*_hi. The model can't place time at a temperature it doesn't cover. Aroma scores are still shown, labelled as computed at the nearest in-range temperature. When only part of the documented span is outside, the model window applies as usual;
   - if the duration exceeds `profile.horizon_h`, aroma scores and peak are computed only up to the horizon, the card says "aroma estimate covers the first *H* days only", and taste-from and stop-by come from the source.
 
 ### 4.4 State of the drafts (2026-10-07)
@@ -304,8 +305,9 @@ Notation:
 | TEMP-001 | every temperature ≤ 45 °C | lactic types |
 | KOJI-002 | every temperature ≥ 25 °C | koji |
 | KOJI-001 | no temperature > 33 °C unless the recipe's starter is `Koji spores (A. oryzae)`, the certified tane-koji exception. The card says "use certified tane-koji" | koji |
-| BOT-001, BOT-002 | not checkable from a recipe (they need pH). The card **must** carry "Measure pH. It must reach ≤ 4.6 within 48 h at > 10 °C; if not, discard", and the batch's own safety advisory applies once started | lactic and koji schemes |
-| pH measurement | every lactic or koji card includes "log pH by 48 h", and Start batch creates that reminder | lactic and koji schemes |
+| BOT-001, BOT-002 | not checkable from a recipe (they need pH). **Acid-safety types** (`lacto_ferment`, `kombucha`, `kefir`, `cheese`, `vinegar`; Q6 "every acid-safety card") **must** carry "Measure pH. It must reach ≤ 4.6 within 48 h at > 10 °C; if not, discard", and the batch's own safety advisory applies once started | acid-safety types |
+| pH measurement | every acid-safety card includes "log pH by 48 h", and Start batch creates that reminder | acid-safety types |
+| salt and temperature barriers (2026-10-08, B3 review) | `koji`, `miso` and `garum` are not made safe by acidity: rice koji is harvested at 42–48 h near pH 6; miso and fish sauce rely on salt and water activity. Their cards carry **no pH-deadline line**. Instead: koji gets the KOJI-001/002 temperature line ("Keep the bed at 25–33 °C; up to 35 °C only with certified tane-koji"), plus the tane-koji line; miso and garum get "Safety comes from salt, not acidity: do not reduce the salt" (BCCDC koji and miso guideline: miso salt at least 4 %; Codex CXS 302-2011 for fish sauce). **Sourdough** cards carry no safety line: baking is the barrier, its profile has no pH safety line, and the card hands off to the planner. The batch safety service still maps these types to `lactic` / `enzymatic_koji` (BOT-002); that predates this work and is raised separately | koji, miso, garum, sourdough |
 
 **Also gated:**
 - Operator (iii) never leaves `profile.temp_range`.
@@ -323,7 +325,7 @@ For every active library recipe, every **single** operator applied to it, and 3 
 - **milestones:** the P10, P50 and P90 crossing times for each profile milestone;
 - **metadata:** the `not_modelled` ingredients and the evidence tier of the top compound per series, for card labels.
 
-**Approximation used online:** *U* for several targets is taken as the mean of the per-series *U*ₛ. That's an upper bound on the per-member P90, and it is documented on the card as "optimistic".
+**Approximation used online:** *U* for several targets is taken as the mean of the per-series *U*ₛ. This is an approximation, **not a bound**: quantiles don't add across series. It is documented on the card as "optimistic", and B7's live confirmation computes the exact per-member P90.
 
 ### 8.2 Size and format
 
