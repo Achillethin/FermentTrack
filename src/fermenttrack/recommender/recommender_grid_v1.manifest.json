@@ -1,0 +1,243 @@
+{
+  "grid": "recommender_grid_v1.npz",
+  "grid_sha256": "ed4e483b7f5fc8a08af50ce800229f6482e53e3c0558057b7baec1b74046c61b",
+  "grid_bytes": 62327,
+  "schema": 1,
+  "model_version": "kinetic-v1",
+  "bake_model_version": "sourdough-v1",
+  "derived_version": "sensory-v2",
+  "inputs": {
+    "prediction/profiles.py": "1e6d22107b7878ac158f26937d26ffc274af0968d5533b8fecf62715437ecefa",
+    "prediction/aroma_compounds_v1.csv": "fd1b1c1d1d28c0b1c98d59ef788a66456b344b71ada5df7497cac9b014680d8f",
+    "prediction/aroma_data.py": "755f87d2fbc95aa3eb67b72b61b4fee6837b4c309805db09aadad95089acf766",
+    "recommender/recipes_v1.csv": "0510a362f89e9336ec921729b4c6f9b26433fa4ed4b705000ee0e703aced89d2",
+    "recommender/recipe_ingredients_v1.csv": "a3e97e9721021f5e8f5b1f92247cb83a5280788c9d97ad17855932a6fa77fb2d",
+    "recommender/ingredient_use_levels_v1.csv": null
+  },
+  "tau": 0.25,
+  "time_grid": {
+    "log_spaced": 24,
+    "from_h": 1.0,
+    "to_h": "min(1.5 * d_hi, profile horizon); planner styles without a duration: the horizon",
+    "plus": [
+      "d_lo",
+      "d_med",
+      "d_hi"
+    ]
+  },
+  "temperatures": {
+    "milk_kefir_grains_5pct_24h": {
+      "kept": [
+        18.0,
+        22.0,
+        25.0
+      ],
+      "dropped": []
+    },
+    "milk_kefir_grains_10pct_extended": {
+      "kept": [
+        18.0,
+        22.0,
+        25.0
+      ],
+      "dropped": []
+    },
+    "lactic_fresh_cheese_curd": {
+      "kept": [
+        28.0,
+        30.0,
+        32.0
+      ],
+      "dropped": []
+    },
+    "rice_koji_steamed_rice": {
+      "kept": [
+        28.0,
+        30.0,
+        35.0
+      ],
+      "dropped": []
+    },
+    "shiro_miso_kagawa_sweet": {
+      "kept": [
+        15.0,
+        27.5,
+        30.0
+      ],
+      "dropped": []
+    },
+    "red_rice_miso_kagawa_long": {
+      "kept": [
+        15.0,
+        27.5,
+        30.0
+      ],
+      "dropped": []
+    },
+    "pacific_sand_lance_rice_koji_fish_sauce": {
+      "kept": [
+        20.0,
+        30.0
+      ],
+      "dropped": [
+        {
+          "temp_c": 60.0,
+          "reasons": [
+            "TEMP-001: 60 °C > 45 °C"
+          ]
+        }
+      ]
+    },
+    "sauerkraut_dry_salted": {
+      "kept": [
+        16.0,
+        20.0,
+        22.5
+      ],
+      "dropped": []
+    },
+    "napa_kimchi_room_temp": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
+      ],
+      "dropped": []
+    },
+    "black_tea_kombucha_1f": {
+      "kept": [
+        20.0,
+        24.0,
+        28.0
+      ],
+      "dropped": []
+    },
+    "green_dominant_kombucha": {
+      "kept": [
+        20.0,
+        25.0,
+        28.0
+      ],
+      "dropped": []
+    },
+    "home_starter": {
+      "kept": [
+        24.0,
+        26.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "levain_liquide": {
+      "kept": [
+        22.0,
+        26.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "levain_dur": {
+      "kept": [
+        24.0,
+        26.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "lievito_madre": {
+      "kept": [
+        22.0,
+        27.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "san_francisco": {
+      "kept": [
+        22.0,
+        27.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "rye_sour": {
+      "kept": [
+        22.0,
+        28.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "type_ii": {
+      "kept": [
+        22.0,
+        26.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "wine_orleans_surface": {
+      "kept": [
+        25.0,
+        27.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "cider_vinegar_surface": {
+      "kept": [
+        24.0,
+        27.0,
+        30.0
+      ],
+      "dropped": []
+    }
+  },
+  "operators": [],
+  "members_per_forecast": {
+    "service": [
+      160
+    ],
+    "bake": [
+      128
+    ]
+  },
+  "recipes": 20,
+  "entries": 59,
+  "platform": {
+    "os": "win32",
+    "machine": "AMD64",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1"
+  },
+  "build_date": "2026-10-08T13:33:37+00:00",
+  "build_seconds": 349.9,
+  "workers": 4,
+  "slowest": [
+    [
+      "home_starter",
+      24.0,
+      11.8
+    ],
+    [
+      "home_starter",
+      30.0,
+      11.5
+    ],
+    [
+      "home_starter",
+      26.0,
+      11.1
+    ],
+    [
+      "levain_dur",
+      30.0,
+      10.7
+    ],
+    [
+      "levain_liquide",
+      30.0,
+      9.7
+    ]
+  ]
+}

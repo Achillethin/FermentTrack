@@ -361,9 +361,10 @@ def _run_chain(
 
 
 def member_values(plan: Plan, inputs: BakeInputs) -> tuple[FloatArray, dict[str, FloatArray], FloatArray]:
-    """(t, {ph, rise, tta} -> (members, len(t)), weights) behind forecast(plan, inputs), on
-    its fine chain up to its horizon: for scoring held-out readings member by member
-    (scripts/validate_forecasts.py). Not cached."""
+    """(t, {ph, rise, tta, plus the derived taste:*, aroma:*, ... values} -> (members, len(t)),
+    weights) behind forecast(plan, inputs), on its fine chain up to its horizon: for scoring
+    held-out readings member by member (scripts/validate_forecasts.py) and for the
+    recommender grid. Not cached."""
     keep: dict[str, Any] = {}
     with _SOLVE_LOCK:
         _forecast(plan, inputs, inputs.fingerprint(), keep)
@@ -430,6 +431,8 @@ def _forecast(plan: Plan, inputs: BakeInputs, fp: str, keep: dict[str, Any] | No
     except Exception:  # never break a bake forecast on the derived layer
         logger.exception("derived layer failed for a sourdough plan")
         warnings.append(derived.FAILED_WARNING)
+    if keep is not None and der is not None:  # member_values: taste and aroma per member too
+        keep["values"].update(der.values)
     if der is not None:
         series += derived.series_out(der, gi, t_eval[gi], w)
         milestones += [
