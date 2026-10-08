@@ -1,0 +1,8 @@
+recipe_key,ingredient,catalogue_status,role,g_per_kg_median,g_per_kg_lo,g_per_kg_hi,required,source,notes
+milk_kefir_grains_5pct_24h,Milk,existing,base,952.4,952.4,952.4,core,Youn2022-kefir Isolation of Yeast Strains From Kefir,1 L milk treated as 1000 g for batch normalization
+milk_kefir_grains_5pct_24h,Kefir grains,existing_no_aroma,starter,47.6,47.6,47.6,core,Youn2022-kefir Isolation of Yeast Strains From Kefir,50 g viable kefir grains per 1 L milk
+milk_kefir_grains_10pct_extended,Milk,existing,base,909.1,909.1,909.1,core,Kim2016-kefir-antimicrobial Kefir preparation,1000 mL milk treated as 1000 g for batch normalization
+milk_kefir_grains_10pct_extended,Kefir grains,existing_no_aroma,starter,90.9,90.9,90.9,core,Kim2016-kefir-antimicrobial Kefir preparation,100 g viable kefir grains per 1000 mL milk
+lactic_fresh_cheese_curd,Milk,existing,base,993.47,992.0,995.0,core,AcademyCheese-lactic Heat milk to coagulation temperature,100 L milk basis; milk share complements starter and rennet
+lactic_fresh_cheese_curd,Starter/cheese culture,existing_no_aroma,starter,6.46,4.98,7.94,core,AcademyCheese-lactic Starter cultures,bulk starter dose 0.5-0.8% of milk
+lactic_fresh_cheese_curd,Rennet,existing_no_aroma,starter,0.07,0.05,0.10,core,AcademyCheese-lactic Rennet,5-10 mL per 100 L; treated as water-density liquid for g/kg normalization

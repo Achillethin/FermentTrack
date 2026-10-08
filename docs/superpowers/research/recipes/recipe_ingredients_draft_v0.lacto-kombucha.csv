@@ -1,0 +1,30 @@
+recipe_key,ingredient,catalogue_status,role,g_per_kg_median,g_per_kg_lo,g_per_kg_hi,required,source,notes
+sauerkraut_dry_salted,Cabbage,existing,base,978.9,976.6,981.2,core,NCHFP-sauerkraut ingredient list,complement to salt range
+sauerkraut_dry_salted,Salt,existing_no_aroma,additive,21.1,18.8,23.4,core,NCHFP-sauerkraut ingredient list and procedure; Morton-salt serving size,NCHFP lists 3/4 cup but procedure implies 15 Tbsp
+dill_cucumber_pickles_brined,Cucumber,existing,base,458.7,458.7,458.7,core,NCHFP-dill-pickles ingredient list,4 lb converted with NIST approximate mass factor
+dill_cucumber_pickles_brined,Water,existing_no_aroma,liquid,489.3,489.3,489.3,core,NCHFP-dill-pickles ingredient list,8 cups converted with NIST approximate cup factor
+dill_cucumber_pickles_brined,Salt,existing_no_aroma,additive,36.7,36.7,36.7,core,NCHFP-dill-pickles ingredient list; Morton-salt serving size,1/2 cup converted as 8 Tbsp
+dill_cucumber_pickles_brined,Vinegar,new,additive,15.3,15.3,15.3,core,NCHFP-dill-pickles ingredient list,1/4 cup converted as water-density liquid
+dill_cucumber_pickles_brined,Dill,existing,flavoring,,,,core,NCHFP-dill-pickles ingredient list,source gives 2 Tbsp seed or 4-5 heads; mass not available
+napa_kimchi_room_temp,Napa cabbage,existing,base,788.5,773.5,803.5,core,Jang2024-kimchi §2.1; CSU-kimchi salt range,salted cabbage share minus final salt range
+napa_kimchi_room_temp,Salt,existing_no_aroma,additive,35.0,20.0,50.0,core,CSU-kimchi How is kimchi made,final salt concentration 2-5%
+napa_kimchi_room_temp,Chilies,existing_no_aroma,flavoring,29.4,29.4,29.4,core,Jang2024-kimchi §2.1,source ingredient is red pepper powder
+napa_kimchi_room_temp,Radish,existing_no_aroma,base,29.4,29.4,29.4,core,Jang2024-kimchi §2.1,source ingredient is radish
+napa_kimchi_room_temp,Fresh ginger,existing,flavoring,7.8,7.8,7.8,core,Jang2024-kimchi §2.1,source ingredient is ginger
+napa_kimchi_room_temp,Onion,existing_no_aroma,flavoring,24.5,24.5,24.5,core,Jang2024-kimchi §2.1,source ingredient is onion
+napa_kimchi_room_temp,Salted shrimp,new,flavoring,14.7,14.7,14.7,core,Jang2024-kimchi §2.1,not in seed ingredient catalogue
+napa_kimchi_room_temp,Glutinous rice paste,new,additive,7.8,7.8,7.8,core,Jang2024-kimchi §2.1,not in seed ingredient catalogue
+napa_kimchi_room_temp,Water,existing_no_aroma,liquid,43.1,43.1,43.1,core,Jang2024-kimchi §2.1,water share in seasoning mix
+napa_kimchi_room_temp,Garlic,existing_no_aroma,flavoring,19.6,9.8,39.2,core,Jang2024-kimchi §2.1,selected 2% treatment; source range 1-4% also recorded as lo-hi
+carrot_sticks_wet_brined,Carrot,existing_no_aroma,base,,,,core,UMN-fermentation Wet brines,source names carrot sticks but gives no produce mass
+carrot_sticks_wet_brined,Water,existing_no_aroma,liquid,963.5,946.2,981.4,core,UMN-fermentation Wet brines; NIST-conversions,brine-only normalization not total batch
+carrot_sticks_wet_brined,Salt,existing_no_aroma,additive,36.5,18.6,53.8,core,UMN-fermentation Wet brines; Morton-salt serving size,brine-only normalization from 1-3 Tbsp per quart
+black_tea_kombucha_1f,Water,existing_no_aroma,liquid,827.8,827.8,827.8,core,Cohen2023-kombucha §2.1,1 L tea water normalized with sugar tea and starter
+black_tea_kombucha_1f,Black tea leaves,existing,base,6.6,6.6,6.6,core,Cohen2023-kombucha §2.1,8 g/L loose-leaf black tea
+black_tea_kombucha_1f,Cane sugar,existing_no_aroma,base,82.8,82.8,82.8,core,Cohen2023-kombucha §2.1,100 g per L normalized to total batch
+black_tea_kombucha_1f,SCOBY / starter liquid,existing_no_aroma,starter,82.8,82.8,82.8,core,Cohen2023-kombucha §2.1,10% starter tea treated as 100 g per L
+green_tea_kombucha_variant,Water,existing_no_aroma,liquid,889.3,874.2,904.8,core,Dartora2023-kombucha §2.2 and Table 1,1 L water normalized with sugar tea and SCOBY range
+green_tea_kombucha_variant,Green tea leaves,existing,base,5.0,4.9,5.1,core,Dartora2023-kombucha §2.2 and Table 1,7 g/L total tea at 79.8% green
+green_tea_kombucha_variant,Black tea leaves,existing,base,1.3,1.2,1.3,core,Dartora2023-kombucha §2.2 and Table 1,7 g/L total tea at 20.2% black
+green_tea_kombucha_variant,Cane sugar,existing_no_aroma,base,71.1,61.6,80.3,core,Dartora2023-kombucha Table 1,6.81-9.19% sucrose normalized to total batch
+green_tea_kombucha_variant,SCOBY / starter liquid,existing_no_aroma,starter,33.3,27.2,39.3,core,Dartora2023-kombucha Table 1,SCOBY mass 15.03-22.47 g per 500 mL normalized per kg
