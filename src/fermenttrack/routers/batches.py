@@ -12,6 +12,7 @@ from fermenttrack.auth import get_current_user_id, is_admin
 from fermenttrack.composition import RecipeItem, compose, suggest_salt
 from fermenttrack.database import get_db
 from fermenttrack.models import (
+    SAFETY_REMINDER,
     Batch,
     BatchIngredient,
     BatchOrganism,
@@ -283,9 +284,14 @@ async def advance_stage(
 
     # Superseded by the new stage's reminder — mark prior open reminders done
     # rather than leaving stale ones (e.g. a past stage's timer) in the list.
+    # Safety reminders (the pH check) are not stage timers: they stay open.
     await db.execute(
         update(Reminder)
-        .where(Reminder.batch_id == batch.id, Reminder.completed_at.is_(None))
+        .where(
+            Reminder.batch_id == batch.id,
+            Reminder.completed_at.is_(None),
+            Reminder.kind != SAFETY_REMINDER,
+        )
         .values(completed_at=entered_at)
     )
 

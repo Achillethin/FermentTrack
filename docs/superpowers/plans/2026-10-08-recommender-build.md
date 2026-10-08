@@ -424,3 +424,149 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - `member_values` depends on the cache state, so call `clear_caches()` per entry, or keep a fixed order, for a deterministic build.
   - Validate plans (NaN, duplicate hours) and `members ≥ 1` where recipes are parsed.
   - Cost: 64 members ≈ 0.65–0.7 × a 160-member run.
+
+### B3 — gate, score, window (commit `27a704a`)
+- **Gates:**
+  - review round 1: CHANGES REQUIRED (salt `inf`/NaN was let through) → fixed;
+  - review round 2: PASS;
+  - handoff: ACCEPT (37/37);
+  - orchestrator re-ran 158 tests: pass.
+- **gate.py:**
+  - `from_recipe(Recipe) -> RecipeLike`;
+  - `check(recipe_like, temps) -> GateResult(ok, reasons, safety_lines)`;
+  - `salt_pct`, `needs_ph_reminder(type)`, `scheme(type)`;
+  - fails closed on missing, non-finite or negative masses and on unknown types;
+  - the KOJI-001 exception applies only when the certified spores are the sole starter.
+- **Safety lines by barrier:**
+  - `ACID_SAFETY_TYPES` (lacto, kombucha, kefir, cheese, vinegar) get the pH lines; vinegar adds the acidity lines;
+  - koji gets `KOJI_TEMP_LINE`, plus tane-koji;
+  - miso and garum get `SALT_BARRIER_LINE`;
+  - sourdough gets none.
+- **score.py:**
+  - `soft`, `central` (E), `optimistic` (U, weighted P90 via the engine's quantile function) and `noticeable` (P);
+  - `target_average`, `character_series`, `off_note_series`, `off_note_penalty`;
+  - `low_med_high`, which raises on non-finite input.
+  - Constants: τ = 0.25, λ = 0.5, 0.33 / 0.67. Weights are validated.
+- **window.py:** `compute(times_h, e, off_note_p, t_safe_h, duration_h=(lo, med, hi), horizon_h, mode, *, m_user_h, m_source_h, model_scope, clip=True, source_only=False)`. Note that `duration_h` is (lo, med, hi), while the library's `Span` is (median, lo, hi).
+- **Decisions recorded in the design:**
+  - Q26: the source-only window applies when the served temperature is outside the profile. That covers 5 active recipes: black-tea kombucha, lactic cheese, cider vinegar, sand lance and type II.
+  - § 7: safety lines by barrier.
+  - § 8.1: U across targets is an approximation, not a bound.
+- **For B4/B5:**
+  - Run grid temperatures and both slider endpoints through `gate.check`.
+  - Garum stays ≤ 45 °C (TEMP-001). Koji with certified spores still stays within the profile's 35 °C.
+  - Set `source_only` in one place and pin the 5 recipes in a test.
+  - Report E3 both with and without the `source_only` and `beyond_horizon` entries, since those overlap by construction.
+- **Open for the owner:**
+  - a minimum salt for miso and garum before B9's community recipes;
+  - acid-safety cards could say "taste once pH ≤ 4.6 is measured";
+  - the batch safety service still applies BOT-002 to koji, miso and garum (this predates this work).
+
+### B4 — grid v1 (commit `f4364d9`)
+- **Gates:**
+  - review round 1: CHANGES REQUIRED (the run and statistics helpers were in `scripts/`, which isn't importable at runtime) → moved to `recommender/run.py`;
+  - review round 2: PASS (move behaviour-preserving; canary exact);
+  - handoff: ACCEPT (16/16).
+- **Artefact:** `recommender_grid_v1.npz`, 62,327 B, sha256 `ed4e483b…46c61b`.
+  - 59 entries: 20 active recipes × up to 3 gate-passing temperatures; garum 60 °C dropped by TEMP-001.
+  - 160 members (bake: 128).
+  - Build: 176 s on 4 workers (up to 475 s while the machine was shared).
+- **run.py:** `prediction_inputs(recipe, T)`, `bake_plan(recipe, T, hours)`, `recipe_rows`, `planned_schedule`, `validate_schedule`, `series_statistics`, `milestones_for`, `crossing_times`, `summarise_times`, plus `SERIES` (16 aroma series, alphabetical, then sour, sweet, umami, alcohol) and `SAFETY` (`ph_below_4_6`). Errors raise `RecipeError`.
+- **grid.py:**
+  - `load()`, `entry(key, T)`, `temps(key)`, `interp_temp(key, T)` (clamps to the grid range), `recipe(key)`, `version()` (the npz sha256);
+  - `Entry` holds `e`, `u`, `p`, milestones, `top_compound` and `not_modelled`.
+  - An absent series is **absent, not zero**.
+- **Staleness:** manifest input hashes (design § 8.3), plus a 9-entry rebuild canary, one per type, that fails with "grid is stale: run …". Engine sources are not hashed (orchestrator decision).
+- **Accepted deviations:**
+  - sourdough levain held to max(grid end, 48 h), with milestones searched over [0, 48 h];
+  - later schedule stages clipped into the profile range;
+  - `liquid` booked as `base`;
+  - U ≥ E − 0.1·(1 − U), a proven bound.
+- **bake.py:** `member_values` also returns derived taste and aroma values (additive; verified byte-identical).
+- **Engine finding (for the owner):** kimchi reaches pH 4.6 in only 1–11 % of members by 72 h, and kefir at 18 °C in about 80 %. Kimchi windows therefore collapse at the safety milestone (B3 rule). This is an engine-calibration item.
+
+### B6 — Ideas page, Proven (commit `f7c460d`)
+- **Gates:**
+  - review round 1: CHANGES REQUIRED (Start-batch focus and announcement);
+  - review round 2: CHANGES REQUIRED, from a concurrent change to B5's contract;
+  - review round 3: PASS (allowed because the changes were contract-driven);
+  - handoff round 1: REJECT (sourdough line named `served_c`; component map missing) → fixed → ACCEPT (25/25);
+  - orchestrator re-ran `npm run build` and `ideas.check.mjs`: pass.
+- **Component map:**
+  ```
+  App ─ #/ideas → Ideas (Ideas.jsx: page, batch-size input, Results)
+    ├─ IngredientPicker · TargetChips · ModeToggle (Pickers.jsx) · TemperatureField (prediction/TemperatureField.jsx)
+    └─ Results → IdeaCard × n (IdeaCard.jsx)
+          ├─ Ingredients · Facts · window · TemperatureSlider
+          ├─ target levels (Level) · trust · notes
+          └─ Start batch | Open in planner
+  api.js  → GET /ingredients, POST /recommendations, /recommendations/forecast, /batches/from-recommendation
+  ideas.js → pure helpers (targets, wording, window text, forecast merge, planner link, errors); ideas.check.mjs → node self-check
+  ```
+- **Accepted deviations:**
+  - no slider on sourdough cards;
+  - mode toggle locked to Proven until B12;
+  - a batch-size input;
+  - 0.1 °C slider step;
+  - Start batch always creates a new culture;
+  - with skipped ingredients, Start batch waits for a click on "Open the batch" (accessibility).
+- **Wording rules:**
+  - never numbers;
+  - "likely noticeable";
+  - basis lines name `model_c` when it differs from `served_c`;
+  - source-only cards show the API's note.
+- **Evidence:** screenshots in the session folder, `files/b6_smoke/`.
+- **Open:**
+  - the planner `rec` id (the backend has no parameter yet);
+  - a culture picker;
+  - merge the `api.js` / `errorText` duplication with `sourdough/api.js` (B13);
+  - a radio-group mode toggle (B12).
+
+### B5 — Proven API (commit: this one)
+- **Gates:**
+  - review round 1: CHANGES REQUIRED (koji could be served and booked at 36–40 °C; the E4 checker was blind to it);
+  - review round 2: CHANGES REQUIRED (false notes caused by my over-reaching round-1 rule);
+  - review round 3: PASS;
+  - handoff round 1: REJECT (`model_c` semantics; no full suite on the final tree) → fixed → ACCEPT (38/38);
+  - full suite on the final tree: **914 passed, 65 xfailed, 0 failed**;
+  - orchestrator re-ran 99 targeted tests: pass.
+- **Endpoints:**
+  - `POST /recommendations`, auth;
+  - `POST /recommendations/forecast`, auth, live run with 64 members;
+  - `POST /batches/from-recommendation`, auth: 201, or 409 with `planner_link` for sourdough;
+  - `GET /recipes` stays public.
+- **Q26 temperature rule** (design § 4.3, final):
+  - `served_c` = the source temperature, clamped only to documented span ∩ gate ∩ koji caps (35 °C with certified starter only, else 33 °C);
+  - `model_c` = the nearest grid temperature on cards, and the nearest in-range temperature in the live forecast;
+  - `source_only` ⇔ served temperature outside the profile range;
+  - the slider = documented span ∩ safety limits;
+  - notes name the documented temperature and the model's range, and a safety-limit note appears only when a safety limit clamped.
+- **Decisions:**
+  - staples never exclude recipes;
+  - the pH reminder is `kind="safety"`, which `advance_stage` doesn't close;
+  - batch forecasts read `recommendation_links.temp_schedule` (a stored schedule wins over later edits of the expected temperature; documented limitation);
+  - `RecipeError` → logged 500;
+  - koji Start batch above the cap clamps (201) rather than refusing;
+  - E1 is defined over eligible recipes.
+- **Measured:**
+
+  | metric | result |
+  |---|---|
+  | E1 | 11/11 eligible; 9 ineligible pinned (7 sourdough, 2 kombucha) |
+  | E3 | 93.8 % (15/16), 88.9 % (8/9) without by-construction entries; only miss kimchi (engine) |
+  | E4 | 0 / 1,002 cards over 500 requests + 0 / 159-case sweep; the reviewer's own 2,640-case sweep: 0 |
+  | E5 | 25/25 |
+  | E6 | p95 34–55 ms locally |
+- **Files outside B5's Owns, each justified:**
+  - `routers/batches.py`: `advance_stage` skips safety reminders;
+  - `routers/prediction.py`: `planned_temperature` from the link;
+  - `recommender/window.py`: `SOURCE_ONLY_NOTE` constant;
+  - `models.py`: `Reminder.kind`.
+- **The standards-wiki check was waived:** it needs authentication, and this project's conventions are in plan § 0.
+- **For B7:**
+  - add `parent_batch_id`, `usda_fdc_ids` and operators;
+  - wire the Experimental ceiling and the off-note penalty in `evaluate()`;
+  - make the static trust label "source temperature outside the model's range: forecasts use the nearest in-range temperature" context-aware: it shouldn't show when the served temperature is in range.
+- **For B9:** the `community_recipe_id` foreign key.
+- **For B10:** `/me/export` should include links and tastings.
+- **For the owner:** a minimum salt for miso and garum before B9; kimchi engine calibration.

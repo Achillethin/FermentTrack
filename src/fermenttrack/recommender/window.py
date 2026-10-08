@@ -21,6 +21,9 @@ MODES = frozenset({"proven", "community", "experimental"})
 EXPERIMENTAL_CEILING = 1.5  # Experimental may run to 1.5 × d_hi
 DECLINE = 0.8  # stop once E falls below this share of E(peak)
 OFF_NOTE_P = 0.5  # an off-note this likely noticeable ends the window
+# A source-only window's note. Callers that know the temperatures replace it with a specific
+# one (recommender.service.source_note): the model may still score aroma nearby.
+SOURCE_ONLY_NOTE = "timings from the source's documented duration"
 
 
 @dataclass(frozen=True)
@@ -133,7 +136,7 @@ def compute(
     if from_source:
         notes.append(f"aroma estimate covers the first {horizon_h / 24:g} days only")
     if source_only:
-        notes.append("window from the source: the model does not cover this temperature")
+        notes.append(SOURCE_ONLY_NOTE)
         return Window(float(d_lo), float(d_med), float(d_hi), tuple(notes))
     t_max = d_hi * (EXPERIMENTAL_CEILING if mode == "experimental" else 1.0)
     model_end = min(horizon_h, float(t[-1]))

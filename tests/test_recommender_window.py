@@ -201,7 +201,7 @@ def test_beyond_horizon_window_starting_at_the_horizon_takes_the_documented_peak
 
 # ── served temperature outside the profile (Q26) ────────────────────────────────────────────
 
-SOURCE_NOTE = "window from the source: the model does not cover this temperature"
+SOURCE_NOTE = W.SOURCE_ONLY_NOTE
 
 
 @pytest.mark.parametrize("clip", [True, False])

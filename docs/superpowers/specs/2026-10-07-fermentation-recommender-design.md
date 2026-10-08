@@ -182,8 +182,10 @@ The pipeline mirrors the aroma catalogue exactly:
 - **`active`** requires every number on the card to be sourced, or derived with the derivation shown. A missing value (for example, no stated temperature) keeps the recipe **draft**. Draft recipes are never served.
 - **Q25 widening:** a single-value duration *d* becomes [0.7 *d*, 1.3 *d*], and a single temperature *T* becomes [*T* − 3, *T* + 3]. Both are clipped to the profile's `temp_range`, and `envelope_basis = widened_single_value`.
 - **Q26:**
-  - if the source's temperature is outside `profile.temp_range`, the card shows the source value, while the grid uses the nearest in-range temperature;
-  - when the recipe's **median (served) temperature** is outside the range, the **window comes from the source alone**: taste from = *d*_lo, peak = *d*_med, stop by = *d*_hi. The model can't place time at a temperature it doesn't cover. Aroma scores are still shown, labelled as computed at the nearest in-range temperature. When only part of the documented span is outside, the model window applies as usual;
+  - **Temperatures (B5, 2026-10-08):** a recipe is served and booked at its **source temperature**: the user's temperature, else the recipe median, clamped only to the documented span, the gate and the koji caps (≤ 35 °C with certified tane-koji as the only starter, otherwise ≤ 33 °C). The model's statistics run at a model temperature `model_c`, and the card says which:
+    - on **cards** (grid statistics), it is the nearest **grid** temperature;
+    - in the **live forecast** (slider), it is the nearest **in-range** temperature, the profile range.
+  - when the recipe's **served temperature** is outside the profile range, the **window comes from the source alone**: taste from = *d*_lo, peak = *d*_med, stop by = *d*_hi. The card names the documented temperature and the range the model covers, for example "timings from the source at 21–22 °C (the model covers 28–32 °C); aroma levels are computed at 28 °C". When only part of the documented span is outside, the model window applies as usual;
   - if the duration exceeds `profile.horizon_h`, aroma scores and peak are computed only up to the horizon, the card says "aroma estimate covers the first *H* days only", and taste-from and stop-by come from the source.
 
 ### 4.4 State of the drafts (2026-10-07)
@@ -496,7 +498,7 @@ An ingredient's tier is **derived** by `recommender.library.ingredient_tier(name
 
 | id | criterion | target |
 |---|---|---|
-| E1 | For each active library recipe, querying its core (non-staple) ingredients in Proven returns it in the top 3 | ≥ 90 % of recipes |
+| E1 | For each active library recipe with **at least one non-staple core ingredient**, querying its core (non-staple) ingredients in Proven returns it in the top 3. Recipes whose core is all staples (the sourdough styles, the kombuchas) have no ingredient query and are listed separately, not counted as misses (B5, 2026-10-08) | ≥ 90 % of eligible recipes |
 | E2 | For each recipe with source-reported aromas, querying those aromas with no ingredients returns it in the top 5 | ≥ 60 % |
 | E3 | The **unclipped** model window [taste from, stop by] overlaps the documented [*d*_lo, *d*_hi]. Proven windows are clipped by design, so E3 is measured before clipping | ≥ 80 % |
 | E4 | Safety property test: for every grid entry and 2 000 seeded random operator combinations (numpy RNG, no new dependency), every served candidate passes `gate.check`, and every served card carries the mandatory safety lines | 0 violations |

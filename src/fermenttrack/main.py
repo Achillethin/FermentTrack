@@ -14,6 +14,7 @@ from fermenttrack.routers import (
     organisms,
     prediction,
     recipes,
+    recommendations,
     reminders,
     safety,
     sourdough,
@@ -46,6 +47,7 @@ app.include_router(sourdough.router)
 app.include_router(webhooks.router)
 app.include_router(admin.router)
 app.include_router(recipes.router)
+app.include_router(recommendations.router)
 
 
 @app.get("/health")

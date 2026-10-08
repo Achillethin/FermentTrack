@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, Interval, JSON, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from fermenttrack.database import Base
 
@@ -106,6 +107,13 @@ class Measurement(Base):
     batch: Mapped["Batch"] = relationship(back_populates="measurements")
 
 
+# Reminder.kind. A stage reminder is superseded (marked done) when the batch changes stage
+# (routers/batches.py advance_stage); a safety reminder (the recommender's "log pH by 48 h",
+# design § 7) is not: only the user closes it (PATCH /reminders/{id}/done).
+STAGE_REMINDER = "stage"
+SAFETY_REMINDER = "safety"
+
+
 class Reminder(Base):
     __tablename__ = "reminders"
 
@@ -118,6 +126,9 @@ class Reminder(Base):
     repeat_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
     urgency: Mapped[str] = mapped_column(Text, nullable=False, default="medium")
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    kind: Mapped[str] = mapped_column(
+        Text, nullable=False, default=STAGE_REMINDER, server_default=STAGE_REMINDER
+    )
 
     batch: Mapped["Batch"] = relationship(back_populates="reminders")
 
@@ -351,3 +362,39 @@ class BatchOrganism(Base):
 
     batch: Mapped["Batch"] = relationship(back_populates="batch_organisms")
     organism: Mapped["Organism"] = relationship()
+
+
+class RecommendationLink(Base):
+    """The recommendation a batch was started from (design § 11.2): what the card predicted,
+    for the tasting feedback and the calibration gate. One per batch; deleted with it (the
+    `Batch.recommendation_link` backref cascades on SQLite too, the FK on Postgres).
+
+    temp_schedule: a staged recipe's (start hour, °C) steps. The batch keeps the first stage
+    as expected_temperature_c, and its forecast (routers/prediction.py) runs on the schedule
+    as PredictionInputs.planned_temperature."""
+
+    __tablename__ = "recommendation_links"
+
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("batches.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_kind: Mapped[str] = mapped_column(Text, nullable=False)  # library, variant, ...
+    recipe_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # community_recipes arrives with B9, which adds the foreign key
+    community_recipe_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    operators: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    mode: Mapped[str] = mapped_column(Text, nullable=False)  # proven | experimental | both
+    temperature_c: Mapped[float] = mapped_column(Float, nullable=False)  # the served temperature
+    temp_schedule: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    # taste_from_h, peak_h, stop_by_h, basis, notes
+    window: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    # [{key, kind, e, u}]: E and U at the peak per target
+    targets: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    grid_version: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
+
+    batch: Mapped[Batch] = relationship(
+        backref=backref("recommendation_link", uselist=False, cascade="all, delete-orphan")
+    )

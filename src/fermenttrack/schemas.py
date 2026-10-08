@@ -791,3 +791,247 @@ class RecipeOut(BaseModel):
     handoff: Literal["planner"] | None
     planner_style: str | None
     ingredients: list[RecipeIngredientOut]
+
+
+# ── Recommendations (POST /recommendations, recommender R1) ──────────────────
+# Shapes of fermenttrack.recommender.service's plain dicts. Scores are Low / Med / High until
+# the calibration gate (design § 13.2); the live forecast also returns E and U.
+
+Level = Literal["Low", "Med", "High"]
+TargetKind = Literal["aroma", "taste"]
+BatchGrams = Annotated[float, Field(gt=0.0, le=200_000.0)]
+
+
+def _check_targets(aromas: list[str], tastes: list[str]) -> None:
+    from fermenttrack.recommender.service import parse_targets
+
+    parse_targets(aromas, tastes)  # ValueError -> 422
+
+
+class RecommendationRequest(BaseModel):
+    """Design § 5.1. Ingredients are catalogue names; the non-staple ones must all be in the
+    recipe, and staples (salt, water, sugar, flour, tea, starter cultures) never exclude a
+    recipe (§ 5.2, Q3). parent_batch_id and usda_fdc_ids arrive with the Experimental mode."""
+
+    ingredients: Annotated[list[str], Field(max_length=20)] = []
+    aromas: list[str] = []
+    tastes: list[str] = []
+    mode: Literal["proven", "experimental", "both"] = "proven"
+    temperature_c: ExpectedTemperatureC | None = None  # the user's kitchen; null: each recipe's
+    batch_g: BatchGrams = 1000.0
+
+    @model_validator(mode="after")
+    def _valid(self) -> RecommendationRequest:
+        _check_targets(self.aromas, self.tastes)
+        if not (self.ingredients or self.aromas or self.tastes):
+            raise ValueError("give at least one ingredient, aroma or taste")
+        return self
+
+
+class RecommendationTargetOut(BaseModel):
+    key: str
+    kind: TargetKind
+    low_resolution: bool  # a series of 2 compounds or fewer (Q7)
+
+
+class CompoundRefOut(BaseModel):
+    key: str
+    name: str
+    tier: str  # evidence tier: calibrated | reported | plausible | engine
+
+
+class CardTargetOut(BaseModel):
+    key: str
+    kind: TargetKind
+    level: Level | None  # None: not modelled for this ferment
+    modelled: bool
+    low_resolution: bool
+    top_compound: CompoundRefOut | None
+
+
+class CardIngredientOut(BaseModel):
+    name: str
+    role: str
+    grams: float
+    required: Literal["core", "optional"]
+    in_catalogue: bool  # False: not bookable yet, Start batch skips it
+    label: str | None
+
+
+class CardRecipeOut(BaseModel):
+    batch_g: float
+    ingredients: list[CardIngredientOut]
+    salt_pct: float | None  # % w/w of the ingredient rows
+    sugar_pct: float | None
+    starters: list[str]
+    temperature_c: float
+    temp_schedule: list[tuple[float, float]]  # (start hour, °C); empty: constant
+    stages: str
+    aerobic: bool
+
+
+class TemperatureSpanOut(BaseModel):
+    lo: float
+    hi: float
+
+
+class SliderOut(BaseModel):
+    min_c: float
+    max_c: float
+
+
+class CardTemperatureOut(BaseModel):
+    served_c: float  # the fermentation temperature: shown, booked, in a planner link
+    recipe_c: float
+    documented_c: TemperatureSpanOut
+    model_c: float  # the temperature the model used: a card's nearest grid temperature, the
+    # live forecast's nearest profile temperature
+    slider: SliderOut | None  # the documented span within the safety limits; None: no slider
+    source_only: bool  # Q26: served outside the model's range, the window is the source's
+
+
+class CardWindowOut(BaseModel):
+    taste_from_h: float
+    peak_h: float
+    stop_by_h: float
+    basis: Literal["model", "source", "planner"]
+    notes: list[str]
+
+
+class CardTrustOut(BaseModel):
+    provenance: str
+    sources: list[str]
+    profile_confidence: str
+    envelope_basis: str
+    labels: list[str]
+
+
+class RecommendationCardOut(BaseModel):
+    id: str
+    section: Literal["proven"]
+    source_kind: Literal["library"]
+    recipe_key: str
+    name: str
+    fermentation_type: str
+    style_region: str
+    recipe: CardRecipeOut
+    temperature: CardTemperatureOut
+    window: CardWindowOut | None
+    level: Level | None  # the targets' mean; None without targets
+    targets: list[CardTargetOut]
+    to_buy: list[str]  # core ingredients beyond the staples and the user's list
+    not_modelled: list[str]  # ingredients without aroma data
+    trust: CardTrustOut
+    safety_lines: list[str]  # mandatory (design § 7)
+    handoff: Literal["planner"] | None
+    planner_link: str | None  # "#/levain?p=…", the planner's share link
+    notes: list[str]
+
+
+class RecommendationSectionOut(BaseModel):
+    cards: list[RecommendationCardOut]
+    message: str | None  # why the section is empty
+
+
+class GatedOutOut(BaseModel):
+    recipe_key: str
+    reasons: list[str]
+
+
+class RecommendationDebugOut(BaseModel):
+    gated_out: list[GatedOutOut]  # the gate's reasons: debug only, never shown
+
+
+class RecommendationsOut(BaseModel):
+    mode: Literal["proven", "experimental", "both"]
+    grid_version: str
+    targets: list[RecommendationTargetOut]
+    proven: RecommendationSectionOut
+    experimental: RecommendationSectionOut | None  # None until the Experimental mode (B7)
+    notes: list[str]
+    debug: RecommendationDebugOut
+
+
+class RecommendationForecastIn(BaseModel):
+    recipe_key: str
+    aromas: list[str] = []
+    tastes: list[str] = []
+    temperature_c: ExpectedTemperatureC | None = None  # the slider; null: the recipe's
+    batch_g: BatchGrams = 1000.0  # scales a sourdough planner link
+
+    @model_validator(mode="after")
+    def _valid(self) -> RecommendationForecastIn:
+        _check_targets(self.aromas, self.tastes)
+        return self
+
+
+class ForecastTargetOut(CardTargetOut):
+    e_peak: float
+    u_peak: float
+
+
+class ForecastBandOut(BaseModel):
+    key: str
+    kind: TargetKind
+    t_h: list[float]
+    e: list[float]  # central
+    u: list[float]  # optimistic (P90)
+
+
+class RecommendationForecastOut(BaseModel):
+    recipe_key: str
+    members: int | None
+    temperature: CardTemperatureOut | None
+    window: CardWindowOut | None
+    level: Level | None
+    e_peak: float | None
+    u_peak: float | None
+    targets: list[ForecastTargetOut]
+    bands: list[ForecastBandOut]
+    safety_lines: list[str]
+    handoff: Literal["planner"] | None
+    planner_link: str | None
+    notes: list[str]
+
+
+class FromRecommendationIn(BaseModel):
+    """Start batch (design § 11.2): the card is recomputed on the server from these."""
+
+    recipe_key: str
+    aromas: list[str] = []
+    tastes: list[str] = []
+    temperature_c: ExpectedTemperatureC | None = None
+    batch_g: BatchGrams = 1000.0
+    mode: Literal["proven", "experimental", "both"] = "proven"
+    culture_id: uuid.UUID | None = None  # an owned culture of the recipe's type; null: a new one
+    culture_name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+
+    @model_validator(mode="after")
+    def _valid(self) -> FromRecommendationIn:
+        _check_targets(self.aromas, self.tastes)
+        return self
+
+
+class RecommendationLinkOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    batch_id: uuid.UUID
+    source_kind: str
+    recipe_key: str | None
+    community_recipe_id: uuid.UUID | None
+    operators: list[Any]
+    mode: str
+    temperature_c: float
+    temp_schedule: list[list[float]] | None
+    window: dict[str, Any]
+    targets: list[dict[str, Any]]
+    grid_version: str
+    created_at: datetime
+
+
+class FromRecommendationOut(BaseModel):
+    batch: BatchOut
+    culture: CultureOut
+    link: RecommendationLinkOut
+    reminders: list[ReminderOut]
+    skipped_ingredients: list[str]  # recipe rows not in the catalogue yet: not booked
