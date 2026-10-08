@@ -740,3 +740,54 @@ class AdminCultureOut(CultureOut):
 BatchCreate.model_rebuild()
 BatchUpdate.model_rebuild()
 PredictionOut.model_rebuild()
+
+
+# ── Recipe library (GET /recipes, recommender R0) ────────────────────────────
+
+
+class RecipeSpanOut(BaseModel):
+    median: float
+    lo: float
+    hi: float
+
+
+class RecipeIngredientOut(BaseModel):
+    name: str
+    catalogue_status: str
+    role: str
+    g_per_kg: RecipeSpanOut | None  # None: the source gives no mass (draft recipes only)
+    required: Literal["core", "optional"]
+    label: str | None
+    source: str
+    notes: str
+
+
+class RecipeEnvelopeOut(BaseModel):
+    temp_c: RecipeSpanOut | None
+    duration_h: RecipeSpanOut | None  # None: the sourdough planner sets the timing
+    salt_pct: RecipeSpanOut | None
+    sugar_g_per_kg: RecipeSpanOut | None
+    temp_schedule: list[tuple[float, float]]  # (start hour, °C) steps; empty: constant
+    basis: Literal["sourced", "widened_single_value"]
+
+
+class RecipeOut(BaseModel):
+    key: str
+    name: str
+    fermentation_type: str
+    style_region: str
+    status: Literal["active", "draft"]
+    provenance: str
+    sources: list[str]
+    envelope: RecipeEnvelopeOut
+    model_scope: list[str]
+    labels: list[str]  # trust labels (Q25, Q26); ingredient labels sit on the ingredients
+    aerobic: bool
+    method: str
+    stages: str
+    safety_targets: str
+    reported_aromas: list[str]
+    notes: str
+    handoff: Literal["planner"] | None
+    planner_style: str | None
+    ingredients: list[RecipeIngredientOut]
