@@ -13,7 +13,9 @@ import logging
 import math
 import threading
 from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from itertools import pairwise
 from typing import Any
 
 import numpy as np
@@ -166,6 +168,9 @@ class PredictionInputs:
     # the router (see prediction/population.py). Part of the fingerprint on purpose — a
     # changed pooled prior is a changed model, so cached forecasts must not go stale.
     population_priors: dict[str, dict[str, Prior]] = field(default_factory=dict)
+    # Planned temperature steps, (start hour, °C), e.g. a recipe's "0:20;48:4". Each step
+    # holds until the next; the first also covers any hours before its start. See _schedule.
+    planned_temperature: tuple[tuple[float, float], ...] = ()
 
     def fingerprint(self) -> str:
         d = asdict(self)
@@ -175,6 +180,12 @@ class PredictionInputs:
             # fingerprint identically to before this field existed, so unrelated inputs
             # keep their exact seed and cached results.
             del d["population_priors"]
+        if not d["planned_temperature"]:
+            del d["planned_temperature"]  # likewise: no plan, the pre-plan fingerprint
+        else:  # one plan, one fingerprint, however its steps were typed or ordered
+            d["planned_temperature"] = sorted(
+                [float(h), float(c)] for h, c in self.planned_temperature
+            )
         blob = json.dumps(d, sort_keys=True, default=str)
         return hashlib.sha256(f"{MODEL_VERSION}|{blob}".encode()).hexdigest()
 
@@ -407,9 +418,40 @@ def _plan_organisms(inputs: PredictionInputs, profile: FermentProfile) -> list[_
     return plans
 
 
+PLAN_STEP_H = 0.01  # a planned temperature step takes effect over this (knots must increase)
+_Knot = tuple[float, float, float]  # (hours, °C, estimated); a planned stage is its start knot
+
+
+def _stage_at(stages: Sequence[tuple[float, ...]], t: float) -> int:
+    """Index of the stage (start hour first) in effect at hour t; the first before any start."""
+    i = 0
+    for j, stage in enumerate(stages):
+        if stage[0] <= t:
+            i = j
+    return i
+
+
+def _stage_knots(stages: list[_Knot], a: float, b: float) -> list[_Knot]:
+    """Knots holding each stage's temperature over [a, b]."""
+    first, last = stages[_stage_at(stages, a)], stages[_stage_at(stages, b)]
+    k = [(a, first[1], first[2])]
+    for prev, (start, c, e) in pairwise(stages):
+        if a < start <= b:
+            k += [(max(start - PLAN_STEP_H, a), prev[1], prev[2]), (start, c, e)]
+    return [*k, (b, last[1], last[2])]
+
+
 def _schedule(
     inputs: PredictionInputs, profile: FermentProfile, override: float | None, end_h: float
 ) -> tuple[TemperatureSchedule, float, str, int, int]:
+    """Temperature over the batch, with the forecast's °C from now on and where it comes from.
+
+    A planned schedule (`inputs.planned_temperature`) replaces the constant estimate
+    everywhere the estimate applies: the whole run with no readings, the gaps between
+    readings, and the future (readings set the past, the plan the future). Its knots are
+    estimated, like the constant estimate. A what-if `override` replaces only the stage in
+    effect now (the plan's first stage for a forecast from hour 0) and keeps later stages.
+    """
     readings = sorted(
         (max(m.t_h, 0.0), m.value)
         for m in inputs.measurements
@@ -427,8 +469,15 @@ def _schedule(
         estimate = float(np.mean([v for _, v in valid]))
     else:
         estimate = profile.temp_c
+    plan: list[_Knot] = [(h, c, 1.0) for h, c in sorted(inputs.planned_temperature)]
+    ahead = list(plan)
+    if plan and override is not None:  # a what-if is exact, like the constant what-if below
+        cur = _stage_at(plan, now)
+        ahead[cur] = (plan[cur][0], override, 0.0)
     if override is not None:
         forecast, source, est_future = override, "override", 0.0
+    elif plan:
+        forecast, source, est_future = plan[_stage_at(plan, now)][1], "expected", 1.0
     elif inputs.expected_temperature_c is not None:
         forecast, source, est_future = inputs.expected_temperature_c, "expected", 1.0
     elif valid:
@@ -439,24 +488,33 @@ def _schedule(
         forecast, source, est_future = profile.temp_c, "type_default", 1.0
     forecast = round(forecast, 1)
 
+    def estimated(a: float, b: float) -> list[_Knot]:
+        if plan:
+            return _stage_knots(plan, a, b)
+        return [(a, estimate, 1.0), (b, estimate, 1.0)]
+
     # (hours, °C, estimated) knots; `estimated` spans get the ensemble's temperature offset.
     # A reading is exact at its time and stands for READING_HOLD_H; longer gaps go back to
     # the estimate (one warm reading on day 0 must not set the next three weeks).
     hold = READING_HOLD_H
-    k: list[tuple[float, float, float]] = []
+    k: list[_Knot] = []
     if not valid:
-        k += [(0.0, estimate, 1.0), (now, estimate, 1.0)]
+        k += estimated(0.0, now)
     else:
         t0, v0 = valid[0]
-        k += [(0.0, estimate, 1.0), (t0 - hold, estimate, 1.0)] if t0 > hold else [(0.0, v0, 0.5)]
+        k += estimated(0.0, t0 - hold) if t0 > hold else [(0.0, v0, 0.5)]
         for i, (t, v) in enumerate(valid):
             k.append((t, v, 0.0))
             t_next = valid[i + 1][0] if i + 1 < len(valid) else now
             if t_next - t > 2 * hold:
-                k += [(t + hold, estimate, 1.0), (t_next - hold, estimate, 1.0)]
+                k += estimated(t + hold, t_next - hold)
         t_last, v_last = valid[-1]
-        k.append((now, v_last if now - t_last <= 2 * hold else estimate, 0.0))
-    k += [(now + 0.01, forecast, est_future), (max(end_h, now + 0.02), forecast, est_future)]
+        gap = plan[_stage_at(plan, now)][1] if plan else estimate
+        k.append((now, v_last if now - t_last <= 2 * hold else gap, 0.0))
+    if plan:
+        k += _stage_knots(ahead, now + 0.01, max(end_h, now + 0.02))
+    else:
+        k += [(now + 0.01, forecast, est_future), (max(end_h, now + 0.02), forecast, est_future)]
     # np.interp needs increasing knots: the last value wins at duplicate times
     knots = {round(max(t, 0.0), 6): (v, e) for t, v, e in k}
     ts = sorted(knots)
@@ -899,35 +957,41 @@ def predict(
     inputs: PredictionInputs,
     temperature_c: float | None = None,
     horizon_h: float | None = None,
+    members: int | None = None,
 ) -> dict[str, Any]:
     """Forecast for one batch. Deterministic for identical inputs (seeded), cached.
+
+    `members` sets the ensemble size: the prior draws of each inference round (with no
+    readings, the whole ensemble) and the resampled members a what-if re-simulates. None
+    keeps the defaults: N_MEMBERS, retried at N_FALLBACK over budget, N_RESAMPLE for a
+    what-if.
 
     Raises PredictionUnavailable when even the fallback ensemble exceeds its solver budget.
     """
     profile = profile_for(inputs.fermentation_type)
     horizon = _nice_horizon(horizon_h) if horizon_h else default_horizon(profile, inputs.now_h)
     fp = inputs.fingerprint()
-    out_key = f"{fp}|{temperature_c}|{horizon}"
+    out_key = f"{fp}|{temperature_c}|{horizon}|{members}"
     hit = _OUTPUTS.get(out_key)
     if hit is None:
         with _SOLVE_LOCK:
             hit = _OUTPUTS.get(out_key)
             if hit is None:
-                hit = _forecast(inputs, profile, fp, temperature_c, horizon)
+                hit = _forecast(inputs, profile, fp, temperature_c, horizon, members=members)
                 _OUTPUTS.put(out_key, hit)
     return dict(hit)
 
 
 def member_values(
-    inputs: PredictionInputs, horizon_h: float
+    inputs: PredictionInputs, horizon_h: float, members: int | None = None
 ) -> tuple[FloatArray, dict[str, FloatArray], FloatArray]:
     """(t, series -> (members, len(t)) values, weights) behind predict(inputs) over
     [0, horizon_h]: the same seeded posterior, for scoring held-out readings member by member
-    (scripts/validate_forecasts.py). Not cached."""
+    (scripts/validate_forecasts.py). `members` as in predict(). Not cached."""
     keep: dict[str, Any] = {}
     profile = profile_for(inputs.fermentation_type)
     with _SOLVE_LOCK:
-        _forecast(inputs, profile, inputs.fingerprint(), None, horizon_h, keep)
+        _forecast(inputs, profile, inputs.fingerprint(), None, horizon_h, keep, members)
     return keep["t"], keep["values"], keep["weights"]
 
 
@@ -938,6 +1002,7 @@ def _forecast(
     temperature_c: float | None,
     horizon: float,
     keep: dict[str, Any] | None = None,
+    members: int | None = None,
 ) -> dict[str, Any]:
     init = _initial_state(profile, inputs.recipe)
     plans = _plan_organisms(inputs, profile)
@@ -959,10 +1024,13 @@ def _forecast(
 
     # The posterior depends on the inputs, not on the display window or a what-if, so it
     # is cached per fingerprint; other windows and what-ifs re-simulate a resample of it.
-    lite: _PosteriorLite | None = _POSTERIORS.get(fp)
+    # Per ensemble size too: resampling another size's posterior would make the result
+    # depend on which size happened to run first.
+    post_key = fp if members is None else f"{fp}|{members}"
+    lite: _PosteriorLite | None = _POSTERIORS.get(post_key)
     tr: Trajectories | None = None
     if lite is None:
-        for n in (N_MEMBERS, N_FALLBACK):
+        for n in (N_MEMBERS, N_FALLBACK) if members is None else (members,):
             try:
                 post = run_inference(spec, obs.used, t_eval, n=n, seed=seed)
                 break
@@ -973,8 +1041,8 @@ def _forecast(
                 "The model could not be computed for this batch within its budget."
             )
         lite = _PosteriorLite(post.z, post.weights, post.tempered, post.ess)
-        _POSTERIORS.put(fp, lite)
-        if inputs.finished:
+        _POSTERIORS.put(post_key, lite)
+        if inputs.finished and members is None:  # learn from the default ensemble only
             _POOL_SAMPLES.put(fp, learning_evidence(spec, obs.used, t_eval, post, seed))
         if temperature_c is None:
             z, weights, tr = post.z, post.weights, post.traj
@@ -985,14 +1053,15 @@ def _forecast(
                 inputs, profile, temperature_c, end_h
             )
             spec, _ = _spec(profile, plans, init, what_sched, inputs.population_priors)
-        z = _resample(lite.z, lite.weights, N_RESAMPLE, seed=int(fp[8:16], 16) % 2**31)
+        k = N_RESAMPLE if members is None else members
+        z = _resample(lite.z, lite.weights, k, seed=int(fp[8:16], 16) % 2**31)
         try:
             tr = simulate(spec.params(z[:, : spec.dim]), t_eval, keep_states=True)
         except SimulationError as exc:
             raise PredictionUnavailable(str(exc)) from exc
         weights = np.full(len(z), 1.0 / len(z))
     tempered = lite.tempered
-    members = len(weights)
+    ensemble_size = len(weights)
 
     want_density = profile.show_density
     values = _series_values(tr, spec, z, want_density)
@@ -1063,7 +1132,7 @@ def _forecast(
         if (m := _milestone(ms, t_eval[:in_window], window, weights)) is not None
     ]
     misfits = _check_fit(obs, tr, z, weights, t_eval)
-    if misfits and inputs.finished:
+    if misfits and inputs.finished and members is None:
         _POOL_SAMPLES.put(fp, [])  # readings the model cannot explain teach it nothing
 
     ph0 = weighted_quantiles(tr.ph[:, 0], weights, (0.5,))[0]
@@ -1135,6 +1204,20 @@ def _forecast(
         "type_default": f"{forecast_c:g} °C from now on (typical for {profile.type}; set an "
         "estimate for a better forecast)",
     }[t_source]
+    plan = sorted(inputs.planned_temperature)
+    if plan and t_source in ("expected", "override"):
+        steps = [
+            f"{c:g} °C from " + ("the start" if i == 0 else f"hour {h:g}")
+            for i, (h, c) in enumerate(plan)
+        ]
+        later = plan[_stage_at(plan, max(inputs.now_h, 0.0)) + 1 :]
+        if t_source == "expected":
+            temp_text = "your plan: " + ", then ".join(steps)
+        elif later:
+            temp_text = (
+                f"what-if: {forecast_c:g} °C from now until hour {later[0][0]:g}, then your "
+                "plan (not saved)"
+            )
     if n_temp:
         temp_text += f"; your {n_temp} logged temperature reading(s) for the past"
     assumptions.append(f"Temperature: {temp_text}.")
@@ -1182,9 +1265,9 @@ def _forecast(
             "name": "FermentTrack kinetic ensemble",
             "version": MODEL_VERSION,
             "method": METHOD,
-            "members": int(members),
+            "members": int(ensemble_size),
             # the posterior's, also for a resampled what-if (duplicates add no information)
-            "effective_members": round(min(float(lite.ess), float(members)), 1),
+            "effective_members": round(min(float(lite.ess), float(ensemble_size)), 1),
             "confidence": profile.confidence,
             "confidence_note": profile.confidence_note,
             "validated": False,

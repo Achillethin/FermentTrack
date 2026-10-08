@@ -384,4 +384,37 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
 
 ## 5. Handoff log
 
-(filled in by the orchestrator: one entry per accepted phase, with its commit, key interfaces and measured numbers)
+### B1 — recipe library (commit `8241879`)
+- **Gates:** review PASS (9 deviations accepted; 6 optional follow-ups applied); handoff ACCEPT; orchestrator re-ran `build_recipes.py --check` (exit 0) and 49 tests (pass).
+- **Interfaces (`library.py`):**
+  - `load_library()`, `active()`, `get(key)`: returns drafts too, so serving code must use `active()`;
+  - frozen dataclasses `Recipe`, `RecipeIngredient` and `Span`;
+  - `STAPLES` (excludes Rennet), `CATALOGUE_NAMES`, `ALIASES`, `trust_labels(recipe)`;
+  - `ingredient_tier(name, type)`: −1 = not a live catalogue name; T3 needs a use-level row **and** T2.
+- **Recipe fields:** `Recipe.temp_schedule` is `tuple[(start_h, °C), …]`, the same shape as B2's `planned_temperature`.
+- **Recipe counts:** 20 active (13 curated + 7 sourdough with `handoff=planner` and `planner_style`), 4 draft. Poolish, biga and Type III are absent.
+- **Notes for later phases:**
+  - Salt % comes from the ingredient rows (kimchi is 3.5 % including its optional rows).
+  - The four planner styles have no duration, so B4 must handle that.
+  - Sourdough rows book all wheat as `White wheat flour`; B4 should run the style's own flour through `bake`.
+  - Sources are citation keys, defined in `research/recipes/01-*.md`.
+- **For B13:** design § 4.1's wording "never the drafts" must change to "drafts plus encoded curation decisions".
+
+### B2 — engine hooks
+- **Gates:** review PASS (byte-identical against HEAD on 32 outputs; 15 new tests and 91 regression tests pass).
+- **Signatures:**
+  - `PredictionInputs.planned_temperature: tuple[tuple[float, float], ...] = ()`, a step schedule;
+  - `predict(inputs, temperature_c=None, horizon_h=None, members=None)`;
+  - `member_values(inputs, horizon_h, members=None)`.
+- **Semantics:**
+  - The plan sets the future and also fills the gaps between readings (deviation 7: it is used with readings too).
+  - A what-if replaces the stage in effect at `now`.
+  - An explicit `members` has no fallback.
+  - The posterior cache is keyed `fp|members`.
+  - Pooled learning comes only from the default ensemble.
+  - The plan is reported as `source="expected"`, with the plan in the assumption line.
+- **Notes for B4:**
+  - Exactly `members` members only when there are no readings.
+  - `member_values` depends on the cache state, so call `clear_caches()` per entry, or keep a fixed order, for a deterministic build.
+  - Validate plans (NaN, duplicate hours) and `members ≥ 1` where recipes are parsed.
+  - Cost: 64 members ≈ 0.65–0.7 × a 160-member run.
