@@ -19,7 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from fermenttrack.auth import get_current_user_id, is_admin
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch, BatchEvidence, Culture, Measurement
+from fermenttrack.models import Batch, BatchEvidence, Culture, Measurement, RecommendationJob
 from fermenttrack.schemas import (
     CultureExportOut,
     LogBatchOut,
@@ -180,6 +180,8 @@ async def delete_my_data(
     await db.execute(
         update(Culture).where(Culture.owner_id == user_id).values(born_from=None)
     )
+    # recommender jobs (deep searches) carry the owner id too; one running is dropped
+    await db.execute(sa_delete(RecommendationJob).where(RecommendationJob.owner_id == user_id))
     for culture in cultures:
         await db.delete(culture)  # cascades to batches and everything under them
     await db.commit()

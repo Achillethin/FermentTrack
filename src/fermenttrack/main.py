@@ -1,9 +1,14 @@
 """FermentTrack API entrypoint."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from fermenttrack import database
 from fermenttrack.config import settings
+from fermenttrack.recommender import jobs
 from fermenttrack.routers import (
     admin,
     batches,
@@ -21,10 +26,23 @@ from fermenttrack.routers import (
     webhooks,
 )
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """The recommender's background job worker (design § 10.2) runs as long as the app."""
+    worker = jobs.Worker(database.async_session_maker)
+    await worker.start()
+    try:
+        yield
+    finally:
+        await worker.stop()
+
+
 app = FastAPI(
     title="FermentTrack",
     description="Batch journal and smart reminders for serious fermenters",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

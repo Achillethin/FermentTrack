@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, Interval, JSON, Text, UniqueConstraint
+from sqlalchemy import Index, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
@@ -398,3 +399,50 @@ class RecommendationLink(Base):
     batch: Mapped[Batch] = relationship(
         backref=backref("recommendation_link", uselist=False, cascade="all, delete-orphan")
     )
+
+
+JOB_QUEUED = "queued"
+JOB_RUNNING = "running"
+JOB_DONE = "done"
+JOB_FAILED = "failed"
+ACTIVE_JOB_STATUSES = (JOB_QUEUED, JOB_RUNNING)
+_ACTIVE_JOB = text("status IN ('queued', 'running')")
+
+
+class RecommendationJob(Base):
+    """A background recommender job (design § 10.2): the FIFO queue (by created_at) that the
+    single in-process worker drains (recommender.jobs). kind: "deep_search" (POST
+    /recommendations/deep-search), or another registered handler's kind (B9: community
+    forecasts). steps: the plan, saved once made, so a restart resumes at `done`; results: the
+    handler's results so far (deep search: ranked {rank, card}); attempts: claims so far (the
+    worker fails a job after 3, the crash-loop guard). At most one queued or running job per
+    owner (a partial unique index); system jobs have no owner. An owner keeps their newest
+    jobs only (Handler.kept); an account's jobs are deleted with it (DELETE /me)."""
+
+    __tablename__ = "recommendation_jobs"
+    __table_args__ = (
+        Index("ix_recommendation_jobs_queue", "status", "created_at"),
+        Index(
+            "uq_recommendation_jobs_one_active", "owner_id", unique=True,
+            postgresql_where=_ACTIVE_JOB, sqlite_where=_ACTIVE_JOB,
+        ),
+    )  # fmt: skip
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    owner_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    request: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    # the request, the grid and the model version (recommender.jobs.fingerprint)
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default=JOB_QUEUED)
+    steps: Mapped[list[Any] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    results: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)

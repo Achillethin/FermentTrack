@@ -1132,3 +1132,33 @@ class FromRecommendationOut(BaseModel):
     link: RecommendationLinkOut
     reminders: list[ReminderOut]
     skipped_ingredients: list[str]  # recipe rows not in the catalogue yet: not booked
+
+
+JobStatus = Literal["queued", "running", "done", "failed"]
+
+
+class DeepSearchOut(BaseModel):
+    """POST /recommendations/deep-search: the job to poll (GET /recommendations/jobs/{job_id}).
+    202 for a new job; 200 for your finished job of the same request (its results are kept)."""
+
+    job_id: uuid.UUID
+    status: JobStatus
+
+
+class RecommendationJobOut(BaseModel):
+    """A deep search (design § 10.2): up to 20 live forecasts, run in the background. Partial
+    results come in as each forecast finishes; cards are confirmed (never "screened") and
+    ranked like the Experimental section (§ 5.4)."""
+
+    job_id: uuid.UUID
+    status: JobStatus
+    done: int  # forecasts run so far
+    total: int  # forecasts planned; 0 until the job starts
+    eta_s: int | None  # seconds left (queue included), from the mean time per forecast so far;
+    # None once finished
+    results: list[RecommendationCardOut]
+    error: str | None  # why it failed (status failed); its partial results are kept
+    request: dict[str, Any]  # the POST /recommendations/deep-search body
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None

@@ -9,8 +9,15 @@
 - POST /batches/from-recommendation: Start batch, in one transaction (culture, batch,
   ingredients, reminders, recommendation_links). Sourdough starts in the planner: 409. A
   variant is recomputed here from its operators; its USDA foods are booked like a USDA pick.
+- POST /recommendations/deep-search ("search deeper", design § 10.2): queues a background job
+  of up to 20 live forecasts (recommender.jobs) and answers 202 {job_id}; 200 with your
+  finished job of the same request (its results are kept); 409 with the job id while you have
+  one queued or running. A parent_batch_id is refused (422): your batch's variants already run
+  live. GET /recommendations/jobs/{job_id} polls it (yours only, 404 otherwise); GET
+  /recommendations/jobs lists yours (your data, as DELETE /me erases it): your 10 newest, the
+  older ones being deleted as you start new ones.
 
-All three need a signed-in user (anonymous sessions included); the library itself is public
+All of them need a signed-in user (anonymous sessions included); the library itself is public
 (GET /recipes). A parent batch must be the user's own (404 otherwise). Model runs and the
 first grid load are CPU-bound: they run in the threadpool.
 """
@@ -21,8 +28,9 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
@@ -36,21 +44,24 @@ from fermenttrack.models import (
     BatchIngredient,
     Culture,
     Ingredient,
+    RecommendationJob,
     RecommendationLink,
     Reminder,
 )
 from fermenttrack.prediction.service import PredictionUnavailable
-from fermenttrack.recommender import gate, run, service
+from fermenttrack.recommender import gate, jobs, run, service
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.routers.batches import _get_batch, _ingredient_for_fdc_food
 from fermenttrack.schemas import (
     BatchOut,
     CultureOut,
+    DeepSearchOut,
     FromRecommendationIn,
     FromRecommendationOut,
     OperatorIn,
     RecommendationForecastIn,
     RecommendationForecastOut,
+    RecommendationJobOut,
     RecommendationLinkOut,
     RecommendationRequest,
     RecommendationsOut,
@@ -304,3 +315,95 @@ async def start_batch(
         reminders=[ReminderOut.model_validate(r) for r in reminders],
         skipped_ingredients=list(plan.skipped),
     )
+
+
+# ── search deeper: background jobs (design § 10.2) ──────────────────────
+
+
+def _busy(job: RecommendationJob) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "message": "You already have a search running: its results come in as it goes.",
+            "job_id": str(job.id),
+        },
+    )
+
+
+@router.post(
+    "/recommendations/deep-search",
+    response_model=DeepSearchOut,
+    status_code=202,
+    responses={
+        200: {"model": DeepSearchOut, "description": "Your finished job of the same request"},
+        409: {"description": "You already have a queued or running job (detail.job_id)"},
+    },
+)
+async def deep_search(
+    payload: RecommendationRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    user_id: str = Depends(get_current_user_id),
+) -> DeepSearchOut:
+    if payload.parent_batch_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="Search deeper explores the library's recipes; your batch's variants already "
+            "run live in POST /recommendations.",
+        )
+    request = payload.model_dump(mode="json")
+    fingerprint = await run_in_threadpool(jobs.deep_search_fingerprint, request)
+    done = await jobs.find_done(db, user_id, jobs.DEEP_SEARCH, fingerprint)
+    if done is not None:
+        response.status_code = 200
+        return DeepSearchOut(job_id=done.id, status="done")
+    active = await jobs.find_active(db, user_id)
+    if active is not None:
+        raise _busy(active)
+    try:
+        job = await jobs.submit(
+            db, jobs.DEEP_SEARCH, request, fingerprint=fingerprint, owner_id=user_id
+        )
+    except IntegrityError:  # a concurrent request of yours queued one first
+        active = await jobs.find_active(db, user_id)
+        if active is None:
+            raise
+        raise _busy(active) from None
+    return DeepSearchOut(job_id=job.id, status="queued")
+
+
+async def _job_out(db: AsyncSession, job: RecommendationJob) -> RecommendationJobOut:
+    return RecommendationJobOut.model_validate({
+        "job_id": job.id, "status": job.status, "done": job.done, "total": job.total,
+        "eta_s": await jobs.eta_s(db, job), "results": [r["card"] for r in job.results],
+        "error": job.error, "request": job.request, "created_at": job.created_at,
+        "started_at": job.started_at, "finished_at": job.finished_at,
+    })  # fmt: skip
+
+
+@router.get("/recommendations/jobs", response_model=list[RecommendationJobOut])
+async def my_jobs(
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    user_id: str = Depends(get_current_user_id),
+) -> list[RecommendationJobOut]:
+    """Your deep searches, newest first: what you asked and what came back (the newest
+    JOBS_KEPT, every one kept)."""
+    found = await db.execute(
+        select(RecommendationJob)
+        .where(RecommendationJob.owner_id == user_id, RecommendationJob.kind == jobs.DEEP_SEARCH)
+        .order_by(RecommendationJob.created_at.desc(), RecommendationJob.id)
+        .limit(jobs.JOBS_KEPT)
+    )
+    return [await _job_out(db, job) for job in found.scalars()]
+
+
+@router.get("/recommendations/jobs/{job_id}", response_model=RecommendationJobOut)
+async def get_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    user_id: str = Depends(get_current_user_id),
+) -> RecommendationJobOut:
+    job = await db.get(RecommendationJob, job_id)
+    if job is None or job.owner_id != user_id or job.kind != jobs.DEEP_SEARCH:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return await _job_out(db, job)
