@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, Interval, JSON, Text, UniqueConstraint
-from sqlalchemy import Index, text
+from sqlalchemy import CheckConstraint, Index, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
@@ -370,6 +370,11 @@ class RecommendationLink(Base):
     for the tasting feedback and the calibration gate. One per batch; deleted with it (the
     `Batch.recommendation_link` backref cascades on SQLite too, the FK on Postgres).
 
+    The parent, by source_kind: `recipe_key` (library, variant), `parent_batch_id` (own_batch:
+    your batch, a variant of it) or `community_recipe_id` (community: the card or a variant of
+    it). Both foreign keys are set null when their row goes. Migration 0021 moved the parent
+    batch of earlier own_batch links (recipe_key "batch:<id>") into parent_batch_id.
+
     temp_schedule: a staged recipe's (start hour, °C) steps. The batch keeps the first stage
     as expected_temperature_c, and its forecast (routers/prediction.py) runs on the schedule
     as PredictionInputs.planned_temperature."""
@@ -381,9 +386,20 @@ class RecommendationLink(Base):
     )
     source_kind: Mapped[str] = mapped_column(Text, nullable=False)  # library, variant, ...
     recipe_key: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # community_recipes arrives with B9, which adds the foreign key
     community_recipe_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey(
+            "community_recipes.id", ondelete="SET NULL",
+            name="fk_recommendation_links_community_recipe_id",
+        ),
+        nullable=True, index=True,
+    )  # fmt: skip
+    parent_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "batches.id", ondelete="SET NULL", name="fk_recommendation_links_parent_batch_id"
+        ),
+        nullable=True,
     )
     operators: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     mode: Mapped[str] = mapped_column(Text, nullable=False)  # proven | experimental | both
@@ -397,8 +413,87 @@ class RecommendationLink(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
 
     batch: Mapped[Batch] = relationship(
-        backref=backref("recommendation_link", uselist=False, cascade="all, delete-orphan")
+        foreign_keys=[batch_id],
+        backref=backref("recommendation_link", uselist=False, cascade="all, delete-orphan"),
     )
+
+
+COMMUNITY_PENDING = "pending"
+COMMUNITY_APPROVED = "approved"
+COMMUNITY_REJECTED = "rejected"
+COMMUNITY_STATUSES = (COMMUNITY_PENDING, COMMUNITY_APPROVED, COMMUNITY_REJECTED)
+_NOT_REJECTED = text("status <> 'rejected'")
+
+
+class CommunityRecipe(Base):
+    """A recipe a user published from one of their finished batches (design § 10.3,
+    recommender.community): its rows as g/kg of the batch's weighed total, the batch's mean
+    logged temperature (else its expected one) and its actual duration. Reviewed by an admin
+    (pending -> approved | rejected). It stays when its author deletes their account: DELETE
+    /me sets owner_id and source_batch_id null (the pseudonym stays); the batch's own deletion
+    sets source_batch_id null (the FK). Anonymous accounts may publish. A batch is published
+    once until rejected (a partial unique index on source_batch_id).
+
+    recipe: [{name, role, g_per_kg, fdc_id, nutrients}]: catalogue names, or a USDA pick
+    (fdc_id, with its nutrients g/100 g so the forecast runs without the database)."""
+
+    __tablename__ = "community_recipes"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected')", name="ck_community_recipes_status"
+        ),
+        Index(
+            "uq_community_recipes_source_batch", "source_batch_id", unique=True,
+            postgresql_where=_NOT_REJECTED, sqlite_where=_NOT_REJECTED,
+        ),
+    )  # fmt: skip
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    owner_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    source_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("batches.id", ondelete="SET NULL", name="fk_community_recipes_source_batch_id"),
+        nullable=True,
+    )
+    pseudonym: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    fermentation_type: Mapped[str] = mapped_column(Text, nullable=False)
+    recipe: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    temperature_c: Mapped[float] = mapped_column(Float, nullable=False)
+    duration_h: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default=COMMUNITY_PENDING)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # the reviewer's
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(Text, nullable=True)  # the admin's user id
+
+    forecasts: Mapped[list[CommunityRecipeForecast]] = relationship(
+        back_populates="recipe", cascade="all, delete-orphan"
+    )
+
+
+class CommunityRecipeForecast(Base):
+    """An approved community recipe's forecast at one temperature, computed by the job queue
+    (recommender.community): the grid's statistics schema (E / U / P per series on the
+    recipe's time axis, milestone crossing times, card labels) as JSON. grid_version: the grid
+    it goes with; a startup with another grid recomputes it."""
+
+    __tablename__ = "community_recipe_forecasts"
+
+    recipe_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("community_recipes.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    temp_c: Mapped[float] = mapped_column(Float, primary_key=True)
+    grid_version: Mapped[str] = mapped_column(Text, nullable=False)
+    stats: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+
+    recipe: Mapped[CommunityRecipe] = relationship(back_populates="forecasts")
 
 
 JOB_QUEUED = "queued"

@@ -133,7 +133,67 @@ def test_negative_mass_fails_the_salt_rule_closed() -> None:
 @pytest.mark.parametrize("ft", ["miso", "garum", "kombucha", "kefir", "cheese", "sourdough"])
 @pytest.mark.parametrize("salt_g", [0.0, 119.0, 216.0])
 def test_salt_rules_apply_to_lacto_ferment_only(ft: str, salt_g: float) -> None:
-    assert G.check(_salted(salt_g, ft), []).ok
+    result = G.check(_salted(salt_g, ft), [])
+    assert not {"SALT-001", "SALT-002"} & _rules(result)
+    assert result.ok is (ft not in G.SALT_BARRIER_MIN_PCT or salt_g > 0)  # miso, garum: a minimum
+
+
+# ── SALT-BARRIER: the salt-barrier types' minimum (B9) ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("ft", "salt_g", "ok"),
+    [
+        ("miso", 39.9, False), ("miso", 40.0, True),  # BCCDC: at least 4 %
+        ("garum", 82.9, False), ("garum", 83.0, True),  # the sourced recipes' lowest, 8.3 %
+        ("miso", 216.0, True), ("garum", 300.0, True),  # no maximum
+    ],
+)  # fmt: skip
+def test_salt_barrier_minimum_at_its_boundary(ft: str, salt_g: float, ok: bool) -> None:
+    result = G.check(_salted(salt_g, ft), [])
+    assert result.ok is ok
+    assert _rules(result) == (set() if ok else {"SALT-BARRIER"})
+    if not ok:
+        pct = 100.0 * salt_g / 1000.0
+        assert result.reasons == (
+            f"SALT-BARRIER: salt {pct:.2f} % w/w < {G.SALT_BARRIER_MIN_PCT[ft]} % (all rows)",
+        )
+
+
+@pytest.mark.parametrize("ft", ["miso", "garum"])
+def test_salt_barrier_fails_closed_on_unknown_salt(ft: str) -> None:
+    rows = (
+        IngredientRow("Soybeans", "base", 880.0),
+        IngredientRow("White rice", "base", None),  # no mass: the salt % is unknown
+        IngredientRow("Salt", "additive", 120.0),
+    )
+    result = G.check(RecipeLike(ft, rows, temperatures_c=(25.0,)), [])
+    assert not result.ok
+    assert result.reasons == (
+        "SALT-BARRIER: salt % unknown, a mass is missing or invalid (all rows)",
+    )
+    no_salt = RecipeLike(ft, rows[:1], temperatures_c=(25.0,))
+    assert _rules(G.check(no_salt, [])) == {"SALT-BARRIER"}  # no Salt row: 0 %
+
+
+def test_salt_barrier_must_hold_without_the_optional_rows() -> None:
+    rows = (
+        IngredientRow("Soybeans", "base", 950.0),
+        IngredientRow("Salt", "additive", 50.0, "optional"),
+    )
+    result = G.check(RecipeLike("miso", rows, temperatures_c=(25.0,)), [])
+    assert result.reasons == ("SALT-BARRIER: salt 0.00 % w/w < 4.0 % (core rows only)",)
+
+
+def test_every_active_salt_barrier_recipe_passes_its_minimum() -> None:
+    """The minimums remove no library recipe: miso 6.1 and 11.9 %, the sand lance 12.0 %."""
+    barrier = [r for r in L.active() if r.fermentation_type in G.SALT_BARRIER_MIN_PCT]
+    assert {r.fermentation_type for r in barrier} == set(G.SALT_BARRIER_MIN_PCT)
+    for recipe in barrier:
+        like = G.from_recipe(recipe)
+        pct = G.salt_pct(like)
+        assert pct is not None and pct >= G.SALT_BARRIER_MIN_PCT[recipe.fermentation_type]
+        assert G.check(like, []).ok, recipe.key
 
 
 # ── TEMP-001, KOJI-002, KOJI-001 ────────────────────────────────────────────────────────────
@@ -141,8 +201,9 @@ def test_salt_rules_apply_to_lacto_ferment_only(ft: str, salt_g: float) -> None:
 
 @pytest.mark.parametrize("ft", LACTIC_TYPES)
 def test_temp_001_at_its_boundary_for_every_lactic_type(ft: str) -> None:
-    assert G.check(_salted(30.0, ft, temp=20.0), [G.LACTIC_MAX_C]).ok
-    result = G.check(_salted(30.0, ft, temp=20.0), [45.01])
+    salted = _salted(90.0, ft, temp=20.0)  # 9 %: passes every salt rule (SALT-*, SALT-BARRIER)
+    assert G.check(salted, [G.LACTIC_MAX_C]).ok
+    result = G.check(salted, [45.01])
     assert not result.ok and result.reasons == ("TEMP-001: 45.01 °C > 45 °C",)
 
 

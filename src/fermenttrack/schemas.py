@@ -6,7 +6,14 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 
 # ── Culture ──────────────────────────────────────────────────────────────
@@ -846,10 +853,13 @@ Operators = Annotated[list[OperatorIn], Field(max_length=3)]
 
 
 def _check_parent(
-    recipe_key: str | None, parent_batch_id: uuid.UUID | None, operators: list[OperatorIn]
+    recipe_key: str | None,
+    parent_batch_id: uuid.UUID | None,
+    operators: list[OperatorIn],
+    community_recipe_id: uuid.UUID | None = None,
 ) -> None:
-    if (recipe_key is None) == (parent_batch_id is None):
-        raise ValueError("give a recipe_key or a parent_batch_id, not both")
+    if sum(x is not None for x in (recipe_key, parent_batch_id, community_recipe_id)) != 1:
+        raise ValueError("give one of recipe_key, parent_batch_id or community_recipe_id")
     if parent_batch_id is not None and not operators:
         raise ValueError("a variant of your batch needs at least one operator")
 
@@ -858,7 +868,8 @@ class RecommendationRequest(BaseModel):
     """Design § 5.1. Ingredients are catalogue names; the non-staple ones must all be in the
     recipe (Proven) or the variant (Experimental), and staples (salt, water, sugar, flour, tea,
     starter cultures) never exclude a recipe (§ 5.2, Q3). parent_batch_id: one of your batches
-    as an Experimental parent (Q16). usda_fdc_ids: USDA foods operator (v) may add."""
+    as an Experimental parent (Q16); community_recipe_id: an approved community recipe as one
+    (§ 10.3); one parent at most. usda_fdc_ids: USDA foods operator (v) may add."""
 
     ingredients: Annotated[list[str], Field(max_length=20)] = []
     aromas: list[str] = []
@@ -867,15 +878,22 @@ class RecommendationRequest(BaseModel):
     temperature_c: ExpectedTemperatureC | None = None  # the user's kitchen; null: each recipe's
     batch_g: BatchGrams = 1000.0
     parent_batch_id: uuid.UUID | None = None
+    community_recipe_id: uuid.UUID | None = None
     usda_fdc_ids: Annotated[list[int], Field(max_length=5)] = []
 
     @model_validator(mode="after")
     def _valid(self) -> RecommendationRequest:
         _check_targets(self.aromas, self.tastes)
-        if not (self.ingredients or self.aromas or self.tastes or self.parent_batch_id):
+        parent = self.parent_batch_id or self.community_recipe_id
+        if not (self.ingredients or self.aromas or self.tastes or parent):
             raise ValueError("give at least one ingredient, aroma or taste")
-        if self.mode == "proven" and (self.parent_batch_id or self.usda_fdc_ids):
-            raise ValueError("parent_batch_id and usda_fdc_ids need mode experimental or both")
+        if self.parent_batch_id and self.community_recipe_id:
+            raise ValueError("give parent_batch_id or community_recipe_id, not both")
+        if self.mode == "proven" and (parent or self.usda_fdc_ids):
+            raise ValueError(
+                "parent_batch_id, community_recipe_id and usda_fdc_ids need mode experimental "
+                "or both"
+            )
         _check_usda(self.usda_fdc_ids)
         return self
 
@@ -976,18 +994,29 @@ class OperatorChipOut(BaseModel):
 
 
 class CardParentOut(BaseModel):
-    kind: Literal["library", "own_batch"]
+    kind: Literal["library", "own_batch", "community"]
     recipe_key: str | None
     batch_id: str | None
+    community_recipe_id: str | None = None
     name: str
-    label: str  # the recipe's name, or "your batch #n"
+    label: str  # the recipe's name, "your batch #n" or "community recipe “…” by …"
+
+
+class CommunityCardOut(BaseModel):
+    """A community card's author and use (design § 10.3)."""
+
+    id: uuid.UUID
+    title: str
+    pseudonym: str
+    made: int  # distinct other people who started a batch from it (Start batch), author excluded
+    mean_liking: float | None  # from tastings (B10); None until then
 
 
 class RecommendationCardOut(BaseModel):
     id: str
-    section: Literal["proven", "experimental"]
-    source_kind: Literal["library", "variant", "own_batch"]
-    recipe_key: str | None  # the library recipe (a variant's parent); None: your batch
+    section: Literal["proven", "experimental", "community"]
+    source_kind: Literal["library", "variant", "own_batch", "community"]
+    recipe_key: str | None  # the library recipe (a variant's parent); None: your batch, community
     name: str
     fermentation_type: str
     style_region: str
@@ -1007,6 +1036,7 @@ class RecommendationCardOut(BaseModel):
     handoff: Literal["planner"] | None
     planner_link: str | None  # "#/levain?p=…", the planner's share link
     notes: list[str]
+    community: CommunityCardOut | None = None  # a community card's author and "made n×"
 
 
 class RecommendationSectionOut(BaseModel):
@@ -1031,14 +1061,18 @@ class RecommendationsOut(BaseModel):
     experimental: RecommendationSectionOut | None  # None in mode proven
     notes: list[str]
     debug: RecommendationDebugOut
+    # "Community — not proven" (design § 10.3): mode proven or both; None in mode experimental
+    community: RecommendationSectionOut | None = None
 
 
 class RecommendationForecastIn(BaseModel):
-    """One card's live forecast: a library recipe (recipe_key), or a variant of it or of one of
-    your batches (parent_batch_id) with its operators, at a slider temperature."""
+    """One card's live forecast: a library recipe (recipe_key) or an approved community recipe
+    (community_recipe_id), or a variant of either or of one of your batches (parent_batch_id)
+    with its operators, at a slider temperature."""
 
     recipe_key: str | None = None
     parent_batch_id: uuid.UUID | None = None
+    community_recipe_id: uuid.UUID | None = None
     operators: Operators = []
     aromas: list[str] = []
     tastes: list[str] = []
@@ -1048,7 +1082,9 @@ class RecommendationForecastIn(BaseModel):
     @model_validator(mode="after")
     def _valid(self) -> RecommendationForecastIn:
         _check_targets(self.aromas, self.tastes)
-        _check_parent(self.recipe_key, self.parent_batch_id, self.operators)
+        _check_parent(
+            self.recipe_key, self.parent_batch_id, self.operators, self.community_recipe_id
+        )
         return self
 
 
@@ -1066,8 +1102,8 @@ class ForecastBandOut(BaseModel):
 
 
 class RecommendationForecastOut(BaseModel):
-    recipe_key: str | None  # None: a variant of your batch
-    source_kind: Literal["library", "variant", "own_batch"] = "library"
+    recipe_key: str | None  # None: a variant of your batch, a community recipe
+    source_kind: Literal["library", "variant", "own_batch", "community"] = "library"
     operators: list[OperatorChipOut] = []
     screened: bool = False  # the variant's card was screened (design § 8.5)
     screened_e_peak: float | None = None  # its screened E(peak) at this temperature
@@ -1088,11 +1124,12 @@ class RecommendationForecastOut(BaseModel):
 
 class FromRecommendationIn(BaseModel):
     """Start batch (design § 11.2): the card is recomputed on the server from these: a library
-    recipe (recipe_key), or a variant of it or of one of your batches (parent_batch_id) with
-    its operators."""
+    recipe (recipe_key) or an approved community recipe (community_recipe_id), or a variant of
+    either or of one of your batches (parent_batch_id) with its operators."""
 
     recipe_key: str | None = None
     parent_batch_id: uuid.UUID | None = None
+    community_recipe_id: uuid.UUID | None = None
     operators: Operators = []
     aromas: list[str] = []
     tastes: list[str] = []
@@ -1105,7 +1142,9 @@ class FromRecommendationIn(BaseModel):
     @model_validator(mode="after")
     def _valid(self) -> FromRecommendationIn:
         _check_targets(self.aromas, self.tastes)
-        _check_parent(self.recipe_key, self.parent_batch_id, self.operators)
+        _check_parent(
+            self.recipe_key, self.parent_batch_id, self.operators, self.community_recipe_id
+        )
         return self
 
 
@@ -1116,6 +1155,7 @@ class RecommendationLinkOut(BaseModel):
     source_kind: str
     recipe_key: str | None
     community_recipe_id: uuid.UUID | None
+    parent_batch_id: uuid.UUID | None = None
     operators: list[Any]
     mode: str
     temperature_c: float
@@ -1162,3 +1202,72 @@ class RecommendationJobOut(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+# ── Community recipes (design § 10.3, recommender.community) ─────────────────
+
+CommunityStatus = Literal["pending", "approved", "rejected"]
+# A pen name, never checked against a real one: letters, digits, spaces and . _ ' -, starting
+# with a letter or digit; no @ or / (so not an e-mail address or a link).
+Pseudonym = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=2, max_length=40, pattern=r"^\w[\w .'-]*$"),
+]
+
+
+class CommunityPublishIn(BaseModel):
+    """POST /community-recipes: publish one of your finished batches as a community recipe."""
+
+    batch_id: uuid.UUID
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    pseudonym: Pseudonym
+
+
+class CommunityIngredientOut(BaseModel):
+    name: str
+    role: str
+    g_per_kg: float  # of the batch's weighed total
+    fdc_id: int | None  # a USDA pick
+    label: str | None  # "USDA food: aroma effect unknown"
+
+
+class CommunityRecipeOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    pseudonym: str
+    fermentation_type: str
+    ingredients: list[CommunityIngredientOut]
+    temperature_c: float  # the batch's mean logged temperature, else its expected one
+    duration_h: float  # the batch's actual duration
+    status: CommunityStatus
+    reason: str | None  # the reviewer's
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
+class CommunityPublishOut(CommunityRecipeOut):
+    notice: str  # "Your recipe stays in the library if you delete your account; …"
+
+
+class CommunityForecastJobOut(BaseModel):
+    """A community recipe's newest forecast job (recommender.community), for its reviewer."""
+
+    id: uuid.UUID
+    status: str  # queued | running | done | failed
+    error: str | None
+    done: int
+    total: int
+    finished_at: datetime | None
+
+
+class AdminCommunityRecipeOut(CommunityRecipeOut):
+    owner_id: str | None  # None once its author deleted their account
+    source_batch_id: uuid.UUID | None
+    reviewed_by: str | None
+    forecast_job: CommunityForecastJobOut | None = None  # None: never queued
+
+
+class CommunityReviewIn(BaseModel):
+    """An admin's decision; a rejection needs its reason."""
+
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None

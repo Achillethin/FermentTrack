@@ -1,5 +1,7 @@
 """FermentTrack API entrypoint."""
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -8,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fermenttrack import database
 from fermenttrack.config import settings
-from fermenttrack.recommender import jobs
+from fermenttrack.recommender import community, jobs
 from fermenttrack.routers import (
     admin,
     batches,
@@ -25,16 +27,26 @@ from fermenttrack.routers import (
     sourdough,
     webhooks,
 )
+from fermenttrack.routers import community as community_routes
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """The recommender's background job worker (design § 10.2) runs as long as the app."""
+    """The recommender's background job worker (design § 10.2) runs as long as the app. At
+    startup, approved community recipes whose forecasts are missing or of another grid are
+    queued again (design § 10.3; importing recommender.community registers their job kind)."""
     worker = jobs.Worker(database.async_session_maker)
     await worker.start()
+    recompute = asyncio.create_task(
+        community.recompute_at_startup(database.async_session_maker),
+        name="community-forecasts-recompute",
+    )
     try:
         yield
     finally:
+        recompute.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await recompute
         await worker.stop()
 
 
@@ -66,6 +78,7 @@ app.include_router(webhooks.router)
 app.include_router(admin.router)
 app.include_router(recipes.router)
 app.include_router(recommendations.router)
+app.include_router(community_routes.router)
 
 
 @app.get("/health")

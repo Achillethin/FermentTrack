@@ -25,7 +25,15 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import (
+    DataError,
+    IntegrityError,
+    InterfaceError,
+    OperationalError,
+    ProgrammingError,
+    SQLAlchemyError,
+)
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -52,7 +60,9 @@ OTHER_BODY = BODY | {"tastes": []}
 
 
 def _request(body: dict[str, Any]) -> dict[str, Any]:
-    return RecommendationRequest.model_validate(body).model_dump(mode="json")
+    """The request as the job stores it (the route leaves out community_recipe_id)."""
+    request = RecommendationRequest.model_validate(body)
+    return request.model_dump(mode="json", exclude={"community_recipe_id"})
 
 
 class FakeLive:
@@ -737,3 +747,64 @@ async def test_a_database_error_is_retried_and_the_job_resumes(
     assert steps_run == ran  # resumed at the step cut short, not from scratch
     async with file_sessions() as db:
         assert await jobs.find_active(db, "alice") is None  # its owner can search again
+
+
+# ── which database errors are retried (B8 open item O2, narrowed in B9) ──
+
+
+@pytest.mark.parametrize(
+    ("error", "retried"),
+    [
+        (OperationalError("SELECT 1", {}, Exception("server closed the connection")), True),
+        (InterfaceError("SELECT 1", {}, Exception("connection is closed")), True),
+        (PoolTimeoutError("QueuePool limit of size 5 overflow 10 reached"), True),
+        (IntegrityError("INSERT", {}, Exception("duplicate key")), False),
+        (DataError("INSERT", {}, Exception("invalid input syntax")), False),
+        (ProgrammingError("SELECT", {}, Exception("no such column")), False),
+        (SQLAlchemyError("a generic database error"), False),
+        (ValueError("not a database error"), False),
+    ],
+    ids=["operational", "interface", "pool timeout", "integrity", "data", "programming",
+         "generic", "other"],
+)  # fmt: skip
+def test_only_connection_errors_are_transient(error: Exception, retried: bool) -> None:
+    assert jobs.transient(error) is retried
+
+
+async def test_a_data_error_fails_its_job_at_once(
+    sessions: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A database error retrying cannot fix (here in on_done) fails the job with the generic
+    message instead of resuming it again and again."""
+
+    async def on_done(db: AsyncSession, job: jobs.Job) -> None:
+        raise IntegrityError("INSERT", {}, Exception("duplicate key"))
+
+    toy = jobs.Handler(plan=lambda request: [0, 1], step=lambda r, s: s * 10, on_done=on_done)
+    monkeypatch.setitem(jobs.HANDLERS, "toy", toy)
+    async with sessions() as db:
+        job = await jobs.submit(db, "toy", {}, fingerprint="t", owner_id="alice")
+    worker = jobs.Worker(sessions)
+    assert await worker.run_once()  # no exception: nothing for the loop to retry
+    row = await _row(sessions, job.id)
+    assert row is not None
+    assert (row.status, row.error, row.attempts, row.results) == (
+        "failed", jobs.FAILED_MESSAGE, 1, [0, 10]
+    )
+    assert row.finished_at is not None
+    assert not await worker.run_once()  # not re-queued
+
+
+async def test_a_connection_error_in_a_job_is_left_for_the_loop_to_retry(
+    sessions: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def step(request: Any, s: int) -> int:
+        raise OperationalError("SELECT 1", {}, Exception("the database is down"))
+
+    monkeypatch.setitem(jobs.HANDLERS, "toy", jobs.Handler(plan=lambda r: [0], step=step))
+    async with sessions() as db:
+        job = await jobs.submit(db, "toy", {}, fingerprint="t", owner_id="alice")
+    with pytest.raises(OperationalError):
+        await jobs.Worker(sessions).run_once()
+    row = await _row(sessions, job.id)
+    assert row is not None and (row.status, row.error) == ("running", None)  # resumes later

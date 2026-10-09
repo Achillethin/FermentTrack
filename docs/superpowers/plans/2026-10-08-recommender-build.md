@@ -642,3 +642,46 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - O2: `except SQLAlchemyError` also retries data errors (→ B9 narrows it to connection errors);
   - calibrate the 15 s step estimate on Render;
   - single-process assumption.
+
+### B9 — community recipes (commit: this one)
+- **Gates:**
+  - the original implementer was lost when the session resumed; a fresh implementer finished from its partial work;
+  - review: PASS (no required changes); 9 optional follow-ups applied;
+  - handoff: ACCEPT (23/23);
+  - full suite: **1120 passed, 65 xfailed, 0 failed**.
+- **API:**
+  - `POST /community-recipes`: publish from your own **finished, successful** batch. Automatic checks:
+    - the gate, including the new salt minimums;
+    - acid-safety types need a plausible logged pH between 2.0 and 4.6;
+    - mass balance;
+    - not generic, not sourdough;
+    - `publish_checks_feedback` (B10 switches it to "tasting required").
+    - The response discloses that the recipe stays if you delete your account.
+  - Admin: `GET /admin/community-recipes?status=` (includes `forecast_job`) and `POST …/{id}/approve|reject`, via `require_admin`.
+  - `GET /me/community-recipes` is the export path.
+- **Approval:** queues one system `community_forecast` job (64 members per gate-passing grid temperature) into `community_recipe_forecasts`, using the grid's statistics schema. The startup recompute runs on a grid-version change; it dedupes and skips a recipe whose job failed on the current grid.
+- **Recommendations:**
+  - "Community — not proven" section, at most 3 cards, ranked E → made (distinct other owners, author excluded) → liking (B10);
+  - temperature span is the publish temperature ± 3 °C, within safety limits; window is the published duration ± 30 %;
+  - community recipes are Experimental parents only when named by `community_recipe_id`;
+  - Start batch from a community recipe (`source_kind="community"`);
+  - the community section is defensive: a broken candidate is skipped.
+- **Migration 0021:**
+  - `community_recipes`, with a partial unique index on `source_batch_id` where the status isn't rejected;
+  - `community_recipe_forecasts`, composite PK;
+  - `recommendation_links.community_recipe_id` and `parent_batch_id` (legacy `batch:<id>` keys backfilled).
+- **Gate:** SALT-BARRIER minimums of miso ≥ 4.0 % and garum ≥ 8.3 %, failing closed on every path (design § 7). **jobs.py:** only connection errors are retried (O2 closed).
+- **Privacy:**
+  - no owner, batch or user ids appear in responses to other users;
+  - `DELETE /me` detaches your community recipes (they stay) and clears `reviewed_by`;
+  - the candidates log records the parent as "community".
+- **For B10:**
+  - `publish_checks_feedback` → tasting required;
+  - `mean_liking` from tastings;
+  - "made n×" counts tasted batches.
+- **For B12:** community section and publish form (pseudonym rules), admin review page, `community_recipe_id` on forecast and Start batch, Account page lists `/me/community-recipes`.
+- **For B13:** § 10.3 implementation notes; make the private helpers `community.py` borrows public.
+- **For the owner:**
+  - confirm the garum minimum of 8.3 % (derived from the sourced recipes, not stated by any source);
+  - admins may approve their own recipes (acceptable with one admin; refuse it once there are several).
+- **Known rare flake (watch):** `test_community.py::test_the_pseudonym_is_validated["x"*41]` failed once in about 38 runs of the B9 test files (12 sequential, 12 under 4-way parallel load, plus agent runs). It wasn't reproduced and no traceback was captured; the validation path is pure Pydantic and deterministic. If it recurs, capture `--tb=long` and suspect cross-test state (garbage-collected aiosqlite engines, leaked tasks).

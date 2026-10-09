@@ -2,13 +2,19 @@
 
 - POST /recommendations: Proven cards from the precomputed grid, and Experimental variants
   (mode experimental or both): from the grid, screened, or live for a variant of one of your
-  batches (parent_batch_id, Q16).
+  batches (parent_batch_id, Q16) or of an approved community recipe (community_recipe_id);
+  and the "Community — not proven" section (mode proven or both, design § 10.3): approved
+  community recipes from their stored forecasts (recommender.community).
 - POST /recommendations/forecast: one card at a slider temperature, from a live 64-member
   forecast (stateless; sourdough answers with its planner link). With operators: the
-  variant's live forecast, the confirmation of a screened card ("interaction detected").
+  variant's live forecast, the confirmation of a screened card ("interaction detected"). A
+  community card (community_recipe_id) runs its own live forecast.
 - POST /batches/from-recommendation: Start batch, in one transaction (culture, batch,
   ingredients, reminders, recommendation_links). Sourdough starts in the planner: 409. A
-  variant is recomputed here from its operators; its USDA foods are booked like a USDA pick.
+  variant is recomputed here from its operators; its USDA foods are booked like a USDA pick. A
+  community card (community_recipe_id, no operators) is booked from its stored forecasts
+  (live when they are not of the current grid); its link carries community_recipe_id, and a
+  variant of your batch's carries parent_batch_id.
 - POST /recommendations/deep-search ("search deeper", design § 10.2): queues a background job
   of up to 20 live forecasts (recommender.jobs) and answers 202 {job_id}; 200 with your
   finished job of the same request (its results are kept); 409 with the job id while you have
@@ -18,8 +24,9 @@
   older ones being deleted as you start new ones.
 
 All of them need a signed-in user (anonymous sessions included); the library itself is public
-(GET /recipes). A parent batch must be the user's own (404 otherwise). Model runs and the
-first grid load are CPU-bound: they run in the threadpool.
+(GET /recipes). A parent batch must be the user's own (404 otherwise); a community recipe must
+be approved (404 otherwise). Model runs and the first grid load are CPU-bound: they run in the
+threadpool.
 """
 
 from __future__ import annotations
@@ -49,9 +56,10 @@ from fermenttrack.models import (
     Reminder,
 )
 from fermenttrack.prediction.service import PredictionUnavailable
-from fermenttrack.recommender import gate, jobs, run, service
+from fermenttrack.recommender import community, gate, jobs, run, service
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.routers.batches import _get_batch, _ingredient_for_fdc_food
+from fermenttrack.routers.community import approved_candidate, approved_candidates
 from fermenttrack.schemas import (
     BatchOut,
     CultureOut,
@@ -157,11 +165,19 @@ async def recommend(
     own = None
     if payload.parent_batch_id is not None:
         own = await _own_parent(db, payload.parent_batch_id, user_id)
+    elif payload.community_recipe_id is not None:
+        own = community.parent(await approved_candidate(db, payload.community_recipe_id))
     try:
         body = await run_in_threadpool(
             service.recommend, payload.ingredients, payload.aromas, payload.tastes,
             payload.mode, payload.temperature_c, payload.batch_g, payload.usda_fdc_ids, own,
         )  # fmt: skip
+        if payload.mode in ("proven", "both"):
+            candidates = await approved_candidates(db, payload.ingredients)
+            body["community"] = await run_in_threadpool(
+                community.section, candidates, payload.ingredients, payload.aromas,
+                payload.tastes, payload.temperature_c, payload.batch_g,
+            )  # fmt: skip
     except PredictionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
     except run.RecipeError as exc:
@@ -176,11 +192,17 @@ async def forecast(
     user_id: str = Depends(get_current_user_id),
 ) -> RecommendationForecastOut:
     own = None
+    shared = None  # a community card (no operators): its own live forecast
     if payload.parent_batch_id is not None:
         own = await _own_parent(db, payload.parent_batch_id, user_id)
+    elif payload.community_recipe_id is not None:
+        found = await approved_candidate(db, payload.community_recipe_id)
+        own, shared = (community.parent(found), None) if payload.operators else (None, found)
     try:
         body = await run_in_threadpool(
-            lambda: service.forecast(
+            lambda: community.forecast(
+                shared, payload.aromas, payload.tastes, payload.temperature_c
+            ) if shared is not None else service.forecast(
                 payload.recipe_key, payload.aromas, payload.tastes, payload.temperature_c,
                 payload.batch_g, ops=_requests(payload.operators), own=own,
             )
@@ -224,15 +246,19 @@ async def start_batch(
 ) -> FromRecommendationOut:
     ops = _requests(payload.operators)
     own = None
+    shared = None  # a community card (no operators): booked from its own forecasts
     if payload.parent_batch_id is not None:
         own = await _own_parent(db, payload.parent_batch_id, user_id)
+    elif payload.community_recipe_id is not None:
+        picked = await approved_candidate(db, payload.community_recipe_id)
+        own, shared = (community.parent(picked), None) if ops else (None, picked)
     else:
         try:
             service.active_recipe(payload.recipe_key or "")
         except service.UnknownRecipe as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
     try:
-        handoff = None if own else service.planner_handoff(
+        handoff = None if own or shared else service.planner_handoff(
             payload.recipe_key, payload.temperature_c, payload.batch_g, ops
         )  # fmt: skip
         if handoff is not None:  # Q31: the planner creates sourdough batches
@@ -245,7 +271,10 @@ async def start_batch(
                 },
             )
         plan = await run_in_threadpool(
-            lambda: service.batch_plan(
+            lambda: community.batch_plan(
+                shared, payload.aromas, payload.tastes, payload.temperature_c, payload.batch_g,
+                payload.mode,
+            ) if shared is not None else service.batch_plan(
                 payload.recipe_key, payload.aromas, payload.tastes, payload.temperature_c,
                 payload.batch_g, payload.mode, ops=ops, own=own,
             )
@@ -345,13 +374,13 @@ async def deep_search(
     db: AsyncSession = Depends(get_db),  # noqa: B008
     user_id: str = Depends(get_current_user_id),
 ) -> DeepSearchOut:
-    if payload.parent_batch_id is not None:
+    if payload.parent_batch_id is not None or payload.community_recipe_id is not None:
         raise HTTPException(
             status_code=422,
-            detail="Search deeper explores the library's recipes; your batch's variants already "
-            "run live in POST /recommendations.",
+            detail="Search deeper explores the library's recipes; your batch's or a community "
+            "recipe's variants already run live in POST /recommendations.",
         )
-    request = payload.model_dump(mode="json")
+    request = payload.model_dump(mode="json", exclude={"community_recipe_id"})
     fingerprint = await run_in_threadpool(jobs.deep_search_fingerprint, request)
     done = await jobs.find_done(db, user_id, jobs.DEEP_SEARCH, fingerprint)
     if done is not None:

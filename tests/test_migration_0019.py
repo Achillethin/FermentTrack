@@ -65,7 +65,8 @@ def test_0019_creates_the_model_s_table_and_is_reversible(db) -> None:  # noqa: 
     assert _columns(engine) is None
     assert "kind" not in _reminder_columns(engine)
     command.upgrade(cfg, "0019")
-    assert _columns(engine) == {c.name for c in RecommendationLink.__table__.columns}
+    later = {"parent_batch_id"}  # added by 0021
+    assert _columns(engine) == {c.name for c in RecommendationLink.__table__.columns} - later
     assert "kind" in _reminder_columns(engine)
     fks = sa.inspect(engine).get_foreign_keys("recommendation_links")
     assert [(fk["referred_table"], fk["options"].get("ondelete")) for fk in fks] == [

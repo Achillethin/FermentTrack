@@ -160,7 +160,10 @@ def test_the_slider_is_the_documented_span_within_the_safety_limits() -> None:
         starters=(gate.CERTIFIED_KOJI_STARTER, "Starter/levain"),
     )  # fmt: skip
     assert S._safe_span(two_starters, 27.0, 40.0) == (27.0, 33.0)  # KOJI-001
-    garum = gate.RecipeLike("garum", (gate.IngredientRow("Anchovies", "base", 1000.0),))
+    garum = gate.RecipeLike(
+        "garum", (gate.IngredientRow("Anchovies", "base", 880.0),
+                  gate.IngredientRow("Salt", "additive", 120.0)),  # 12 %: the salt barrier holds
+    )  # fmt: skip
     assert S._safe_span(garum, 20.0, 60.0) == (20.0, 45.0)  # TEMP-001
     # not limited to the profile: cheese 21-22 °C (profile 28-32), sand lance 18-20 (20-60)
     assert S.resolve_temperature(_recipe("lactic_fresh_cheese_curd"), None).slider_c == (
@@ -830,8 +833,8 @@ def test_an_experimental_card_adds_a_t3_flavouring_and_keeps_the_salt() -> None:
         "experimental", "variant", KRAUT,
     )  # fmt: skip
     assert card["parent"] == {
-        "kind": "library", "recipe_key": KRAUT, "batch_id": None, "name": kraut.name,
-        "label": kraut.name,
+        "kind": "library", "recipe_key": KRAUT, "batch_id": None, "community_recipe_id": None,
+        "name": kraut.name, "label": kraut.name,
     }  # fmt: skip
     assert card["operators"] == [{
         "op": "add", "key": "add:Fresh ginger", "ingredient": "Fresh ginger", "replaces": None,
@@ -996,8 +999,8 @@ async def test_variants_of_your_batch_run_live_and_lead_the_section(
     own, *library_cards = cards
     assert own["source_kind"] == "own_batch" and own["recipe_key"] is None
     assert own["parent"] | {"name": None} == {
-        "kind": "own_batch", "recipe_key": None, "batch_id": str(mine.id), "name": None,
-        "label": "your batch #2",
+        "kind": "own_batch", "recipe_key": None, "batch_id": str(mine.id),
+        "community_recipe_id": None, "name": None, "label": "your batch #2",
     }  # fmt: skip
     assert own["id"].startswith(f"own_batch:{mine.id}:")
     assert "Experimental — departs from your batch #2" in _labels(own)
@@ -1322,7 +1325,8 @@ async def test_start_batch_from_a_variant_of_your_batch(
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["link"]["source_kind"] == "own_batch"
-    assert body["link"]["recipe_key"] == f"batch:{mine.id}"
+    assert (body["link"]["recipe_key"], body["link"]["parent_batch_id"]) == (None, str(mine.id))
+    assert body["link"]["community_recipe_id"] is None
     assert body["batch"]["expected_temperature_c"] == 16
     booked = await _booked(db_session, body["batch"]["id"])
     assert {n: q for n, (q, _, _) in booked.items()} == {"Cabbage": 979.0, "Salt": 21.0}

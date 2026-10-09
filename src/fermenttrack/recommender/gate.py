@@ -6,7 +6,9 @@ field only. `safety_lines` are mandatory on the card and follow each type's safe
 acidity (the pH lines), temperature (koji) or salt (miso, garum). Predicted pH plays no part:
 it is never clearance.
 
-Thresholds mirror `safety/risk_rules.yaml` (tests pin them). The rules' scheme mapping mirrors
+Thresholds mirror `safety/risk_rules.yaml` (tests pin them), except the salt-barrier minimums
+for miso and garum (`SALT_BARRIER_MIN_PCT`, rule "SALT-BARRIER"), an owner decision with no
+yaml rule. The rules' scheme mapping mirrors
 `safety/service.py`: koji is `enzymatic_koji`, every other type `lactic`.
 """
 
@@ -35,6 +37,13 @@ CERTIFIED_KOJI_STARTER = "Koji spores (A. oryzae)"  # KOJI-001's certified tane-
 # one: a new starter can take days to reach pH 4.6, and baking is its barrier.
 ACID_SAFETY_TYPES = frozenset({"lacto_ferment", "kombucha", "kefir", "cheese", "vinegar"})
 SALT_BARRIER_TYPES = frozenset({"miso", "garum"})
+# The salt-barrier types' minimum salt, % w/w (owner decision, B9; not a risk_rules.yaml rule):
+# miso: BCCDC koji and miso guideline p. 14, "at least 4 %" (research/recipes/01-koji-miso-garum);
+# garum: no sourced minimum exists, so the lowest salt of the sourced recipes (the Pacific sand
+# lance fish sauce's 8.3 %, the low end of its 8.3-15.4 %, Jung et al. 2022; budu is 20-23 %):
+# conservative. Every path (Proven, variants, own batch, community) goes through check(), and
+# an unknown salt % fails, like SALT-001.
+SALT_BARRIER_MIN_PCT = {"miso": 4.0, "garum": 8.3}
 
 PH_DEADLINE_LINE = "Measure pH. It must reach ≤ 4.6 within 48 h at > 10 °C; if not, discard."
 PH_LOG_LINE = "Log pH by 48 h."
@@ -126,7 +135,9 @@ def safety_lines(recipe: RecipeLike) -> tuple[str, ...]:
     return tuple(lines)
 
 
-def _salt_reasons(recipe: RecipeLike) -> list[str]:
+def _salt_reasons(
+    recipe: RecipeLike, rule: str, lo: float, hi: float | None, high_rule: str = ""
+) -> list[str]:
     # The user may leave optional rows out, so the salt must pass with and without them.
     variants = [(True, "all rows")]
     if any(i.required == "optional" for i in recipe.ingredients):
@@ -135,11 +146,11 @@ def _salt_reasons(recipe: RecipeLike) -> list[str]:
     for with_optional, label in variants:
         pct = salt_pct(recipe, with_optional=with_optional)
         if pct is None:
-            reasons.append(f"SALT-001: salt % unknown, a mass is missing or invalid ({label})")
-        elif pct < SALT_MIN_PCT:
-            reasons.append(f"SALT-001: salt {pct:.2f} % w/w < {SALT_MIN_PCT} % ({label})")
-        elif pct > SALT_MAX_PCT:
-            reasons.append(f"SALT-002: salt {pct:.2f} % w/w > {SALT_MAX_PCT} % ({label})")
+            reasons.append(f"{rule}: salt % unknown, a mass is missing or invalid ({label})")
+        elif pct < lo:
+            reasons.append(f"{rule}: salt {pct:.2f} % w/w < {lo} % ({label})")
+        elif hi is not None and pct > hi:
+            reasons.append(f"{high_rule}: salt {pct:.2f} % w/w > {hi} % ({label})")
     return reasons
 
 
@@ -173,6 +184,9 @@ def check(recipe: RecipeLike, temperatures: Iterable[float]) -> GateResult:
     if not all(math.isfinite(t) for t in temps):
         reasons.append("a temperature is not a finite number")
     if recipe.fermentation_type in SALT_GATED_TYPES:
-        reasons += _salt_reasons(recipe)
+        reasons += _salt_reasons(recipe, "SALT-001", SALT_MIN_PCT, SALT_MAX_PCT, "SALT-002")
+    barrier_min = SALT_BARRIER_MIN_PCT.get(recipe.fermentation_type)
+    if barrier_min is not None:
+        reasons += _salt_reasons(recipe, "SALT-BARRIER", barrier_min, None)
     reasons += _temperature_reasons(recipe, temps)
     return GateResult(not reasons, tuple(reasons), safety_lines(recipe))

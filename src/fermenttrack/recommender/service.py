@@ -56,7 +56,9 @@ Experimental (R2, design §§ 5.2–5.4, 6, 8.5, Q13, Q16, Q19):
 - **Ranking**: U(peak) − penalty with targets, then the Proven keys, the fewest operators and
   the card id; the best variant per parent, 3 parents.
 - **Own batch** (Q16): the user's batch as a parent (`own_parent`), at most 3 variants run
-  live per request; its best leads the section.
+  live per request; its best leads the section. An approved community recipe (design § 10.3,
+  recommender.community) is a parent the same way: live, at most 3 variants, labelled
+  "community recipe"; its links carry community_recipe_id (your batch's, parent_batch_id).
 
 Responses carry no timestamps and round every number, so a request and a grid give the same
 JSON (E5). Scores show as Low / Med / High until the calibration gate (§ 13.2).
@@ -69,6 +71,7 @@ import json
 import logging
 import math
 import threading
+import uuid
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -429,12 +432,13 @@ def evaluate(
     targets: Sequence[Target],
     *,
     clip: bool = True,
-    mode: Literal["proven", "experimental"] = "proven",
+    mode: Literal["proven", "community", "experimental"] = "proven",
     reference: Reference | None = None,
     basis: Basis | None = None,
 ) -> Evaluation:
     """The card's window and scores from one set of statistics (a grid entry, interpolated,
-    screened, or a live forecast). clip=False is the model's own window (E3). Experimental
+    screened, or a live forecast). clip=False is the model's own window (E3). Community (a
+    community recipe's card, recommender.community) clips like Proven. Experimental
     (design §§ 5.3, 6): the window may run to 1.5 · d_hi, the off-notes are O minus the
     parent's character (reference) and the penalty is λ Σ max(0, P_var − P_par) at the peak.
     basis: the recipe's duration and horizon (default: its grid recipe)."""
@@ -610,14 +614,17 @@ class OperatorRefused(RecommendationError):
 
 @dataclass(frozen=True)
 class Parent:
-    """An Experimental parent: an active library recipe, or the user's own batch (Q16) as a
-    recipe (key "batch:<id>", no grid entry: its basis comes with it)."""
+    """An Experimental parent: an active library recipe, the user's own batch (Q16) as a
+    recipe (key "batch:<id>"), or an approved community recipe (design § 10.3, key
+    "community:<id>"). The last two have no grid entry: their basis comes with them, and they
+    run live (own_batch_cards)."""
 
     recipe: Recipe
-    kind: Literal["library", "own_batch"]
-    label: str  # the recipe's name, or "your batch #n"
+    kind: Literal["library", "own_batch", "community"]
+    label: str  # the recipe's name, "your batch #n" or "community recipe …"
     batch_id: str | None = None
-    basis: Basis | None = None  # own batch; library parents read the grid
+    basis: Basis | None = None  # own batch, community recipe; library parents read the grid
+    community_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -653,16 +660,33 @@ class Variant:
         p = self.parent
         if p.kind == "own_batch":
             return f"own_batch:{p.batch_id}:{self.key}"
+        if p.kind == "community":
+            return f"community:{p.community_id}:{self.key}"
         return f"variant:{p.recipe.key}:{self.key}"
 
     @property
-    def source_kind(self) -> Literal["variant", "own_batch"]:
-        return "own_batch" if self.parent.kind == "own_batch" else "variant"
+    def source_kind(self) -> Literal["variant", "own_batch", "community"]:
+        if self.parent.kind == "own_batch":
+            return "own_batch"
+        return "community" if self.parent.kind == "community" else "variant"
 
     @property
     def link_key(self) -> str:
-        """recommendation_links.recipe_key: the library recipe, or "batch:<id>"."""
+        """The parent recipe's key: the library recipe, "batch:<id>" or "community:<id>"."""
         return self.parent.recipe.key
+
+    @property
+    def link_parent(self) -> dict[str, Any]:
+        """recommendation_links' parent columns: recipe_key (a library parent), parent_batch_id
+        (your batch) or community_recipe_id (a community recipe)."""
+        p = self.parent
+        return {
+            "recipe_key": p.recipe.key if p.kind == "library" else None,
+            "parent_batch_id": uuid.UUID(p.batch_id) if p.kind == "own_batch" and p.batch_id
+            else None,
+            "community_recipe_id": uuid.UUID(p.community_id)
+            if p.kind == "community" and p.community_id else None,
+        }  # fmt: skip
 
     @property
     def temperature_op(self) -> Operator | None:
@@ -1227,8 +1251,9 @@ def own_batch_cards(
     batch_g: float = DEFAULT_BATCH_G,
     usda_ids: Sequence[int] = (),
 ) -> list[Card]:
-    """Q16: at most OWN_BATCH_VARIANTS variants of the user's batch, run live (64 members),
-    ranked (§ 5.4). They are picked before any forecast: combinations that hold every
+    """Q16: at most OWN_BATCH_VARIANTS variants of a live parent (the user's batch, or a
+    community recipe, design § 10.3), run live (64 members), ranked (§ 5.4). They are picked
+    before any forecast: combinations that hold every
     must-include ingredient and pass the gate, the ones whose new ingredients carry odorants
     of the aroma targets first, then the fewest operators, then their keys."""
     combos = _combos(own, listed, temperature_c, usda_ids)
@@ -1313,8 +1338,9 @@ def candidate_record(
 ) -> dict[str, Any]:
     """A confirmed live forecast as a grid / emulator training candidate (design §§ 8.5,
     15.2): the variant, where it ran and its statistics. Nothing that identifies a user: an
-    own batch is logged as "own_batch" (no batch or owner id, no culture name); operator keys
-    hold catalogue names, USDA food ids and temperatures only."""
+    own batch is logged as "own_batch" (no batch or owner id, no culture name), a community
+    recipe as "community"; operator keys hold catalogue names, USDA food ids and temperatures
+    only."""
     interaction = None
     if screened_e is not None and ev.e is not None:
         interaction = ev.e < INTERACTION_RATIO * screened_e
@@ -1322,7 +1348,7 @@ def candidate_record(
         "kind": "variant",
         "fingerprint": fingerprint,
         "parent_kind": v.parent.kind,
-        "parent": v.link_key if v.parent.kind == "library" else "own_batch",
+        "parent": v.link_key if v.parent.kind == "library" else v.parent.kind,
         "fermentation_type": v.recipe.fermentation_type,
         "operators": [op.key for op in v.operators],
         "model_c": round(stats.temp_c, 2),
@@ -1484,6 +1510,7 @@ def _parent_json(v: Variant) -> dict[str, Any]:
         "kind": p.kind,
         "recipe_key": p.recipe.key if p.kind == "library" else None,
         "batch_id": p.batch_id,
+        "community_recipe_id": p.community_id,
         "name": p.recipe.name,
         "label": p.label,
     }
@@ -1570,8 +1597,9 @@ def recommend(
 ) -> dict[str, Any]:
     """POST /recommendations (design § 5), shaped like schemas.RecommendationsOut: the Proven
     section (mode proven or both) and the Experimental one (experimental or both). own: the
-    user's batch as a parent (Q16, live forecasts); its best variant leads the Experimental
-    section, the user asked for it."""
+    user's batch or a community recipe as a parent (Q16, § 10.3; live forecasts); its best
+    variant leads the Experimental section, the user asked for it. The community section is
+    the router's (recommender.community reads the database's recipes)."""
     targets = parse_targets(aromas, tastes)
     listed = tuple(dict.fromkeys(ingredients))
     required = must_include(listed)
@@ -1828,12 +1856,24 @@ class BatchPlan:
     fdc_rows: tuple[tuple[int, float, str], ...] = ()  # operator (v): (USDA food, grams, role)
 
 
-def _link(card: Card, mode: str, source_kind: str, key: str, chips: list[Any]) -> dict[str, Any]:
+def _link(
+    card: Card,
+    mode: str,
+    source_kind: str,
+    chips: list[Any],
+    *,
+    recipe_key: str | None = None,
+    parent_batch_id: uuid.UUID | None = None,
+    community_recipe_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    """The recommendation_links columns besides batch_id and created_at; the parent is a
+    library recipe (recipe_key), your batch (parent_batch_id) or a community recipe."""
     ev = card.evaluation
     return {
         "source_kind": source_kind,
-        "recipe_key": key,
-        "community_recipe_id": None,
+        "recipe_key": recipe_key,
+        "community_recipe_id": community_recipe_id,
+        "parent_batch_id": parent_batch_id,
         "operators": chips,
         "mode": mode,
         "temperature_c": _num(card.temperature.served_c),
@@ -1875,7 +1915,7 @@ def batch_plan(
         if r.quantity is not None  # always set: recipe_rows skips rows without a mass
     )
     first = card.schedule[0][1] if card.schedule else card.temperature.served_c
-    link = _link(card, mode, "library", recipe.key, [])
+    link = _link(card, mode, "library", [], recipe_key=recipe.key)
     return BatchPlan(
         card, float(first), rows, skipped, gate.needs_ph_reminder(recipe.fermentation_type), link,
         recipe.name,
@@ -1915,7 +1955,7 @@ def variant_batch_plan(
     fdc_rows = tuple((fdc[n], q, role) for n, q, role in grams if n in fdc)
     first = card.schedule[0][1] if card.schedule else card.temperature.served_c
     chips = [operator_json(op, parent.recipe) for op in v.operators]
-    link = _link(card, mode, v.source_kind, v.link_key, chips)
+    link = _link(card, mode, v.source_kind, chips, **v.link_parent)
     return BatchPlan(
         card, float(first), rows, skipped, gate.needs_ph_reminder(v.recipe.fermentation_type),
         link, f"{parent.recipe.name} (variant)", fdc_rows,

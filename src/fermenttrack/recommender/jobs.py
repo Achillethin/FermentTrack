@@ -20,10 +20,14 @@ recommendation_jobs, drained by one in-process asyncio worker; and the deep sear
   progress: the saved plan, from step `done` (the step that was cut short runs again); a job
   cut short before its plan was saved is planned anew. A job whose row is deleted meanwhile
   (DELETE /me) is dropped.
-- **Database errors** (reading the queue, saving progress or a failure) are the database's,
-  not the job's: the loop logs them, waits RETRY_S (or for a new job), re-queues the jobs left
-  running (the worker is idle then: any running row is its own orphan) and drains again, so a
-  job resumes from its saved progress instead of staying queued or running.
+- **Database errors**: a connection error (`transient`: OperationalError, InterfaceError or a
+  pool timeout) while reading the queue or saving progress or a failure is the database's,
+  not the job's: the loop logs it, waits
+  RETRY_S (or for a new job), re-queues the jobs left running (the worker is idle then: any
+  running row is its own orphan) and drains again, so a job resumes from its saved progress
+  instead of staying queued or running. Any other database error in a job (a data or
+  integrity error, e.g. in `Handler.on_done`) cannot be fixed by retrying: it fails the job
+  with the generic message, like a step's own error.
 - **Crash-loop guard**: every claim counts an attempt; a job claimed MAX_ATTEMPTS times (cut
   short by restarts, e.g. a step that kills the process) fails instead of running again.
 - One process (Render's free plan): the claim is conditional, so a queued job is never taken
@@ -86,7 +90,8 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, delete, select, update
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fermenttrack.models import (
@@ -174,6 +179,13 @@ def _timed(kind: str, seconds: float) -> None:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def transient(exc: BaseException) -> bool:
+    """A database error worth retrying: the connection, not the data (B8 open item O2): an
+    OperationalError (lost or refused connection), an InterfaceError, or a pool timeout. Any
+    other database error (integrity, data, programming) is not: retrying cannot fix it."""
+    return isinstance(exc, OperationalError | InterfaceError | PoolTimeoutError)
 
 
 def notify() -> None:
@@ -443,13 +455,13 @@ class Worker:
                     .values(status=JOB_DONE, finished_at=_now())
                 )
                 await db.commit()
-        except SQLAlchemyError:
-            raise  # the database, not the job: the loop retries, and the job resumes
         except Exception as exc:
+            if transient(exc):
+                raise  # the database's connection, not the job: the loop retries, the job resumes
             if handler is not None and isinstance(exc, handler.errors):
                 logger.warning("recommendation job %s failed: %s", job.id, exc)
                 error = str(exc) or FAILED_MESSAGE
-            else:
+            else:  # its own error, or a database error retrying cannot fix (data, integrity)
                 logger.exception("recommendation job %s failed", job.id)
                 error = FAILED_MESSAGE
             await self._save(job.id, status=JOB_FAILED, error=error, finished_at=_now())
