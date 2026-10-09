@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     # client can put in its token (user_metadata is user-editable) grants it.
     admin_user_ids: str = ""
 
+    # The recommender's confirmed live variant forecasts (design §§ 8.5, 10.1), appended one
+    # JSON object per line as candidates for the next grid or emulator training set
+    # (recommender.service.log_candidate). Unset: nothing is written. Best effort: a write
+    # failure is logged and never fails the request.
+    candidates_path: str | None = None
+
     @field_validator("database_url")
     @classmethod
     def _use_psycopg3_dialect(cls, v: str) -> str:

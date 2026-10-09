@@ -570,3 +570,43 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
 - **For B9:** the `community_recipe_id` foreign key.
 - **For B10:** `/me/export` should include links and tastings.
 - **For the owner:** a minimum salt for miso and garum before B9; kimchi engine calibration.
+
+### B7 — Experimental backend (commit: this one)
+- **Gates:**
+  - review round 1: CHANGES REQUIRED (the candidates log carried an own-batch id; retired own-batch rows were dropped, overstating salt);
+  - review round 2: PASS;
+  - handoff: ACCEPT (38/38);
+  - orchestrator ran the full suite on the final tree before commit.
+- **Use levels:** `ingredient_use_levels_v1.csv` has 16 rows, all derived from T2 rows of active recipes (source = the recipe's source plus a row locator). The lacto-ingredients round adds more.
+- **Operators** (`operators.py`):
+  - (i) add, (ii) swap (same role; the substitute must be tagged for the parent's type and every type the original is tagged for), (iii) temperature (profile ∩ gate ∩ koji caps, outside the documented span), (v) USDA (5 %, ≤ 10 %, salted or acidified types only, never a staple);
+  - salt and sugar % preserved;
+  - sourdough gets swap and temperature only;
+  - at most 3 operators, gated on every path.
+- **Grid:** 188 entries (59 recipe entries + 129 single-operator entries), 177,559 B, 509.5 s on 4 workers. There are 71 single operators: 1 add, 42 swap, 28 temperature. The canary includes operator entries.
+- **Screening** (`screen.py`): logit-additive, clipped at ±6; P is screened too. Cards are labelled "screened".
+  - **Confirmation:** `/recommendations/forecast` with operators runs a live 64-member forecast; the response carries `interaction_detected` (< 0.8).
+  - **Candidates log:** results are cached by fingerprint and logged to the JSONL at `FERMENTTRACK_CANDIDATES_PATH`; optional, with no ids (own batch logged as "own_batch").
+- **Experimental section:**
+  - ranked by U − parent-relative penalty;
+  - window ceiling 1.5 · d_hi;
+  - `mode=both` returns both sections; `mode=experimental` returns `proven: null`.
+- **Own-batch parent:**
+  - owned batches only (404 otherwise); live forecasts; at most 3 variants; sourdough → 422;
+  - retired or unknown rows make salt unknown, so the gate refuses;
+  - the link is stored as `recipe_key="batch:<id>"` (no column yet).
+- **Start batch for variants:** recomputed on the server; `source_kind` is `variant` or `own_batch`, with the operators stored.
+- **Measured:** E2 5/6 = 83.3 % (miss: kimchi); E4 0 violations over 1,648 variant cards (2,000 combinations; 352 injected forbidden operators all refused) and 0 over 544 `mode=both` cards; E5 12/12; E6 `mode=both` CPU p95 345–557 ms.
+- **For B8:** reuse the pre-ranking order, the fingerprint-cached live forecasts and the candidates log; re-rank on confirmed results.
+- **For B12:**
+  - operator chips; `screened` on the card; `interaction_detected` from `/forecast`;
+  - `slider` is null on temperature variants; `proven` is null in experimental mode;
+  - own-batch cards have `recipe_key: null`, so use `parent.batch_id` plus the operators;
+  - a USDA picker feeding `usda_fdc_ids`.
+- **For B10/B13:**
+  - a parent-batch column on the links table;
+  - design implementation notes on the swap rule, the 5 % USDA share and the screening details.
+- **For the owner:**
+  - confirm the 5 % USDA share and the swap rule;
+  - the garum Anchovies → Mackerel swap (histamine; Codex limit);
+  - (i)/(v) rescaling dilutes acidifying rows by up to 5 %.

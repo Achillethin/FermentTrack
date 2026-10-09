@@ -17,7 +17,7 @@ import pytest
 
 from fermenttrack.prediction import bake, derived, service
 from fermenttrack.prediction.profiles import PROFILES
-from fermenttrack.recommender import gate, grid, library, run, score
+from fermenttrack.recommender import gate, grid, library, operators, run, score
 
 _spec = importlib.util.spec_from_file_location(
     "build_recommender_grid", Path(__file__).parents[1] / "scripts" / "build_recommender_grid.py"
@@ -58,6 +58,11 @@ def test_grid_is_current() -> None:
     stale = [k for k, v in current.items() if manifest.get(k) != v]
     if set(grid.load().recipe_keys()) != {r.key for r in library.active()}:
         stale.append("active recipes")
+    for r in library.active():  # the operator catalogue the code derives now (B7)
+        if grid.load().operators(r.key) != tuple(
+            sorted(op.key for op in operators.grid_operators(r))
+        ):
+            stale.append(f"operators of {r.key}")
     assert not stale, f"grid is stale ({', '.join(stale)}): run `{grid.REBUILD}`"
 
 
@@ -70,7 +75,19 @@ def test_grid_size() -> None:
 def test_the_manifest_records_what_design_8_3_asks() -> None:
     m = grid.load().manifest
     assert set(m["inputs"]) == set(grid.INPUTS)
-    assert m["operators"] == [] and m["build_seconds"] > 0 and m["build_date"]
+    assert m["inputs"]["recommender/ingredient_use_levels_v1.csv"] is not None  # T3 exists
+    assert m["build_seconds"] > 0 and m["build_date"]
+    assert set(m["operators"]) == {r.key for r in library.active()}
+    for r in library.active():
+        assert sorted(m["operators"][r.key]) == sorted(
+            op.key for op in operators.grid_operators(r)
+        ), r.key
+    kinds = [o["kind"] for ops in m["operators"].values() for o in ops.values()]
+    assert m["operator_counts"] == {k: kinds.count(k) for k in sorted(set(kinds))}
+    assert "usda" not in m["operator_counts"]  # (v) is user-specific: live only
+    assert m["entries"] == m["operator_entries"] + sum(
+        len(t["kept"]) for t in m["temperatures"].values()
+    )
     assert m["time_grid"]["log_spaced"] == 24 and m["time_grid"]["from_h"] == 1.0
     assert m["members_per_forecast"] == {"service": [service.N_MEMBERS], "bake": [bake.N_RESAMPLE]}
     assert set(m["temperatures"]) == {r.key for r in library.active()}
@@ -282,6 +299,76 @@ def test_interp_temp_is_linear_between_grid_temperatures_and_clamped_outside() -
         grid.temps("not_a_recipe")
 
 
+# ── operator entries (B7, design § 8.1) ─────────────────────────────────
+
+KRAUT = "sauerkraut_dry_salted"  # documented 21.1-23.9 °C; grid 16, 20, 22.5 °C; profile 16-24
+GINGER = "add:Fresh ginger"
+
+
+def test_operator_entries_are_addressed_by_their_key() -> None:
+    g = grid.load()
+    assert g.operators(KRAUT) == tuple(
+        sorted(op.key for op in operators.grid_operators(_recipe(KRAUT)))
+    )
+    assert g.temps(KRAUT, GINGER) == g.temps(KRAUT)
+    parent, ginger = g.entry(KRAUT, 20.0), g.entry(KRAUT, 20.0, GINGER)
+    assert (parent.operator, ginger.operator, ginger.recipe_key) == (None, GINGER, KRAUT)
+    np.testing.assert_array_equal(ginger.t_h, parent.t_h)
+    assert any(not np.array_equal(ginger.e[s], parent.e[s]) for s in parent.e)  # it changes it
+    half = g.interp_temp(KRAUT, 18.0, GINGER)
+    lo, mid = g.entry(KRAUT, 16.0, GINGER), g.entry(KRAUT, 20.0, GINGER)
+    np.testing.assert_allclose(half.e["sour"], (lo.e["sour"] + mid.e["sour"]) / 2)
+    with pytest.raises(KeyError):
+        g.entry(KRAUT, 20.0, "add:Not an operator")
+    with pytest.raises(KeyError):
+        g.entry(KRAUT, 21.0, GINGER)
+
+
+def test_a_temperature_operator_is_the_recipe_at_another_temperature() -> None:
+    g = grid.load()
+    assert g.temps(KRAUT, "temp:16") == (16.0,)  # a grid temperature: the recipe's own row
+    own, shared = g.entry(KRAUT, 16.0), g.entry(KRAUT, 16.0, "temp:16")
+    for s in own.e:
+        np.testing.assert_array_equal(shared.e[s], own.e[s])
+    assert g.temps(KRAUT, "temp:24") == (24.0,)  # its own entry
+    assert g.axis(KRAUT) == (16.0, 20.0, 22.5, 24.0)
+    at24 = g.interp_axis(KRAUT, 24.0)
+    np.testing.assert_array_equal(at24.e["sour"], g.entry(KRAUT, 24.0, "temp:24").e["sour"])
+    assert at24.operator is None and at24.temp_c == 24.0
+    assert g.interp_temp(KRAUT, 24.0).temp_c == 22.5  # Proven cards keep the grid temperatures
+    assert g.temps(KRAUT) == (16.0, 20.0, 22.5)
+
+
+def test_every_operator_entry_passes_the_gate_and_its_bounds() -> None:
+    n = 0
+    for r in library.active():
+        rg = grid.recipe(r.key)
+        ops = {op.key: op for op in operators.grid_operators(r)}
+        assert {o.key for o in rg.operators} == set(ops)
+        t0 = grid.entry(r.key, rg.temps[0]).t_h
+        for og in rg.operators:
+            op = ops[og.key]
+            assert og.kind == op.kind and og.temps, (r.key, og.key)
+            assert not operators.bounds_reasons(r, [op]), (r.key, og.key)
+            variant = operators.apply(r, [op])
+            for t in og.temps:
+                seen = [c for _, c in run.planned_schedule(variant, t)] or [t]
+                assert gate.check(gate.from_recipe(variant), seen).ok, (r.key, og.key, t)
+                e = grid.entry(r.key, t, og.key)
+                np.testing.assert_array_equal(e.t_h, t0)  # one time axis per recipe
+                assert set(derived.TASTES) <= set(e.e) and set(e.e) & set(run.AROMA_SERIES)
+                n += 1
+            if op.kind == "temperature":
+                assert r.temp_c is not None and op.to_c is not None
+                lo, hi = PROFILES[r.fermentation_type].temp_range
+                assert og.temps == (op.to_c,) and lo <= op.to_c <= hi
+                assert not r.temp_c.lo <= op.to_c <= r.temp_c.hi  # outside the documented span
+            else:
+                assert set(og.temps) | {t for t, _ in og.dropped} == set(rg.temps)
+    print(f"\n{n} operator entries checked")
+    assert n >= 100
+
+
 # ── determinism and staleness of the engine behind the grid ─────────────
 
 STALE = f"grid is stale: run {grid.REBUILD}"
@@ -295,26 +382,38 @@ def _one_per_type() -> list[str]:
     return list(first.values())
 
 
+# one entry per fermentation type, plus operator entries on both engines (B7)
+CANARY = [
+    *((k, None) for k in _one_per_type()),
+    (KRAUT, GINGER),
+    ("rye_sour", "swap:Rye flour>White wheat flour"),
+]
+
+
 def test_the_rebuild_check_covers_every_fermentation_type() -> None:
     types = {_recipe(k).fermentation_type for k in _one_per_type()}
     assert types == {r.fermentation_type for r in library.active()} == set(PROFILES)  # all 9
     assert "sourdough" in types
+    for key, op in CANARY:
+        assert op is None or op in grid.operators(key), (key, op)
 
 
-@pytest.mark.parametrize("key", _one_per_type())
-def test_a_rebuilt_entry_matches_the_committed_one(key: str) -> None:
-    """One entry per fermentation type, solved again now (after whatever ran before in this
-    process: the builder clears the caches) and stored the same way, equals the committed
-    entry: bit for bit on the numeric stack that built it (full builds with 4 and 2 workers
-    gave the same file), within a float16 step on another (last-bit solver differences can
-    round the other way). The input hashes cover the data, not the engine's code: this is
-    the check that the engine behind the grid has not changed."""
+@pytest.mark.parametrize(("key", "op"), CANARY)
+def test_a_rebuilt_entry_matches_the_committed_one(key: str, op: str | None) -> None:
+    """One entry per fermentation type and two operator entries, solved again now (after
+    whatever ran before in this process: the builder clears the caches) and stored the same
+    way, equal the committed entries: bit for bit on the numeric stack that built them (full
+    builds with 4 and 2 workers gave the same file), within a float16 step on another
+    (last-bit solver differences can round the other way). The input hashes cover the data,
+    not the engine's code: this is the check that the engine behind the grid has not
+    changed."""
     g = grid.load()
     same_stack = g.manifest["platform"] == builder.PLATFORM
     stat_tol, time_rtol = (0.0, 0.0) if same_stack else (2.0**-10, 1e-4)
-    temp = g.temps(key)[-1]
-    fresh = builder.run_entry((key, temp))
-    stored = g.entry(key, temp)
+    temp = g.temps(key, op)[-1]
+    fresh = builder.run_entry((key, temp, op))
+    assert "error" not in fresh, fresh
+    stored = g.entry(key, temp, op)
     np.testing.assert_array_equal(fresh["t_h"], stored.t_h, err_msg=STALE)
     as_stored = fresh["stats"].astype(np.float16).astype(np.float64)
     for j, s in enumerate(g.series):

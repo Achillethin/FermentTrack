@@ -197,6 +197,8 @@ uvicorn fermenttrack.main:app --reload
 
 Every non-health endpoint requires a Supabase Auth bearer token (see "Auth" below) — the Swagger UI's "Authorize" button accepts one. There's no frontend yet against a local backend (the deployed frontend at `docs/superpowers/specs/2026-09-24-biochemistry-ui-design.md` talks to the hosted API) — this is API-only for local dev.
 
+Optional: `FERMENTTRACK_CANDIDATES_PATH=<file>` appends every live forecast of an Experimental recommender variant (a confirmed screened card, a variant of your own batch) to that file, one JSON object per line, as candidates for the next recommender grid or emulator training set. Unset (the default), nothing is written; a write failure is logged and never fails the request.
+
 ## Auth
 
 Cultures (and everything under them — batches, measurements, reminders) are scoped to a Supabase Auth user id (`Culture.owner_id`, the JWT `sub`). The backend needs to know how to verify the Supabase access token:

@@ -372,12 +372,86 @@ def test_aroma_ingredient_keys_are_catalogue_names_or_aliases() -> None:
         ("Rennet", 0),
         ("Salt", 1),  # INGREDIENT_FDC_MAP
         ("Garlic", 1),  # INGREDIENT_FDC_IDS_V4
-        ("Black tea leaves", 2),  # aroma data, no FDC link
-        ("Napa cabbage", 2),
+        ("Black tea leaves", 2),  # aroma data, no FDC link; its use level is kombucha's
+        ("Napa cabbage", 3),  # aroma data and a lacto_ferment use level (kimchi)
     ],
 )
 def test_ingredient_tier(name: str, tier: int) -> None:
     assert L.ingredient_tier(name, "lacto_ferment") == tier
+
+
+# ── tier T3: ingredient_use_levels_v1.csv (design § 12, docs/ADDING_AN_INGREDIENT.md) ────────
+
+
+def _bootstrap_rows() -> dict[tuple[str, str], tuple[str, float, float, float, str]]:
+    """What the v1 rows must be: per (ingredient, type), every active recipe row of a tier-T2
+    ingredient; share = g/kg ÷ 1000 (median of the medians, lowest lo, highest hi); source =
+    each recipe row's source and locator."""
+    groups: dict[tuple[str, str], list[tuple[Recipe, L.RecipeIngredient]]] = {}
+    for r in L.active():
+        for i in r.ingredients:
+            if i.g_per_kg is not None and i.name in AROMA_INGREDIENTS and i.name in L.CATALOGUE:
+                groups.setdefault((i.name, r.fermentation_type), []).append((r, i))
+    out = {}
+    for key, rows in groups.items():
+        spans = [i.g_per_kg for _, i in rows if i.g_per_kg is not None]
+        meds = sorted(s.median for s in spans)
+        mid = len(meds) // 2
+        median = meds[mid] if len(meds) % 2 else (meds[mid - 1] + meds[mid]) / 2
+        source = " | ".join(f"{i.source} (recipe {r.key} row)" for r, i in rows)
+        out[key] = (
+            rows[0][1].role, median / 1000, min(s.lo for s in spans) / 1000,
+            max(s.hi for s in spans) / 1000, source,
+        )  # fmt: skip
+    return out
+
+
+def test_use_levels_are_bootstrapped_from_active_recipe_rows_only() -> None:
+    text = L.USE_LEVELS_CSV.read_text(encoding="utf-8")
+    assert text.startswith("#") and "lacto-ingredients research round" in text.split("\n", 3)[2]
+    expected = _bootstrap_rows()
+    got = {(u.ingredient, u.fermentation_type): u for u in L.use_levels()}
+    assert set(got) == set(expected)
+    for key, (role, median, lo, hi, source) in expected.items():
+        u = got[key]
+        assert u.role == role and u.source == source, key
+        assert (u.share_median, u.share_lo, u.share_hi) == pytest.approx((median, lo, hi)), key
+
+
+def test_every_use_level_row_resolves_to_t2_and_is_sourced() -> None:
+    assert L.use_levels()  # the v1 bootstrap
+    for u in L.use_levels():
+        assert u.fermentation_type in PROFILES, u
+        assert L.ingredient_tier(u.ingredient, u.fermentation_type) == 3, u  # T2 and a row
+        assert 0.0 < u.share_lo <= u.share_median <= u.share_hi < 1.0, u
+        assert u.role == L.CATALOGUE[u.ingredient][0], u  # the catalogue role
+        assert u.source.strip(), u  # no unsourced rows
+    assert len({(u.ingredient, u.fermentation_type) for u in L.use_levels()}) == len(
+        L.use_levels()
+    )  # one row per ingredient and type
+    assert L.use_level("Fresh ginger", "lacto_ferment") is not None
+    assert L.use_level("Fresh ginger", "kombucha") is None
+
+
+def test_the_catalogue_map_carries_seed_roles_and_systems() -> None:
+    assert set(L.CATALOGUE) == L.CATALOGUE_NAMES
+    assert L.CATALOGUE["Fresh ginger"] == ("flavoring", ("kombucha", "kefir"))
+    assert L.CATALOGUE["Napa cabbage"][0] == "base"
+
+
+def test_trust_labels_follow_the_served_temperature() -> None:
+    """Carried from B5: "source temperature outside the model's range" only when the card is
+    served outside it."""
+    outside, partly = L.OUTSIDE_RANGE_LABEL, L.PARTLY_OUTSIDE_LABEL
+    kombucha = _recipe("black_tea_kombucha_1f")  # documented 27-33 °C, profile 20-28 °C
+    assert outside in L.trust_labels(kombucha)  # served at its 30 °C median
+    assert outside in L.trust_labels(kombucha, 30.0)
+    slid = L.trust_labels(kombucha, 27.5)
+    assert partly in slid and outside not in slid
+    wine = _recipe("wine_orleans_surface")  # documented 20-30 °C, profile 24-30 °C
+    assert L.trust_labels(wine) == (partly,)
+    assert L.trust_labels(wine, 22.0) == (outside,)
+    assert L.trust_labels(_recipe("sauerkraut_dry_salted"), 30.0) == ()  # in range: no label
 
 
 def test_t3_needs_a_use_level_row_for_that_type_and_aroma_data(

@@ -1,8 +1,8 @@
 {
   "grid": "recommender_grid_v1.npz",
-  "grid_sha256": "ed4e483b7f5fc8a08af50ce800229f6482e53e3c0558057b7baec1b74046c61b",
-  "grid_bytes": 62327,
-  "schema": 1,
+  "grid_sha256": "98f67794adfa08ab2f3f6db30bcf7bbd70e12affc59cc1a4e9d3b4a22eb22ec9",
+  "grid_bytes": 177559,
+  "schema": 2,
   "model_version": "kinetic-v1",
   "bake_model_version": "sourdough-v1",
   "derived_version": "sensory-v2",
@@ -12,7 +12,7 @@
     "prediction/aroma_data.py": "755f87d2fbc95aa3eb67b72b61b4fee6837b4c309805db09aadad95089acf766",
     "recommender/recipes_v1.csv": "0510a362f89e9336ec921729b4c6f9b26433fa4ed4b705000ee0e703aced89d2",
     "recommender/recipe_ingredients_v1.csv": "a3e97e9721021f5e8f5b1f92247cb83a5280788c9d97ad17855932a6fa77fb2d",
-    "recommender/ingredient_use_levels_v1.csv": null
+    "recommender/ingredient_use_levels_v1.csv": "efde1da7d15a589002896360836c39f71d8856d90331e69bba31fec338639060"
   },
   "tau": 0.25,
   "time_grid": {
@@ -193,7 +193,635 @@
       "dropped": []
     }
   },
-  "operators": [],
+  "operators": {
+    "milk_kefir_grains_5pct_24h": {
+      "temp:18": {
+        "kind": "temperature",
+        "temps": [
+          18.0
+        ],
+        "dropped": []
+      }
+    },
+    "milk_kefir_grains_10pct_extended": {
+      "temp:18": {
+        "kind": "temperature",
+        "temps": [
+          18.0
+        ],
+        "dropped": []
+      }
+    },
+    "lactic_fresh_cheese_curd": {
+      "temp:28": {
+        "kind": "temperature",
+        "temps": [
+          28.0
+        ],
+        "dropped": []
+      },
+      "temp:30": {
+        "kind": "temperature",
+        "temps": [
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:32": {
+        "kind": "temperature",
+        "temps": [
+          32.0
+        ],
+        "dropped": []
+      }
+    },
+    "rice_koji_steamed_rice": {
+      "swap:White rice>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          28.0,
+          30.0,
+          35.0
+        ],
+        "dropped": []
+      },
+      "swap:White rice>Soybeans": {
+        "kind": "swap",
+        "temps": [
+          28.0,
+          30.0,
+          35.0
+        ],
+        "dropped": []
+      }
+    },
+    "shiro_miso_kagawa_sweet": {
+      "swap:Soybeans>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          27.5,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White rice>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          27.5,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:15": {
+        "kind": "temperature",
+        "temps": [
+          15.0
+        ],
+        "dropped": []
+      }
+    },
+    "red_rice_miso_kagawa_long": {
+      "swap:Soybeans>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          27.5,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White rice>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          27.5,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:15": {
+        "kind": "temperature",
+        "temps": [
+          15.0
+        ],
+        "dropped": []
+      }
+    },
+    "pacific_sand_lance_rice_koji_fish_sauce": {
+      "swap:Anchovies>Mackerel": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:30": {
+        "kind": "temperature",
+        "temps": [
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "sauerkraut_dry_salted": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          22.5
+        ],
+        "dropped": []
+      },
+      "swap:Cabbage>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          22.5
+        ],
+        "dropped": []
+      },
+      "swap:Cabbage>Napa cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          22.5
+        ],
+        "dropped": []
+      },
+      "temp:16": {
+        "kind": "temperature",
+        "temps": [
+          16.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "napa_kimchi_room_temp": {
+      "swap:Chilies>Caraway seeds": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Chilies>Dill": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Chilies>Lemongrass": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Fresh ginger>Lemongrass": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Garlic>Caraway seeds": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Garlic>Dill": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Garlic>Lemongrass": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Napa cabbage>Cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Napa cabbage>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Onion>Caraway seeds": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Onion>Dill": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Onion>Lemongrass": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Radish>Cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Radish>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "temp:16": {
+        "kind": "temperature",
+        "temps": [
+          16.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "black_tea_kombucha_1f": {
+      "swap:Black tea leaves>Green tea leaves": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "green_dominant_kombucha": {
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      }
+    },
+    "home_starter": {
+      "swap:White wheat flour>Rye flour": {
+        "kind": "swap",
+        "temps": [
+          24.0,
+          26.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White wheat flour>Whole wheat flour": {
+        "kind": "swap",
+        "temps": [
+          24.0,
+          26.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:30": {
+        "kind": "temperature",
+        "temps": [
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "levain_liquide": {
+      "swap:White wheat flour>Rye flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          26.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White wheat flour>Whole wheat flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          26.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:22": {
+        "kind": "temperature",
+        "temps": [
+          22.0
+        ],
+        "dropped": []
+      },
+      "temp:30": {
+        "kind": "temperature",
+        "temps": [
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "levain_dur": {
+      "swap:White wheat flour>Rye flour": {
+        "kind": "swap",
+        "temps": [
+          24.0,
+          26.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White wheat flour>Whole wheat flour": {
+        "kind": "swap",
+        "temps": [
+          24.0,
+          26.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:30": {
+        "kind": "temperature",
+        "temps": [
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "lievito_madre": {
+      "swap:White wheat flour>Rye flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          27.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White wheat flour>Whole wheat flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          27.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:22": {
+        "kind": "temperature",
+        "temps": [
+          22.0
+        ],
+        "dropped": []
+      }
+    },
+    "san_francisco": {
+      "swap:White wheat flour>Rye flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          27.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White wheat flour>Whole wheat flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          27.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:22": {
+        "kind": "temperature",
+        "temps": [
+          22.0
+        ],
+        "dropped": []
+      }
+    },
+    "rye_sour": {
+      "swap:Rye flour>White wheat flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          28.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:Rye flour>Whole wheat flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          28.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:22": {
+        "kind": "temperature",
+        "temps": [
+          22.0
+        ],
+        "dropped": []
+      }
+    },
+    "type_ii": {
+      "swap:White wheat flour>Rye flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          26.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White wheat flour>Whole wheat flour": {
+        "kind": "swap",
+        "temps": [
+          22.0,
+          26.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:22": {
+        "kind": "temperature",
+        "temps": [
+          22.0
+        ],
+        "dropped": []
+      },
+      "temp:26": {
+        "kind": "temperature",
+        "temps": [
+          26.0
+        ],
+        "dropped": []
+      },
+      "temp:30": {
+        "kind": "temperature",
+        "temps": [
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "wine_orleans_surface": {
+      "swap:Red wine>Hard cider": {
+        "kind": "swap",
+        "temps": [
+          25.0,
+          27.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:Red wine>White wine": {
+        "kind": "swap",
+        "temps": [
+          25.0,
+          27.0,
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "cider_vinegar_surface": {
+      "swap:Hard cider>Red wine": {
+        "kind": "swap",
+        "temps": [
+          24.0,
+          27.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:Hard cider>White wine": {
+        "kind": "swap",
+        "temps": [
+          24.0,
+          27.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "temp:27": {
+        "kind": "temperature",
+        "temps": [
+          27.0
+        ],
+        "dropped": []
+      },
+      "temp:30": {
+        "kind": "temperature",
+        "temps": [
+          30.0
+        ],
+        "dropped": []
+      }
+    }
+  },
+  "operator_counts": {
+    "add": 1,
+    "swap": 42,
+    "temperature": 28
+  },
   "members_per_forecast": {
     "service": [
       160
@@ -203,41 +831,47 @@
     ]
   },
   "recipes": 20,
-  "entries": 59,
+  "entries": 188,
+  "operator_entries": 129,
   "platform": {
     "os": "win32",
     "machine": "AMD64",
     "numpy": "2.5.3",
     "scipy": "1.18.1"
   },
-  "build_date": "2026-10-08T13:33:37+00:00",
-  "build_seconds": 349.9,
+  "build_date": "2026-10-08T22:22:09+00:00",
+  "build_seconds": 509.5,
   "workers": 4,
   "slowest": [
     [
-      "home_starter",
-      24.0,
-      11.8
+      "red_rice_miso_kagawa_long",
+      "swap:White rice>Pearl barley",
+      15.0,
+      34.1
     ],
     [
-      "home_starter",
+      "red_rice_miso_kagawa_long",
+      "swap:White rice>Pearl barley",
+      27.5,
+      31.9
+    ],
+    [
+      "type_ii",
+      "swap:White wheat flour>Whole wheat flour",
       30.0,
-      11.5
+      30.0
     ],
     [
-      "home_starter",
-      26.0,
-      11.1
-    ],
-    [
-      "levain_dur",
+      "red_rice_miso_kagawa_long",
+      "swap:White rice>Pearl barley",
       30.0,
-      10.7
+      29.5
     ],
     [
-      "levain_liquide",
+      "red_rice_miso_kagawa_long",
+      "swap:Soybeans>Pearl barley",
       30.0,
-      9.7
+      26.7
     ]
   ]
 }

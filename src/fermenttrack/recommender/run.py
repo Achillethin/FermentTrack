@@ -13,8 +13,11 @@ How a recipe runs:
   recipe a planned_temperature whose first stage is the requested temperature and whose later
   stages are clipped into the profile's temp_range (Q26, Q27).
 - Sourdough styles (handoff = planner) run through prediction.bake: a levain build with the
-  recipe's masses, the style's own flour (the v1 rows book every wheat as White wheat flour)
-  and the requested temperature.
+  recipe's masses, the style's own flour (the v1 rows book every wheat as White wheat flour;
+  a flour swapped in by operator (ii) bakes as its BAKE_FLOUR grade) and the requested
+  temperature.
+- Variants (recommender.operators) are recipes too and run the same way. A row with its own
+  nutrients (an operator (v) USDA food, a user's USDA pick on their own batch) runs with them.
 
 Statistics, per series s (16 aroma series, 4 tastes) and member n: L = `aroma:<s>` (log10
 summed odour activity) or `taste:<s>` (log10 activity ratio); E, U, P = score.central,
@@ -47,12 +50,17 @@ from fermenttrack.prediction.service import (
     RecipeIn,
     _first_crossing,
 )
-from fermenttrack.prediction.sourdough import STYLES
+from fermenttrack.prediction.sourdough import FLOURS, STYLES
 from fermenttrack.recommender import grid, library, score
 from fermenttrack.recommender.library import Recipe
 from fermenttrack.seed_data import INGREDIENT_FDC_IDS_V4
 
 QUANTILES = (0.1, 0.5, 0.9)  # milestone crossing quantiles
+N_LOG_TIMES = 24  # the grid's time axis (design § 8.1)
+FIRST_H = 1.0
+CEILING = 1.5  # the axis runs to the Experimental ceiling, 1.5 x d_hi, within the horizon
+# Catalogue flour -> planner grade, for a flour swapped in by operator (ii).
+BAKE_FLOUR = {"White wheat flour": "t65", "Whole wheat flour": "t150", "Rye flour": "rye_t130"}
 AROMA_SERIES = tuple(sorted({s for c in A.COMPOUNDS.values() for s in c.series}))
 SERIES = (*AROMA_SERIES, *derived.TASTES)  # the grid's series order
 SAFETY = Milestone(
@@ -102,15 +110,17 @@ def per_100g_table() -> Mapping[str, Mapping[str, float]]:
 
 
 def recipe_rows(recipe: Recipe) -> tuple[tuple[RecipeIn, ...], tuple[str, ...]]:
-    """(RecipeIn rows, skipped names): catalogue rows at their median mass."""
+    """(RecipeIn rows, skipped names): rows at their median mass, with the catalogue's
+    nutrients, or a row's own (an own-batch USDA pick, an operator (v) food)."""
     rows: list[RecipeIn] = []
     skipped: list[str] = []
     for i in recipe.ingredients:
-        if i.name not in library.CATALOGUE_NAMES or i.g_per_kg is None:
+        own = i.nutrients is not None
+        if (not own and i.name not in library.CATALOGUE_NAMES) or i.g_per_kg is None:
             skipped.append(i.name)
             continue
         role = "base" if i.role == "liquid" else i.role
-        per_100g = dict(per_100g_table().get(i.name, {}))
+        per_100g = dict(i.nutrients or ()) if own else dict(per_100g_table().get(i.name, {}))
         rows.append(RecipeIn(i.name, i.g_per_kg.median, "g", per_100g, role))
     return tuple(rows), tuple(skipped)
 
@@ -128,20 +138,55 @@ def prediction_inputs(recipe: Recipe, temp_c: float) -> PredictionInputs:
     )  # fmt: skip
 
 
+def _booked_as(flour_key: str) -> str:
+    """The catalogue row a planner flour is booked as (the v1 rows book every white wheat as
+    White wheat flour)."""
+    flour = FLOURS[flour_key]
+    if flour.grain == "rye":
+        return "Rye flour"
+    return "Whole wheat flour" if flour.ash_pct >= 1.0 else "White wheat flour"
+
+
 def bake_plan(recipe: Recipe, temp_c: float, hours: float) -> dict[str, Any]:
     """A sourdough style's levain build (sourdough.plan_from_dict input): the recipe's masses,
-    the style's own flour, held for `hours`."""
+    the style's own flour, held for `hours`. A flour row swapped by operator (ii) bakes as
+    that flour's planner grade (BAKE_FLOUR) instead."""
     style = STYLES[recipe.planner_style or ""]
     grams = {i.role: i.g_per_kg.median for i in recipe.ingredients if i.g_per_kg is not None}
     if sorted(i.role for i in recipe.ingredients) != ["base", "liquid", "starter"]:
         raise RecipeError(f"{recipe.key}: a levain build is one starter, flour and water row")
+    flour_row = next(i.name for i in recipe.ingredients if i.role == "base")
+    if flour_row == _booked_as(style.flour):
+        flour = style.flour
+    elif flour_row in BAKE_FLOUR:
+        flour = BAKE_FLOUR[flour_row]
+    else:
+        raise RecipeError(f"{recipe.key}: {flour_row!r} is not a planner flour")
     return {
         "style": style.key,
         "levain": {
             "seed_g": grams["starter"], "flour_g": grams["base"], "water_g": grams["liquid"],
-            "flour": {style.flour: 1.0}, "temperature_c": temp_c, "hours": hours,
+            "flour": {flour: 1.0}, "temperature_c": temp_c, "hours": hours,
         },
     }  # fmt: skip
+
+
+# ── the time axis ───────────────────────────────────────────────────────
+
+
+def time_axis(
+    duration_h: tuple[float, float, float] | None, horizon_h: float
+) -> tuple[FloatArray, float]:
+    """(times, end): 24 log-spaced times from 1 h to min(1.5 * d_hi, horizon), plus the
+    documented (lo, med, hi) that fall inside; without a duration (planner styles), to the
+    horizon."""
+    extra: tuple[float, ...] = ()
+    end = float(horizon_h)
+    if duration_h is not None:
+        end, extra = min(CEILING * duration_h[2], end), duration_h
+    t = np.geomspace(FIRST_H, end, N_LOG_TIMES)
+    inside = [x for x in extra if FIRST_H <= x <= end]
+    return np.unique(np.concatenate([t, np.asarray(inside, dtype=float)])), end
 
 
 # ── run -> statistics ───────────────────────────────────────────────────
@@ -210,3 +255,31 @@ def summarise_times(times: FloatArray, w: FloatArray) -> list[float]:
     """[P10, P50, P90, reached share] of the members' crossing times (inf: not crossed)."""
     q = weighted_quantiles(times, w, QUANTILES)
     return [*(float(x) for x in q), float(np.sum(w[np.isfinite(times)]) / np.sum(w))]
+
+
+def top_compounds(
+    ftype: str, t_src: FloatArray, values: Mapping[str, FloatArray], w: FloatArray,
+    t_dst: FloatArray, stats: FloatArray,
+) -> dict[str, list[str]]:  # fmt: skip
+    """Aroma series -> [its top compound, that compound's evidence tier]: the compound with
+    the largest mean odour activity at the time the series' E peaks (card labels, § 8.1)."""
+    evidence = A.EVIDENCE.get(ftype, {})
+    made = sorted(k.removeprefix("odor:") for k in values if k.startswith("odor:"))
+    wn = w / np.sum(w)
+    out: dict[str, list[str]] = {}
+    for j, s in enumerate(AROMA_SERIES):
+        if engine_key(s) not in values:
+            continue
+        summed = [
+            k for k in made
+            if A.COMPOUNDS[k].status == "active" and A.COMPOUNDS[k].threshold is not None
+            and s in A.COMPOUNDS[k].series
+        ]  # fmt: skip
+        t_ref = t_dst[int(np.argmax(stats[0, j]))]
+        oav = {
+            k: float(wn @ 10.0 ** at_times(t_src, values[f"odor:{k}"], np.array([t_ref]))[:, 0])
+            for k in summed
+        }
+        top = max(summed, key=lambda k: (oav[k], k))
+        out[s] = [top, evidence.get(top, ("plausible", "", ()))[0]]
+    return out

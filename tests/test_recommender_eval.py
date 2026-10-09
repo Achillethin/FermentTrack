@@ -1,9 +1,12 @@
-"""Offline evaluation of the Proven recommender on the committed grid (design § 13.1, build
-plan B5). Each test prints its measured value and n (run with -s to see them).
+"""Offline evaluation of the recommender on the committed grid (design § 13.1, build plans B5
+and B7). Each test prints its measured value and n (run with -s to see them).
 
 - E1: a library recipe comes back in the top 3 when you ask for its core non-staple
   ingredients (target 90 %), over the recipes that have one (a recipe whose core is all
   staples has no ingredient query; those 9 are pinned).
+- E2 (B7): a recipe with source-reported aromas comes back in the Proven top 5 when you ask
+  for those aromas (and tastes) with no ingredients (target 60 %). Known miss, reported and
+  not worked around: kimchi, whose windows collapse at the safety milestone (see E3).
 - E3: the unclipped model window overlaps the documented duration (target 80 %), with and
   without the source-only and beyond-horizon recipes, which overlap by construction. Known
   miss, reported and not worked around: kimchi. The engine reaches pH 4.6 in only 1-11 % of
@@ -15,9 +18,15 @@ plan B5). Each test prints its measured value and n (run with -s to see them).
   only starter, else ≤ 33 °C); the model temperature stays inside the profile's range;
   source_only ⇔ served outside it; and the card carries its type's mandatory safety lines.
   Plus a fixed sweep: every active recipe at its edge temperatures, through the card, the
-  live forecast's temperature and Start batch.
-- E5: the same request and grid give byte-identical JSON.
-- E6: POST /recommendations from a warm grid, locally (a proxy for the Render p95 target).
+  live forecast's temperature and Start batch. B7 extends it over variants: 2 000 seeded
+  random operator combinations, and every card of seeded mode=both requests: the gate (as
+  served and as the server rebuilds it), the operators' bounds, salt and sugar kept, Q26 (a
+  variant without a temperature operator is served like its parent; with one, at that
+  temperature, inside the profile and the safety limits, outside the documented span, no
+  slider) and the safety lines.
+- E5: the same request and grid give byte-identical JSON (B7: also for mode=both).
+- E6: POST /recommendations from a warm grid, locally (a proxy for the Render p95 target);
+  B7: also mode=both.
 
 A target missed is reported and xfailed strictly with the measured number; it is not tuned.
 """
@@ -26,6 +35,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import time
 from typing import Any
 
@@ -34,7 +44,7 @@ import pytest
 from httpx import AsyncClient
 
 from fermenttrack.prediction.profiles import PROFILES
-from fermenttrack.recommender import gate, grid, library
+from fermenttrack.recommender import gate, grid, library, operators
 from fermenttrack.recommender import service as S
 from fermenttrack.schemas import RecommendationsOut
 
@@ -91,6 +101,45 @@ def _reported_targets(recipe: library.Recipe) -> tuple[S.Target, ...]:
     aromas = [a for a in recipe.reported_aromas if a in S.AROMA_SERIES][: S.MAX_TARGETS]
     tastes = [a for a in recipe.reported_aromas if a in S.TASTES]
     return S.parse_targets(aromas, tastes[: S.MAX_TARGETS - len(aromas)])
+
+
+E2_TARGET = 0.6
+
+
+def _e2() -> list[tuple[str, int | None]]:
+    """(recipe, its rank in the Proven ranking) for every active recipe with source-reported
+    aromas, queried with those aromas and tastes (at most 3) and no ingredients."""
+    rows = []
+    for recipe in library.active():
+        targets = _reported_targets(recipe)
+        if not targets:
+            continue
+        cards = [c for r in library.active() if (c := S.build_card(r, targets, None)[0])]
+        ranked = [c.recipe.key for c in sorted(cards, key=S.rank_key)]
+        rows.append((recipe.key, ranked.index(recipe.key) + 1 if recipe.key in ranked else None))
+    return rows
+
+
+def _e2_value() -> tuple[int, int]:
+    rows = _e2()
+    return sum(rank is not None and rank <= 5 for _, rank in rows), len(rows)
+
+
+_E2_HITS, _E2_N = _e2_value()
+
+
+@pytest.mark.xfail(
+    _E2_HITS / _E2_N < E2_TARGET, strict=True,
+    reason=f"E2 = {_E2_HITS}/{_E2_N} below the {E2_TARGET:.0%} target: reported, not tuned",
+)  # fmt: skip
+def test_e2_a_recipe_comes_back_for_its_reported_aromas() -> None:
+    rows = _e2()
+    hits = sum(rank is not None and rank <= 5 for _, rank in rows)
+    misses = [(k, rank) for k, rank in rows if rank is None or rank > 5]
+    print(f"\nE2 = {hits}/{len(rows)} = {hits / len(rows):.1%} (top 5 of the Proven ranking); "
+          f"misses (recipe, rank) {misses}")  # fmt: skip
+    assert len(rows) == 6  # the recipes with source-reported aromas
+    assert hits / len(rows) >= E2_TARGET
 
 
 def _e3() -> list[tuple[str, bool, bool]]:
@@ -329,12 +378,13 @@ def test_e4_sweep_every_recipe_at_its_edge_temperatures() -> None:
 
 
 def test_e4_every_served_card_passes_the_gate_and_carries_its_safety_lines() -> None:
+    """The Proven cards of 500 seeded requests (mode proven: variants have their own E4)."""
     rng = np.random.default_rng(SEED)
     n_requests, n_cards, violations = 500, 0, []
     for _ in range(n_requests):
         req = random_request(rng)
         body = S.recommend(
-            req["ingredients"], req["aromas"], req["tastes"], req["mode"], req["temperature_c"],
+            req["ingredients"], req["aromas"], req["tastes"], "proven", req["temperature_c"],
             req["batch_g"],
         )  # fmt: skip
         RecommendationsOut.model_validate(body)
@@ -365,8 +415,9 @@ async def test_e5_the_same_request_gives_byte_identical_json(client: AsyncClient
 
 @pytest.mark.asyncio
 async def test_e6_recommendations_are_fast_from_a_warm_grid(client: AsyncClient) -> None:
+    """B5's measure, the Proven section (mode=both: test_e6_mode_both_from_a_warm_grid)."""
     rng = np.random.default_rng(SEED + 6)
-    requests = [random_request(rng) for _ in range(40)]
+    requests = [random_request(rng) | {"mode": "proven"} for _ in range(40)]
     await client.post("/recommendations", json=requests[0])  # warm: the grid is loaded
     times = []
     for r in requests:
@@ -378,3 +429,290 @@ async def test_e6_recommendations_are_fast_from_a_warm_grid(client: AsyncClient)
     print(f"\nE6 (local, warm, n={len(times)}): p50 {p50 * 1000:.0f} ms, p95 {p95 * 1000:.0f} ms, "
           f"max {max(times) * 1000:.0f} ms")  # fmt: skip
     assert p95 < 1.5
+
+
+# ── E4 over variants (B7) ───────────────────────────────────────────────
+
+# Design § 7, copied here so the check does not lean on the code it checks.
+USDA_TYPES = {"lacto_ferment", "kombucha", "kefir", "vinegar", "miso", "garum"}
+USDA_MAX_SHARE = 0.10
+EXPERIMENTAL_LABEL = "Experimental — departs from "
+T01_NAMES = ("Garlic", "Onion", "Apple", "Carrot", "Radish", "Cinnamon", "Strawberries")
+USDA_POOL = (169941, 169949, 167512)  # persimmons, plums, a biscuit dough: any USDA food
+
+
+def _pct(rows: list[tuple[str, float]], name: str) -> float | None:
+    total = sum(g for _, g in rows)
+    part = sum(g for n, g in rows if n == name)
+    return round(100.0 * part / total, 2) if part > 0 and total > 0 else None
+
+
+def _limits(ft: str, starters: list[str]) -> tuple[float, float]:
+    """The safety limits alone (no documented span): koji 25 °C to 35 °C with certified
+    tane-koji as the only starter, else 33 °C; lactic types to 45 °C."""
+    if ft == "koji":
+        return 25.0, 35.0 if starters == [gate.CERTIFIED_KOJI_STARTER] else 33.0
+    return -math.inf, gate.LACTIC_MAX_C
+
+
+def variant_violations(card: dict[str, Any]) -> list[str]:
+    """Everything E4 asks of a served Experimental card of a library parent."""
+    cid = card["id"]
+    if card["section"] != "experimental" or card["source_kind"] != "variant":
+        return [f"{cid}: not a library variant card"]
+    parent = library.get(card["parent"]["recipe_key"])
+    if parent is None or parent.status != "active" or parent.temp_c is None:
+        return [f"{cid}: the parent is not an active library recipe"]
+    ft, ops, out = parent.fermentation_type, card["operators"], []
+    kinds = [o["op"] for o in ops]
+    if not 1 <= len(ops) <= 3 or kinds.count("temperature") > 1:
+        out.append(f"{cid}: {len(ops)} operators, {kinds.count('temperature')} temperature")
+    if ft == "sourdough" and set(kinds) - {"swap", "temperature"}:
+        out.append(f"{cid}: sourdough takes a flour swap or a temperature only")
+    for o in ops:
+        if o["op"] == "usda" and (ft not in USDA_TYPES or (o["share"] or 1.0) > USDA_MAX_SHARE
+                                  or o["label"] != "aroma effect unknown"):  # fmt: skip
+            out.append(f"{cid}: a USDA food out of bounds {o}")
+    try:  # the server's own variant, rebuilt from the chips as Start batch would
+        p = S.library_parent(parent.key)
+        requests = [S.OperatorRequest(o["op"], o["ingredient"], o["replaces"], o["to_c"],
+                                      o["fdc_id"]) for o in ops]  # fmt: skip
+        v = S.make_variant(p, S.resolve_operators(p, requests))
+    except S.RecommendationError as exc:
+        return [*out, f"{cid}: the server refuses its own operators: {exc}"]
+    t = card["temperature"]
+    served = t["served_c"]
+    temps = [served, *((t["slider"]["min_c"], t["slider"]["max_c"]) if t["slider"] else ())]
+    starters = list(card["recipe"]["starters"])
+    rows = tuple(
+        gate.IngredientRow(i["name"], i["role"], i["grams"], i["required"])
+        for i in card["recipe"]["ingredients"]
+    )
+    own = {c for _, c in card["recipe"]["temp_schedule"]} | {card["recipe"]["temperature_c"]}
+    as_served = gate.RecipeLike(ft, rows, tuple(starters), tuple(sorted(own)))
+    for like in (as_served, gate.from_recipe(v.recipe)):
+        result = gate.check(like, temps)
+        if not result.ok:
+            out.append(f"{cid} @ {temps}: gate {result.reasons}")
+    grams = [(i["name"], i["grams"]) for i in card["recipe"]["ingredients"]]
+    mine = [(i.name, i.g_per_kg.median) for i in parent.ingredients if i.g_per_kg is not None]
+    for name, key in ((gate.SALT, "salt_pct"), ("Cane sugar", "sugar_pct")):
+        kept, was, shown = _pct(grams, name), _pct(mine, name), card["recipe"][key]
+        if (was is None) != (shown is None) or (was is not None and abs(shown - was) > 0.02):
+            out.append(f"{cid}: {name} {shown} % shown, the parent's {was} %")
+        if kept is not None and was is not None and abs(kept - was) > 0.05:
+            out.append(f"{cid}: {name} {kept} % in the grams, the parent's {was} %")
+    p_lo, p_hi = PROFILES[ft].temp_range
+    moves = [o for o in ops if o["op"] == "temperature"]
+    if moves:  # Q26 for operator (iii): its own temperature, in the model's range, no slider
+        to_c, (s_lo, s_hi) = moves[0]["to_c"], _limits(ft, starters)
+        if served != to_c or t["slider"] is not None or card["recipe"]["temperature_c"] != to_c:
+            out.append(f"{cid}: served {served} °C / slider {t['slider']}, the operator {to_c}")
+        if not (p_lo <= served <= p_hi and s_lo <= served <= s_hi):
+            out.append(f"{cid}: {served} °C outside the profile or the safety limits")
+        if parent.temp_c.lo <= served <= parent.temp_c.hi:
+            out.append(f"{cid}: a temperature operator inside the documented span")
+        schedule = card["recipe"]["temp_schedule"]
+        if schedule and schedule[0][1] != to_c:
+            out.append(f"{cid}: the first stage is not the operator's temperature")
+    else:  # Q26 as for the parent: the documented span within the safety limits
+        out += temperature_violations(parent, starters, "served/slider", temps)
+        out += temperature_violations(parent, starters, "booked", sorted(own))
+    if card["planner_link"]:
+        token = card["planner_link"].removeprefix("#/levain?p=")
+        plan = json.loads(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)))
+        if plan["plan"]["levain"]["temperature_c"] != served:
+            out.append(f"{cid}: the planner link is not at the served temperature")
+    out += model_violations(parent, "card", t["model_c"])
+    if t["source_only"] != (not p_lo <= served <= p_hi):
+        out.append(f"{cid}: source_only {t['source_only']} at {served} °C")
+    w = card["window"]
+    if w and w["basis"] in ("model", "source") and parent.duration_h is not None:
+        if w["taste_from_h"] < parent.duration_h.lo - 0.05:  # never before d_lo
+            out.append(f"{cid}: taste from {w['taste_from_h']} h before d_lo")
+    must, must_not = _mandatory_lines(card)
+    lines = set(card["safety_lines"])
+    if not must <= lines or must_not & lines:
+        out.append(f"{cid}: safety lines {sorted(lines)}")
+    labels = card["trust"]["labels"]
+    if f"{EXPERIMENTAL_LABEL}{parent.name}" not in labels:
+        out.append(f"{cid}: no Experimental label")
+    if ("screened" in labels) != card["screened"] or card["screened"] != (
+        len(ops) >= 2 or "usda" in kinds
+    ):
+        out.append(f"{cid}: screened {card['screened']} with {kinds}")
+    if card["level"] not in {None, "Low", "Med", "High"}:
+        out.append(f"{cid}: level {card['level']!r}")
+    words = " ".join(card["notes"] + (w or {}).get("notes", [])).lower()
+    if any(f in words for f in FORBIDDEN):
+        out.append(f"{cid}: forbidden wording")
+    return out
+
+
+def _variant_card(kimchi_ops: list[str], temperature_c: float | None = None) -> dict[str, Any]:
+    p = S.library_parent("napa_kimchi_room_temp")
+    ops = {op.key: op for op in S.available_operators(p, temperature_c, ["Apple"], [169941])}
+    v = S.make_variant(p, [ops[k] for k in kimchi_ops])
+    card, _ = S.variant_card(v, (), temperature_c, 1000.0, (), S.library_reference(p.recipe, None))
+    assert card is not None
+    return S.card_json(card)
+
+
+def test_e4_the_variant_checker_catches_a_bad_card() -> None:
+    card = _variant_card(["swap:Garlic>Dill", "temp:24"])
+    assert variant_violations(card) == []
+    salty = card | {"recipe": card["recipe"] | {"salt_pct": 7.0}}
+    assert any("Salt 7.0 % shown" in v for v in variant_violations(salty))
+    moved = card | {"temperature": card["temperature"] | {"slider": {"min_c": 17, "max_c": 23}}}
+    assert any("slider" in v for v in variant_violations(moved))
+    inside = card | {"operators": [*card["operators"][:1], card["operators"][1] | {"to_c": 20}]}
+    assert any("refuses its own operators" in v for v in variant_violations(inside))
+    bare = card | {"safety_lines": []}
+    assert any("safety lines" in v for v in variant_violations(bare))
+    unlabelled = card | {"trust": card["trust"] | {"labels": []}}
+    assert any("Experimental label" in v for v in variant_violations(unlabelled))
+    usda = _variant_card(["usda:fdc:169941"])
+    assert variant_violations(usda) == [] and usda["screened"]
+    hot = usda | {"temperature": usda["temperature"] | {"served_c": 50.0}}
+    assert any("TEMP-001" in v for v in variant_violations(hot))
+
+
+def test_e4_2000_seeded_random_operator_combinations() -> None:
+    """2 000 seeded random combinations of a random active parent's operators (including (v)
+    with must-include and USDA picks, at random kitchen temperatures and targets): every
+    served card passes the gate as served and as rebuilt, keeps salt and sugar, obeys Q26 and
+    carries its safety lines; every refused one fails the gate or the bounds."""
+    rng = np.random.default_rng(SEED + 7)
+    parents = [S.library_parent(r.key) for r in library.active()]
+    built = served = refused = gated = 0
+    violations: list[str] = []
+    while built < 2000:
+        p = parents[int(rng.integers(len(parents)))]
+        temp_c = None if rng.random() < 0.3 else round(float(rng.uniform(-5, 60)), 1)
+        must = [str(x) for x in rng.choice(T01_NAMES, size=int(rng.integers(0, 2)), replace=False)]
+        usda = [int(x) for x in rng.choice(USDA_POOL, size=int(rng.integers(0, 2)), replace=False)]
+        singles = S.available_operators(p, temp_c, must, usda)
+        if not singles:
+            continue
+        k = min(int(rng.integers(1, operators.MAX_OPERATORS + 1)), len(singles))
+        combo = [singles[int(i)] for i in sorted(rng.choice(len(singles), size=k, replace=False))]
+        out_of_bounds = rng.random() < 0.15
+        if out_of_bounds:  # one operator the bounds forbid: it must never be served
+            combo = [op for op in combo if op.kind != "temperature"][:2] + [_forbidden(p, rng)]
+        if not operators.compatible(combo):
+            continue
+        built += 1
+        try:
+            v = S.make_variant(p, combo)
+        except S.OperatorRefused:
+            assert out_of_bounds
+            refused += 1
+            continue
+        n_targets = int(rng.integers(0, 3))
+        targets = S.parse_targets(
+            [str(x) for x in rng.choice(S.AROMA_SERIES, size=n_targets, replace=False)], []
+        )
+        card, result = S.variant_card(
+            v, targets, temp_c, 1000.0, (), S.library_reference(p.recipe, temp_c)
+        )
+        if card is None:
+            assert result.reasons, v.id  # refused with the gate's or the bounds' reasons
+            refused += 1
+            gated += not out_of_bounds  # in bounds but refused by the gate: allowed, reported
+            continue
+        assert not out_of_bounds, f"served an out-of-bounds variant {v.id}"
+        served += 1
+        violations += variant_violations(S.card_json(card))
+    print(f"\nE4 (variants): {len(violations)} violations over {served} served cards from "
+          f"{built} seeded operator combinations; {refused} refused ({gated} of them within "
+          "the operator bounds)")  # fmt: skip
+    assert served > 1500 and refused > 100
+    assert violations == []
+
+
+def _forbidden(p: S.Parent, rng: np.random.Generator) -> operators.Operator:
+    """An operator design § 7 forbids for this parent."""
+    r = p.recipe
+    assert r.temp_c is not None
+    lo, hi = PROFILES[r.fermentation_type].temp_range
+    choices = [
+        operators.Operator("temperature", to_c=r.temp_c.median),  # inside the documented span
+        operators.Operator("temperature", to_c=hi + 5.0),  # outside the profile
+        operators.Operator("usda", "Garlic", share=0.2),  # over 10 %, or a type without (v)
+    ]
+    if r.handoff == "planner":
+        choices.append(operators.Operator("add", "Fresh ginger", share=0.01))  # sourdough
+    if r.temp_c.lo <= lo <= r.temp_c.hi and r.temp_c.lo <= hi <= r.temp_c.hi:
+        choices.append(operators.Operator("temperature", to_c=lo))  # documented covers it
+    return choices[int(rng.integers(len(choices)))]
+
+
+def test_e4_every_card_of_mode_both_requests() -> None:
+    rng = np.random.default_rng(SEED + 8)
+    n_requests, n_proven, n_variants, violations = 120, 0, 0, []
+    for _ in range(n_requests):
+        req = random_request(rng)
+        body = S.recommend(
+            req["ingredients"], req["aromas"], req["tastes"], "both", req["temperature_c"],
+            req["batch_g"],
+        )  # fmt: skip
+        RecommendationsOut.model_validate(body)
+        for card in body["proven"]["cards"]:
+            n_proven += 1
+            violations += card_violations(card)
+        for card in body["experimental"]["cards"]:
+            n_variants += 1
+            violations += variant_violations(card)
+    print(f"\nE4 (mode both): {len(violations)} violations over {n_proven} Proven and "
+          f"{n_variants} Experimental cards from {n_requests} seeded requests")  # fmt: skip
+    assert n_variants > 150
+    assert violations == []
+
+
+def _caches_cleared() -> None:
+    grid.load.cache_clear()  # a fresh load of the same grid and library
+    library.load_library.cache_clear()
+    library._use_levels.cache_clear()
+    S._grid_logits.cache_clear()
+    S._grid_difference.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_e5_mode_both_gives_byte_identical_json(client: AsyncClient) -> None:
+    rng = np.random.default_rng(SEED + 9)
+    requests = [random_request(rng) | {"mode": "both"} for _ in range(12)]
+    first = [(await client.post("/recommendations", json=r)).content for r in requests]
+    second = [(await client.post("/recommendations", json=r)).content for r in requests]
+    _caches_cleared()
+    third = [(await client.post("/recommendations", json=r)).content for r in requests]
+    same = sum(a == b == c for a, b, c in zip(first, second, third, strict=True))
+    served = sum(len(json.loads(x)["experimental"]["cards"]) for x in first)
+    print(f"\nE5 (mode both): {same}/{len(requests)} requests byte-identical across 3 calls "
+          f"(one after a grid, library and screening-cache reload); {served} Experimental "
+          "cards")  # fmt: skip
+    assert served > 0
+    assert same == len(requests)
+
+
+@pytest.mark.asyncio
+async def test_e6_mode_both_from_a_warm_grid(client: AsyncClient) -> None:
+    """Wall time is reported; the assertion is on the CPU time a request costs, a proxy for
+    a dedicated instance that other processes on a shared development machine cannot
+    inflate."""
+    rng = np.random.default_rng(SEED + 10)
+    requests = [random_request(rng) | {"mode": "both"} for _ in range(30)]
+    for r in requests[:3]:  # warm: the grid and the screening caches of a few parents
+        await client.post("/recommendations", json=r)
+    wall, cpu = [], []
+    for r in requests:
+        started, ticks = time.perf_counter(), time.process_time()
+        resp = await client.post("/recommendations", json=r)
+        wall.append(time.perf_counter() - started)
+        cpu.append(time.process_time() - ticks)
+        assert resp.status_code == 200
+    p50, p95 = (float(np.percentile(wall, q)) for q in (50, 95))
+    c50, c95 = (float(np.percentile(cpu, q)) for q in (50, 95))
+    print(f"\nE6 (mode both, local, warm, n={len(wall)}): wall p50 {p50 * 1000:.0f} ms, p95 "
+          f"{p95 * 1000:.0f} ms, max {max(wall) * 1000:.0f} ms; CPU p50 {c50 * 1000:.0f} ms, "
+          f"p95 {c95 * 1000:.0f} ms")  # fmt: skip
+    assert c95 < 1.5

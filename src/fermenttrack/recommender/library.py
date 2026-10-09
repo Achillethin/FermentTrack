@@ -3,6 +3,11 @@
 `recipes_v1.csv` and `recipe_ingredients_v1.csv` are frozen: only scripts/build_recipes.py
 writes them, from the research drafts and the curation spec
 (docs/superpowers/specs/2026-10-07-recipe-curation.md).
+
+`ingredient_use_levels_v1.csv` (tier T3, docs/ADDING_AN_INGREDIENT.md) is frozen too. Its v1
+rows were bootstrapped from the shares of tier-T2 ingredients in the active library recipes
+(tests/test_recommender_library.py re-derives them); the lacto-ingredients research round adds
+rows. Lines starting with `#` are comments.
 """
 
 from __future__ import annotations
@@ -29,19 +34,25 @@ from fermenttrack.seed_data import (
 HERE = Path(__file__).parent
 RECIPES_CSV = HERE / "recipes_v1.csv"
 INGREDIENTS_CSV = HERE / "recipe_ingredients_v1.csv"
-USE_LEVELS_CSV = HERE / "ingredient_use_levels_v1.csv"  # T3; arrives with the Experimental mode
+USE_LEVELS_CSV = HERE / "ingredient_use_levels_v1.csv"  # T3
+
+_SEEDS = (
+    INGREDIENT_SEED_DATA, INGREDIENT_SEED_DATA_V2, INGREDIENT_SEED_DATA_V3, INGREDIENT_SEED_DATA_V4,
+)  # fmt: skip
 
 # Live catalogue names (tier T0): every seed-data version, minus the retired generic rows.
 CATALOGUE_NAMES: frozenset[str] = frozenset(
-    name
-    for seed in (
-        INGREDIENT_SEED_DATA,
-        INGREDIENT_SEED_DATA_V2,
-        INGREDIENT_SEED_DATA_V3,
-        INGREDIENT_SEED_DATA_V4,
-    )
-    for name, _role, _systems in seed
+    name for seed in _SEEDS for name, _role, _systems in seed
 ) - frozenset(RETIRED_V3)
+
+# Live catalogue name -> (default role, fermentation systems), as the migrations seed it (the
+# first seed version naming it wins, like the database's insert order).
+CATALOGUE: Mapping[str, tuple[str, tuple[str, ...]]] = MappingProxyType({
+    name: (role, tuple(systems))
+    for seed in reversed(_SEEDS)
+    for name, role, systems in seed
+    if name in CATALOGUE_NAMES
+})  # fmt: skip
 
 # Always allowed beside the user's must-include ingredients (design Q3): salt, water, sugar,
 # flour, tea leaves and starter cultures. Rennet is a coagulant, not a culture: it counts as an
@@ -81,6 +92,11 @@ class RecipeIngredient:
     source: str
     notes: str
     label: str | None  # card label, e.g. a stand-in species
+    # Not from the v1 files: nutrients (g/100 g) for a row that is not a catalogue name (a
+    # user's USDA pick on their own batch, an Experimental operator (v) food); None = the
+    # catalogue's (run.per_100g_table). fdc_id: the USDA food an operator (v) row books.
+    nutrients: tuple[tuple[str, float], ...] | None = None
+    fdc_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -168,33 +184,72 @@ def get(key: str) -> Recipe | None:
     return load_library().get(key)
 
 
-def trust_labels(recipe: Recipe) -> tuple[str, ...]:
-    """The card's Q25 and Q26 labels (design § 4.3)."""
+OUTSIDE_RANGE_LABEL = (
+    "source temperature outside the model's range: forecasts use the nearest in-range temperature"
+)
+PARTLY_OUTSIDE_LABEL = "part of the documented temperature range is outside the model's range"
+
+
+def trust_labels(recipe: Recipe, served_c: float | None = None) -> tuple[str, ...]:
+    """The card's Q25 and Q26 labels (design § 4.3). served_c: the temperature the card is
+    served at (default: the recipe's median). A recipe whose documented span leaves the
+    profile's range says the model works at the nearest in-range temperature only when the
+    served temperature is outside that range; otherwise that only part of the span is."""
     profile = PROFILES[recipe.fermentation_type]
     labels = []
     if recipe.envelope_basis == "widened_single_value":
         labels.append("single-value source, widened")
     if "temp_outside_profile" in recipe.model_scope:
         lo, hi = profile.temp_range
-        if recipe.temp_c is not None and not lo <= recipe.temp_c.median <= hi:
-            labels.append(
-                "source temperature outside the model's range: forecasts use the nearest "
-                "in-range temperature"
-            )
-        else:  # the served temperature is modelled; only part of the documented span is not
-            labels.append("part of the documented temperature range is outside the model's range")
+        served = served_c if served_c is not None else (
+            recipe.temp_c.median if recipe.temp_c is not None else None
+        )  # fmt: skip
+        outside = served is not None and not lo <= served <= hi
+        labels.append(OUTSIDE_RANGE_LABEL if outside else PARTLY_OUTSIDE_LABEL)
     if "beyond_horizon" in recipe.model_scope:
         labels.append(f"aroma estimate covers the first {profile.horizon_h / 24:g} days only")
     return tuple(labels)
 
 
+@dataclass(frozen=True)
+class UseLevel:
+    """A tier-T3 row (design § 12): the typical mass share of the whole batch."""
+
+    ingredient: str
+    fermentation_type: str
+    role: str
+    share_median: float
+    share_lo: float
+    share_hi: float
+    source: str
+    notes: str
+
+
 @cache
-def _use_levels() -> frozenset[tuple[str, str]]:
+def _use_levels() -> tuple[UseLevel, ...]:
     if not USE_LEVELS_CSV.exists():
-        return frozenset()
+        return ()
     with USE_LEVELS_CSV.open(encoding="utf-8", newline="") as f:
         lines = [line for line in f if not line.startswith("#")]
-    return frozenset((r["ingredient"], r["fermentation_type"]) for r in csv.DictReader(lines))
+    return tuple(
+        UseLevel(
+            r["ingredient"], r["fermentation_type"], r["role"], float(r["share_median"]),
+            float(r["share_lo"]), float(r["share_hi"]), r["source"], r["notes"],
+        )
+        for r in csv.DictReader(lines)
+    )  # fmt: skip
+
+
+def use_levels() -> tuple[UseLevel, ...]:
+    """Every row of ingredient_use_levels_v1.csv, in file order."""
+    return _use_levels()
+
+
+def use_level(name: str, ferment_type: str) -> UseLevel | None:
+    return next(
+        (u for u in _use_levels() if (u.ingredient, u.fermentation_type) == (name, ferment_type)),
+        None,
+    )
 
 
 def ingredient_tier(name: str, ferment_type: str) -> int:
@@ -205,7 +260,7 @@ def ingredient_tier(name: str, ferment_type: str) -> int:
     if name not in CATALOGUE_NAMES:
         return -1
     if name in AROMA_INGREDIENTS:
-        return 3 if (name, ferment_type) in _use_levels() else 2
+        return 3 if use_level(name, ferment_type) is not None else 2
     if name in _FDC_MAPPED:
         return 1
     return 0

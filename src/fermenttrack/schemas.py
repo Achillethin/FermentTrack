@@ -808,10 +808,57 @@ def _check_targets(aromas: list[str], tastes: list[str]) -> None:
     parse_targets(aromas, tastes)  # ValueError -> 422
 
 
+def _check_usda(ids: list[int]) -> None:
+    from fermenttrack.recommender.operators import usda_food
+
+    unknown = [i for i in ids if usda_food(i) is None]
+    if unknown:
+        raise ValueError(f"unknown USDA food id(s): {unknown}")
+
+
+OperatorKind = Literal["add", "swap", "temperature", "usda"]
+
+
+class OperatorIn(BaseModel):
+    """An Experimental operator as a card's chip sends it back (extra chip fields such as
+    `key`, `share` or `label` are ignored: the server recomputes the variant)."""
+
+    op: OperatorKind
+    ingredient: Annotated[str, Field(max_length=200)] | None = None  # add, swap, usda by name
+    replaces: Annotated[str, Field(max_length=200)] | None = None  # swap
+    to_c: ExpectedTemperatureC | None = None  # temperature
+    fdc_id: int | None = None  # usda: a USDA food
+
+    @model_validator(mode="after")
+    def _valid(self) -> OperatorIn:
+        need = {
+            "add": ("ingredient",), "swap": ("ingredient", "replaces"), "temperature": ("to_c",)
+        }  # fmt: skip
+        missing = [f for f in need.get(self.op, ()) if getattr(self, f) is None]
+        if self.op == "usda" and self.fdc_id is None and self.ingredient is None:
+            missing.append("fdc_id or ingredient")
+        if missing:
+            raise ValueError(f"a {self.op} operator needs {', '.join(missing)}")
+        return self
+
+
+Operators = Annotated[list[OperatorIn], Field(max_length=3)]
+
+
+def _check_parent(
+    recipe_key: str | None, parent_batch_id: uuid.UUID | None, operators: list[OperatorIn]
+) -> None:
+    if (recipe_key is None) == (parent_batch_id is None):
+        raise ValueError("give a recipe_key or a parent_batch_id, not both")
+    if parent_batch_id is not None and not operators:
+        raise ValueError("a variant of your batch needs at least one operator")
+
+
 class RecommendationRequest(BaseModel):
     """Design § 5.1. Ingredients are catalogue names; the non-staple ones must all be in the
-    recipe, and staples (salt, water, sugar, flour, tea, starter cultures) never exclude a
-    recipe (§ 5.2, Q3). parent_batch_id and usda_fdc_ids arrive with the Experimental mode."""
+    recipe (Proven) or the variant (Experimental), and staples (salt, water, sugar, flour, tea,
+    starter cultures) never exclude a recipe (§ 5.2, Q3). parent_batch_id: one of your batches
+    as an Experimental parent (Q16). usda_fdc_ids: USDA foods operator (v) may add."""
 
     ingredients: Annotated[list[str], Field(max_length=20)] = []
     aromas: list[str] = []
@@ -819,12 +866,17 @@ class RecommendationRequest(BaseModel):
     mode: Literal["proven", "experimental", "both"] = "proven"
     temperature_c: ExpectedTemperatureC | None = None  # the user's kitchen; null: each recipe's
     batch_g: BatchGrams = 1000.0
+    parent_batch_id: uuid.UUID | None = None
+    usda_fdc_ids: Annotated[list[int], Field(max_length=5)] = []
 
     @model_validator(mode="after")
     def _valid(self) -> RecommendationRequest:
         _check_targets(self.aromas, self.tastes)
-        if not (self.ingredients or self.aromas or self.tastes):
+        if not (self.ingredients or self.aromas or self.tastes or self.parent_batch_id):
             raise ValueError("give at least one ingredient, aroma or taste")
+        if self.mode == "proven" and (self.parent_batch_id or self.usda_fdc_ids):
+            raise ValueError("parent_batch_id and usda_fdc_ids need mode experimental or both")
+        _check_usda(self.usda_fdc_ids)
         return self
 
 
@@ -856,6 +908,7 @@ class CardIngredientOut(BaseModel):
     required: Literal["core", "optional"]
     in_catalogue: bool  # False: not bookable yet, Start batch skips it
     label: str | None
+    fdc_id: int | None = None  # an operator (v) USDA food: Start batch books it from the USDA list
 
 
 class CardRecipeOut(BaseModel):
@@ -906,14 +959,42 @@ class CardTrustOut(BaseModel):
     labels: list[str]
 
 
+class OperatorChipOut(BaseModel):
+    """An Experimental card's operator chip (design § 11.1), e.g. {"op": "add", "ingredient":
+    "Fresh ginger", "share": 0.0078}, {"op": "temperature", "from_c": 20, "to_c": 24},
+    {"op": "usda", "fdc_id": 169941, "label": "aroma effect unknown"}. Send it back as is."""
+
+    op: OperatorKind
+    key: str
+    ingredient: str | None
+    replaces: str | None
+    share: float | None  # mass share of the whole batch (add, usda)
+    from_c: float | None
+    to_c: float | None
+    fdc_id: int | None
+    label: str | None
+
+
+class CardParentOut(BaseModel):
+    kind: Literal["library", "own_batch"]
+    recipe_key: str | None
+    batch_id: str | None
+    name: str
+    label: str  # the recipe's name, or "your batch #n"
+
+
 class RecommendationCardOut(BaseModel):
     id: str
-    section: Literal["proven"]
-    source_kind: Literal["library"]
-    recipe_key: str
+    section: Literal["proven", "experimental"]
+    source_kind: Literal["library", "variant", "own_batch"]
+    recipe_key: str | None  # the library recipe (a variant's parent); None: your batch
     name: str
     fermentation_type: str
     style_region: str
+    parent: CardParentOut | None = None  # Experimental: what the variant departs from
+    operators: list[OperatorChipOut] = []
+    screened: bool = False  # Experimental: combined additively until a live forecast confirms
+    interaction_detected: bool | None = None  # known after the confirmation (the forecast)
     recipe: CardRecipeOut
     temperature: CardTemperatureOut
     window: CardWindowOut | None
@@ -946,14 +1027,19 @@ class RecommendationsOut(BaseModel):
     mode: Literal["proven", "experimental", "both"]
     grid_version: str
     targets: list[RecommendationTargetOut]
-    proven: RecommendationSectionOut
-    experimental: RecommendationSectionOut | None  # None until the Experimental mode (B7)
+    proven: RecommendationSectionOut | None  # None in mode experimental
+    experimental: RecommendationSectionOut | None  # None in mode proven
     notes: list[str]
     debug: RecommendationDebugOut
 
 
 class RecommendationForecastIn(BaseModel):
-    recipe_key: str
+    """One card's live forecast: a library recipe (recipe_key), or a variant of it or of one of
+    your batches (parent_batch_id) with its operators, at a slider temperature."""
+
+    recipe_key: str | None = None
+    parent_batch_id: uuid.UUID | None = None
+    operators: Operators = []
     aromas: list[str] = []
     tastes: list[str] = []
     temperature_c: ExpectedTemperatureC | None = None  # the slider; null: the recipe's
@@ -962,6 +1048,7 @@ class RecommendationForecastIn(BaseModel):
     @model_validator(mode="after")
     def _valid(self) -> RecommendationForecastIn:
         _check_targets(self.aromas, self.tastes)
+        _check_parent(self.recipe_key, self.parent_batch_id, self.operators)
         return self
 
 
@@ -979,7 +1066,12 @@ class ForecastBandOut(BaseModel):
 
 
 class RecommendationForecastOut(BaseModel):
-    recipe_key: str
+    recipe_key: str | None  # None: a variant of your batch
+    source_kind: Literal["library", "variant", "own_batch"] = "library"
+    operators: list[OperatorChipOut] = []
+    screened: bool = False  # the variant's card was screened (design § 8.5)
+    screened_e_peak: float | None = None  # its screened E(peak) at this temperature
+    interaction_detected: bool | None = None  # confirmed E(peak) < 0.8 × screened
     members: int | None
     temperature: CardTemperatureOut | None
     window: CardWindowOut | None
@@ -995,9 +1087,13 @@ class RecommendationForecastOut(BaseModel):
 
 
 class FromRecommendationIn(BaseModel):
-    """Start batch (design § 11.2): the card is recomputed on the server from these."""
+    """Start batch (design § 11.2): the card is recomputed on the server from these: a library
+    recipe (recipe_key), or a variant of it or of one of your batches (parent_batch_id) with
+    its operators."""
 
-    recipe_key: str
+    recipe_key: str | None = None
+    parent_batch_id: uuid.UUID | None = None
+    operators: Operators = []
     aromas: list[str] = []
     tastes: list[str] = []
     temperature_c: ExpectedTemperatureC | None = None
@@ -1009,6 +1105,7 @@ class FromRecommendationIn(BaseModel):
     @model_validator(mode="after")
     def _valid(self) -> FromRecommendationIn:
         _check_targets(self.aromas, self.tastes)
+        _check_parent(self.recipe_key, self.parent_batch_id, self.operators)
         return self
 
 
