@@ -610,3 +610,35 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - confirm the 5 % USDA share and the swap rule;
   - the garum Anchovies → Mackerel swap (histamine; Codex limit);
   - (i)/(v) rescaling dilutes acidifying rows by up to 5 %.
+
+### B8 — search deeper (commit `5ef3cd3`)
+- **Gates:**
+  - review round 1: CHANGES REQUIRED (a transient DB failure could stall the queue or leave a job running forever) → fixed;
+  - review round 2: PASS (outage probe recovered);
+  - handoff: ACCEPT (23/23);
+  - full suite: **1039 passed, 65 xfailed, 0 failed**.
+- **API:**
+  - `POST /recommendations/deep-search` → 202 `{job_id}`; 200 for a finished job with the same fingerprint (per owner); 409 with `detail.job_id` while one is active.
+  - `GET /recommendations/jobs/{id}` → status, done, total, `eta_s`, results, request.
+  - `GET /recommendations/jobs` → the newest 10 finished jobs.
+- **Worker** (`recommender/jobs.py`):
+  - one asyncio worker started from the lifespan; FIFO persisted in `recommendation_jobs` (migration 0020, with a partial unique index of one active job per owner);
+  - claimed with a conditional UPDATE; plans and steps run via `asyncio.to_thread`;
+  - after a DB error it backs off (`RETRY_S`) and re-queues its orphans; `MAX_ATTEMPTS=3`;
+  - keeps the newest 10 finished jobs per owner.
+- **Registry for B9:**
+  - `jobs.register(kind, jobs.Handler(plan, step, merge, max_steps, step_s, errors, on_done, version, kept))`;
+  - `jobs.submit(db, kind, request, fingerprint=fp, owner_id=None)`;
+  - jobs with no owner (system jobs) skip the one-active limit and are invisible to users.
+- **Deep-search plan:** at most 20 live 64-member forecasts, in § 10.2 order (screened combinations, 2 extra temperatures for each of the top 3 parents, one slot per USDA food); partial results re-ranked; confirmed cards replace screened ones.
+- **Accepted deviations:**
+  - `/me/export` is unchanged (it is a CSV-shaped list; jobs are exportable via `GET /recommendations/jobs`);
+  - `parent_batch_id` → 422;
+  - sourdough parents excluded;
+  - results not limited per parent (B12 groups them);
+  - `jobs.py` calls `_prerank`, `_combos` and `_live_variant` (make them public in B13).
+- **Open:**
+  - O1: attempts also count resumes that made progress;
+  - O2: `except SQLAlchemyError` also retries data errors (→ B9 narrows it to connection errors);
+  - calibrate the 15 s step estimate on Render;
+  - single-process assumption.
