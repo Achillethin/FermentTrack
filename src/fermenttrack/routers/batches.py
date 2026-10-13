@@ -4,7 +4,7 @@ import uuid
 from datetime import timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,7 +12,7 @@ from fermenttrack.auth import get_current_user_id, is_admin
 from fermenttrack.composition import RecipeItem, compose, suggest_salt
 from fermenttrack.database import get_db
 from fermenttrack.models import (
-    SAFETY_REMINDER,
+    STAGE_REMINDER,
     Batch,
     BatchIngredient,
     BatchOrganism,
@@ -28,6 +28,7 @@ from fermenttrack.models import (
     Organism,
     OrganismEnzyme,
     Reminder,
+    Tasting,
 )
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.safety.service import get_safety_report
@@ -284,13 +285,14 @@ async def advance_stage(
 
     # Superseded by the new stage's reminder — mark prior open reminders done
     # rather than leaving stale ones (e.g. a past stage's timer) in the list.
-    # Safety reminders (the pH check) are not stage timers: they stay open.
+    # Stage timers only: the pH check (safety) and the stop-by tasting prompt
+    # (tasting) stay open until the user closes them (models.Reminder.kind).
     await db.execute(
         update(Reminder)
         .where(
             Reminder.batch_id == batch.id,
             Reminder.completed_at.is_(None),
-            Reminder.kind != SAFETY_REMINDER,
+            Reminder.kind == STAGE_REMINDER,
         )
         .values(completed_at=entered_at)
     )
@@ -620,6 +622,9 @@ async def get_batch_preview(
         summary_en=report.summary_en,
         summary_fr=report.summary_fr,
     )
+    tastings = await db.execute(
+        select(func.count()).select_from(Tasting).where(Tasting.batch_id == batch.id)
+    )
 
     return BatchPreview(
         batch=BatchOut.model_validate(batch),
@@ -629,6 +634,7 @@ async def get_batch_preview(
         timeline=_build_timeline_events(batch),
         safety=safety,
         read_only=batch.culture.owner_id != user_id,
+        tastings_count=tastings.scalar_one(),  # a count only: the tastings are the owner's
     )
 
 

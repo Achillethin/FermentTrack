@@ -14,7 +14,10 @@
   variant is recomputed here from its operators; its USDA foods are booked like a USDA pick. A
   community card (community_recipe_id, no operators) is booked from its stored forecasts
   (live when they are not of the current grid); its link carries community_recipe_id, and a
-  variant of your batch's carries parent_batch_id.
+  variant of your batch's carries parent_batch_id. Reminders: the first stage's timer, the pH
+  check (acid-safety types, kind "safety") and, at the card's stop-by time, the tasting form
+  (kind "tasting"): neither of the last two is closed by a stage change. The link keeps the
+  card's P per target over time (p_series) for the calibration gate.
 - POST /recommendations/deep-search ("search deeper", design § 10.2): queues a background job
   of up to 20 live forecasts (recommender.jobs) and answers 202 {job_id}; 200 with your
   finished job of the same request (its results are kept); 409 with the job id while you have
@@ -47,6 +50,7 @@ from fermenttrack.composition import to_grams
 from fermenttrack.database import get_db
 from fermenttrack.models import (
     SAFETY_REMINDER,
+    TASTING_REMINDER,
     Batch,
     BatchIngredient,
     Culture,
@@ -82,6 +86,17 @@ logger = logging.getLogger(__name__)
 
 PH_REMINDER_AFTER = timedelta(hours=48)
 PH_REMINDER = f"{gate.PH_LOG_LINE} {gate.PH_DEADLINE_LINE}"  # the card's own lines, verbatim
+TASTING_REMINDER_ACTION = "Stop-by time: taste the batch and fill in its tasting form."
+# an acid-safety type: the gate's own pH line, verbatim (the window is never clearance, § 7)
+TASTING_AFTER_PH = f"Before tasting: {gate.PH_DEADLINE_LINE}"
+
+
+def tasting_action(ph_reminder: bool) -> str:
+    """The stop-by reminder's text; an acid-safety type (the pH reminder's) adds the gate's pH
+    deadline line, verbatim."""
+    if ph_reminder:
+        return f"{TASTING_REMINDER_ACTION} {TASTING_AFTER_PH}"
+    return TASTING_REMINDER_ACTION
 
 
 def _cannot_run(exc: run.RecipeError) -> HTTPException:
@@ -331,6 +346,15 @@ async def start_batch(
                 urgency="critical", kind=SAFETY_REMINDER,
             )
         )  # fmt: skip
+    # the stop-by prompt for the tasting form (design § 11.2): a stage change does not close it,
+    # the batch's next tasting does (routers/tastings.py)
+    reminders.append(
+        Reminder(
+            batch_id=batch.id, action=tasting_action(plan.ph_reminder),
+            due_at=started + timedelta(hours=float(plan.link["window"]["stop_by_h"])),
+            urgency="medium", kind=TASTING_REMINDER,
+        )
+    )  # fmt: skip
     db.add_all(reminders)
     link = RecommendationLink(batch_id=batch.id, **plan.link)
     db.add(link)

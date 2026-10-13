@@ -87,9 +87,10 @@ def test_0021_creates_the_model_s_tables_and_is_reversible(db) -> None:  # noqa:
     assert _columns(engine, "community_recipes") is None
 
     command.upgrade(cfg, "0021")
+    later = {"p_series"}  # recommendation_links' column added by 0022
     for model in (CommunityRecipe, CommunityRecipeForecast, RecommendationLink):
         table = model.__table__
-        assert _columns(engine, table.name) == {c.name for c in table.columns}, table.name
+        assert _columns(engine, table.name) == {c.name for c in table.columns} - later, table.name
     assert _fks(engine, "recommendation_links") == {
         ("batch_id", "batches", "CASCADE"),
         ("community_recipe_id", "community_recipes", "SET NULL"),

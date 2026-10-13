@@ -22,8 +22,8 @@ reads and writes it); everything here is computed from plain values.
   least one model temperature (`forecast_temperatures`) passes it too;
 - acid-safety types (gate.needs_ph_reminder) have a pH reading of 2.0-4.6 logged between the
   batch's start and end (`ph_evidence`: lower readings are meter faults or typos);
-- feedback (`publish_checks_feedback`): until the tasting form (B10), the batch's outcome is
-  "success"; B10 switches that one function to "a tasting is filled in".
+- feedback (`publish_checks_feedback`): the batch has at least one tasting (the tasting form,
+  design § 11.2) and its outcome is "success".
 Then the recipe is pending until an admin approves or rejects it.
 
 **Forecasts** (job kind "community_forecast", the B8 queue): approval enqueues one system job
@@ -52,10 +52,12 @@ forecasts of the current grid version that hold every must-include ingredient an
 at every temperature the card can show; statistics interpolated in temperature between the
 stored forecasts (clamped to them, like grid.interp_temp), the window in mode community (§ 6:
 up to d_hi, never before d_lo); ranked by E(peak), then "made n×" (the distinct other people
-who started a batch from it, its variants included, its author excluded), then the mean liking
-(None until B10's tastings); 3 cards at most. A recipe whose card cannot be built is logged and
-left out. The card names the pseudonym and "made n×" and carries the trust
-label "Community — not proven" and the gate's safety lines.
+who started a batch from it, its variants included, and tasted it: at least one tasting; its
+author excluded), then the mean liking (the mean over those people of each one's mean liking,
+None until LIKING_MIN_PEOPLE of them gave one); 3 cards at most. A recipe whose card cannot be
+built is logged and left out. The card names the pseudonym, "made n×" and the mean liking
+(counts and a mean only: never a tasting's notes) and carries the trust label "Community — not
+proven" and the gate's safety lines.
 
 **Parent** (`parent`): a community recipe is an Experimental parent like your own batch: live
 forecasts, at most 3 variants (service.own_batch_cards), labelled "community recipe".
@@ -109,6 +111,9 @@ MASS_TOLERANCE = 0.05  # the stored rows sum to 1000 g/kg ± 5 %
 PH_SAFE = 4.6
 PH_EVIDENCE_MIN = 2.0  # a lower "pH" is no food ferment's: not evidence (ph_evidence)
 OUTCOME_SHARED = "success"  # the batch outcome publishing needs (publish_checks_feedback)
+TASTING_NEEDED = "fill in the batch's tasting form first (at least one tasting)"
+# a card's mean liking needs this many people's likings: the author never reads one person's
+LIKING_MIN_PEOPLE = 3
 USDA_LABEL = f"USDA food: {operators.AROMA_UNKNOWN}"
 
 
@@ -148,6 +153,7 @@ class SourceBatch:
     started_at: datetime
     ended_at: datetime | None
     outcome: str | None
+    tastings: int = 0  # the batch's tastings (design § 11.2)
 
 
 @dataclass(frozen=True)
@@ -161,12 +167,17 @@ class Draft:
 
 
 def publish_checks_feedback(batch: SourceBatch) -> list[str]:
-    """Design § 10.3's feedback check: until the tasting form (B10), the batch's outcome is
-    recorded as a success (only a batch that turned out well is shared). B10 switches this
-    function to "a tasting is filled in"."""
+    """Design § 10.3's feedback check: the tasting form (§ 11.2) is filled in, at least one
+    tasting on the batch; and its outcome is recorded as a success (only a batch that turned
+    out well is shared)."""
+    reasons = []
     if batch.outcome != OUTCOME_SHARED:
-        return ["only a batch that turned out well is shared: record its outcome as a success"]
-    return []
+        reasons.append(
+            "only a batch that turned out well is shared: record its outcome as a success"
+        )
+    if batch.tastings < 1:
+        reasons.append(TASTING_NEEDED)
+    return reasons
 
 
 def _type_reasons(ferment_type: str) -> list[str]:
@@ -449,16 +460,19 @@ class Stored:
     temperature_c: float
     duration_h: float
     forecasts: tuple[Mapping[str, Any], ...] = ()  # stats JSON of the current grid version
-    made: int = 0  # other people who started a batch from it (routers/community.py)
-    mean_liking: float | None = None  # B10
+    made: int = 0  # other people who started a batch from it and tasted it (routers/community.py)
+    mean_liking: float | None = None  # the mean of their mean likings (LIKING_MIN_PEOPLE or more)
 
 
 def stored(
-    row: CommunityRecipe, forecasts: Iterable[CommunityRecipeForecast] = (), made: int = 0
+    row: CommunityRecipe,
+    forecasts: Iterable[CommunityRecipeForecast] = (),
+    made: int = 0,
+    mean_liking: float | None = None,
 ) -> Stored:
     return Stored(
         row.id, row.title, row.pseudonym, row.fermentation_type, tuple(row.recipe),
-        row.temperature_c, row.duration_h, tuple(f.stats for f in forecasts), made,
+        row.temperature_c, row.duration_h, tuple(f.stats for f in forecasts), made, mean_liking,
     )  # fmt: skip
 
 
@@ -540,8 +554,8 @@ def community_card(
 
 
 def rank_key(card: service.Card, c: Candidate) -> tuple[float, int, float, str]:
-    """§ 5.4 Community: E(peak), "made n×", the mean liking (0 until B10's tastings), then the
-    id for a stable order."""
+    """§ 5.4 Community: E(peak), "made n×", the mean liking (0 when none is rated), then the id
+    for a stable order."""
     e = card.evaluation.e
     liking = c.mean_liking if c.mean_liking is not None else 0.0
     return -(e if e is not None else 0.0), -c.made, -liking, str(c.id)

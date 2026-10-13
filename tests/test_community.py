@@ -1,8 +1,8 @@
 """Community recipes (build plan B9; design § 10.3): publishing a finished batch and its
-automatic checks, the admin review queue, the forecast jobs (kind "community_forecast") and
-their startup recompute, the "Community — not proven" section, a community recipe as an
-Experimental parent and Start batch from its card, and privacy (DELETE /me detaches, GET
-/me/community-recipes exports).
+automatic checks (the tasting form among them, B10), the admin review queue, the forecast jobs
+(kind "community_forecast") and their startup recompute, the "Community — not proven" section
+("made n×" and the mean liking from tastings), a community recipe as an Experimental parent and
+Start batch from its card, and privacy (DELETE /me detaches, GET /me/community-recipes exports).
 
 A live 64-member forecast takes seconds: most tests stand a fake in for it (FakeLive:
 sauerkraut's grid statistics on the requested time axis, scaled per recipe title so ranking
@@ -47,6 +47,7 @@ from fermenttrack.models import (
     RecommendationJob,
     RecommendationLink,
     Reminder,
+    Tasting,
 )
 from fermenttrack.recommender import community as C
 from fermenttrack.recommender import gate, grid, jobs, library
@@ -143,9 +144,10 @@ async def _batch(
     hours: float | None = 336.0,
     outcome: str = "success",
     expected: float | None = 21.0,
+    tasted: bool = True,
 ) -> Batch:
     """A batch of `ferment_type` with its logged rows (name, quantity, unit), temperature and
-    pH readings; finished after `hours` (None: still running)."""
+    pH readings and, when `tasted`, a tasting; finished after `hours` (None: still running)."""
     culture = Culture(name=f"my {ferment_type}", type=ferment_type, owner_id=owner)
     db.add(culture)
     await db.flush()
@@ -169,6 +171,8 @@ async def _batch(
             batch_id=batch.id, measured_at=START + timedelta(hours=i + 1), type=kind,
             value_numeric=value,
         ))  # fmt: skip
+    if tasted:
+        db.add(Tasting(batch_id=batch.id, t_h=hours or 1.0, ratings={"sour": 2}, liking=4))
     await db.commit()
     return batch
 
@@ -280,6 +284,7 @@ async def test_anonymous_accounts_may_publish(
         ({"hours": None, "outcome": "in_progress"}, "only a finished batch can be published"),
         ({"outcome": "in_progress"}, "record its outcome as a success"),
         ({"outcome": "failed"}, "record its outcome as a success"),
+        ({"tasted": False}, C.TASTING_NEEDED),
         ({"ph": ()}, "log a pH reading of 4.6 or below"),
         ({"ph": (4.7, 4.61)}, "log a pH reading of 4.6 or below"),
         ({"ph": (1.5, 15.0)}, "log a pH reading of 4.6 or below"),  # implausible readings
@@ -305,9 +310,9 @@ async def test_anonymous_accounts_may_publish(
         ),
     ],
     ids=[
-        "unfinished", "no outcome", "failed outcome", "no pH", "pH above 4.6", "pH implausible",
-        "salt too low", "too hot", "no temperature", "unknown unit", "no quantity",
-        "generic type", "sourdough", "miso below 4 % salt",
+        "unfinished", "no outcome", "failed outcome", "no tasting", "no pH", "pH above 4.6",
+        "pH implausible", "salt too low", "too hot", "no temperature", "unknown unit",
+        "no quantity", "generic type", "sourdough", "miso below 4 % salt",
     ],
 )  # fmt: skip
 async def test_each_automatic_check_refuses_with_its_reason(
@@ -328,9 +333,11 @@ async def test_each_automatic_check_refuses_with_its_reason(
 async def test_every_reason_is_given_at_once(
     client: AsyncClient, db_session: AsyncSession, catalogue: None  # noqa: F811
 ) -> None:
-    resp = await _publish(client, await _batch(db_session, ph=(), outcome="in_progress"))
+    resp = await _publish(
+        client, await _batch(db_session, ph=(), outcome="in_progress", tasted=False)
+    )
     assert resp.status_code == 422
-    assert len(resp.json()["detail"]["reasons"]) == 2  # the pH and the outcome
+    assert len(resp.json()["detail"]["reasons"]) == 3  # the pH, the outcome and the tasting
 
 
 async def test_retired_and_unknown_ingredients_are_named(
@@ -386,15 +393,22 @@ def test_masses_balance_to_1000_g_per_kg_within_5_percent() -> None:
     assert C.mass_balanced(rows)
 
 
-def test_the_feedback_check_is_one_function_b10_switches() -> None:
-    """Until the tasting form (B10), publishing needs the batch's outcome to be a success."""
+def test_the_feedback_check_needs_a_tasting_and_a_successful_outcome() -> None:
+    """Design § 10.3: the tasting form is filled in (B10), and the outcome is a success."""
     end = START + timedelta(hours=1)
-    base = C.SourceBatch("lacto_ferment", (), (), 20.0, (), START, end, "success")
+    base = C.SourceBatch("lacto_ferment", (), (), 20.0, (), START, end, "success", tastings=1)
     assert C.publish_checks_feedback(base) == []
-    for outcome in (None, "", "in_progress", "failed", "discarded"):
-        assert C.publish_checks_feedback(dataclasses.replace(base, outcome=outcome)) == [
-            "only a batch that turned out well is shared: record its outcome as a success"
-        ]
+    assert C.publish_checks_feedback(dataclasses.replace(base, tastings=3)) == []
+    outcome = "only a batch that turned out well is shared: record its outcome as a success"
+    for bad in (None, "", "in_progress", "failed", "discarded"):
+        assert C.publish_checks_feedback(dataclasses.replace(base, outcome=bad)) == [outcome]
+    untasted = dataclasses.replace(base, tastings=0)
+    assert C.publish_checks_feedback(untasted) == [C.TASTING_NEEDED]
+    assert C.publish_checks_feedback(dataclasses.replace(untasted, outcome="failed")) == [
+        outcome, C.TASTING_NEEDED,
+    ]  # fmt: skip
+    # a SourceBatch built without its tastings counts none
+    assert C.SourceBatch("lacto_ferment", (), (), 20.0, (), START, end, "success").tastings == 0
 
 
 def test_only_plausible_readings_logged_during_the_batch_count() -> None:
@@ -481,7 +495,8 @@ async def test_two_simultaneous_publishes_of_a_batch_give_one_recipe(
 
 
 @pytest.mark.parametrize(
-    "pseudonym", ["", " ", "A", "x" * 41, "ana@example.com", "https://x.io", "<b>Ana</b>", "-Ana"]
+    "pseudonym",
+    ["", " ", "A", "x" * 41, "ana@example.com", "https://x.io", "<b>Ana</b>", "-Ana", "An\x00a"],
 )
 async def test_the_pseudonym_is_validated(
     client: AsyncClient, db_session: AsyncSession, catalogue: None, pseudonym: str  # noqa: F811
@@ -494,8 +509,9 @@ async def test_the_title_is_required_and_bounded(
     client: AsyncClient, db_session: AsyncSession, catalogue: None  # noqa: F811
 ) -> None:
     batch = await _batch(db_session)
-    for title in ("", "   ", "t" * 121):
+    for title in ("", "   ", "t" * 121, "Bright\x00kraut", "Bright\x1bkraut"):  # control chars
         assert (await _publish(client, batch, title)).status_code == 422, title
+    assert (await _publish(client, batch, "Bright\tkraut")).status_code == 201  # a tab is fine
 
 
 # ── the review queue (admins) and the forecast jobs ─────────────────────
@@ -586,6 +602,8 @@ async def test_a_recipe_rejected_before_its_job_ran_keeps_no_forecast(
     no_reason = await client.post(f"/admin/community-recipes/{rid}/reject", json={})
     assert no_reason.status_code == 422
     assert (await client.post(f"/admin/community-recipes/{rid}/reject")).status_code == 422
+    nul = await client.post(f"/admin/community-recipes/{rid}/reject", json={"reason": "No\x00pe"})
+    assert nul.status_code == 422  # a control character
     reject = await client.post(
         f"/admin/community-recipes/{rid}/reject", json={"reason": "  Too close to the library "}
     )
@@ -754,15 +772,22 @@ async def test_the_community_section_ranks_labels_and_counts_its_batches(
     ids = {t: await _approved(client, db_session, sessions, t) for t in fake.scale}
     pending = await _publish(client, await _batch(db_session), "Pending one")
     assert pending.status_code == 201
-    # someone else started Twin B (twice: one person): "made 1×", ahead of Twin A at the same
-    # E(peak); the author's own batch from Bright counts for nothing
+    # someone else started Twin B (twice: one person) and tasted it: "made 1×", ahead of Twin A
+    # at the same E(peak); the author's own tasted batch from Bright counts for nothing
     start = {"community_recipe_id": str(ids["Twin B"]), "tastes": ["sour"]}
     with as_user(OTHER):
-        for _ in range(2):
+        for liking in (4, 5):
             started = await client.post("/batches/from-recommendation", json=start)
             assert started.status_code == 201
+            tasted = await client.post(
+                f"/batches/{started.json()['batch']['id']}/tastings", json={"liking": liking}
+            )
+            assert tasted.status_code == 201
     own = start | {"community_recipe_id": str(ids["Bright"])}
-    assert (await client.post("/batches/from-recommendation", json=own)).status_code == 201
+    mine = await client.post("/batches/from-recommendation", json=own)
+    assert mine.status_code == 201
+    url = f"/batches/{mine.json()['batch']['id']}/tastings"
+    assert (await client.post(url, json={"liking": 1})).status_code == 201
 
     ask = {"tastes": ["sour"], "mode": "proven"}
     body = (await client.post("/recommendations", json=ask)).json()
@@ -770,6 +795,8 @@ async def test_the_community_section_ranks_labels_and_counts_its_batches(
     cards = _community(body)
     assert [c["community"]["title"] for c in cards] == ["Bright", "Twin B", "Twin A"]
     assert [c["community"]["made"] for c in cards] == [0, 1, 0]
+    # one person's liking is never shown (fewer than community.LIKING_MIN_PEOPLE likings)
+    assert [c["community"]["mean_liking"] for c in cards] == [None, None, None]
     assert [c["level"] for c in cards][0] == "High"
     bright = cards[0]
     RecommendationCardOut.model_validate(bright)
@@ -807,6 +834,58 @@ async def test_the_community_section_ranks_labels_and_counts_its_batches(
     ginger = {"ingredients": ["Fresh ginger"], "mode": "proven"}
     none = (await client.post("/recommendations", json=ginger)).json()["community"]
     assert none == {"cards": [], "message": C.NO_MATCH}
+
+
+async def test_made_counts_other_people_who_tasted_it_and_averages_their_liking(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    sessions: async_sessionmaker[AsyncSession],
+    catalogue: None,  # noqa: F811
+    as_admin: None,
+    fake: FakeLive,
+) -> None:
+    """"made n×" (B10): the distinct other people whose batch started from the recipe, or a
+    variant of it, has a tasting. The mean liking is per person (the mean of each one's mean
+    liking; a tasting without a liking left out), shown only once 3 people gave one, so the
+    author never reads one person's liking. An untasted batch, and the author's own, count for
+    nothing. No tasting's notes reach the card."""
+    assert C.LIKING_MIN_PEOPLE == 3
+    rid = await _approved(client, db_session, sessions)
+    start = {"community_recipe_id": str(rid), "tastes": ["sour"]}
+    variant = start | {"operators": [{"op": "temperature", "to_c": 24.0}], "mode": "experimental"}
+    secret = "my private tasting note"
+
+    async def started(payload: dict[str, Any], *tastings: dict[str, Any]) -> None:
+        resp = await client.post("/batches/from-recommendation", json=payload)
+        assert resp.status_code == 201, resp.text
+        for t in tastings:
+            url = f"/batches/{resp.json()['batch']['id']}/tastings"
+            assert (await client.post(url, json=t)).status_code == 201
+
+    async def made() -> tuple[int, float | None]:
+        resp = await client.post("/recommendations", json={"tastes": ["sour"]})
+        assert secret not in resp.text
+        [card] = _community(resp.json())
+        return card["community"]["made"], card["community"]["mean_liking"]
+
+    await started(start, {"liking": 1, "notes": secret})  # the author's own
+    assert await made() == (0, None)
+    with as_user(OTHER):
+        await started(start)  # started, not tasted yet
+    assert await made() == (0, None)
+    with as_user(OTHER):  # this person's mean liking: 4.5 (the rating-only tasting left out)
+        await started(start, {"liking": 4, "notes": secret}, {"ratings": {"sour": 2}})
+        await started(start, {"liking": 5})  # the same person again
+    with as_user("a-third-person"):
+        await started(start, {"ratings": {"sour": 1}})  # tasted, no liking given
+    assert await made() == (2, None)  # one person's liking: not shown
+    with as_user("a-fourth-person"):
+        await started(variant, {"liking": 2})  # a variant of it counts
+    assert await made() == (3, None)  # made 3, but only 2 likings
+    with as_user("a-fifth-person"):
+        await started(start, {"liking": 3})
+    # per person: (4.5 + 2 + 3) / 3 = 3.17 (per tasting it would be 3.5)
+    assert await made() == (4, 3.17)
 
 
 async def test_a_community_recipe_that_cannot_be_served_is_left_out(

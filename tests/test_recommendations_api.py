@@ -703,7 +703,7 @@ async def test_a_stage_change_leaves_the_ph_reminder_open(
     user closes it explicitly."""
     body = (await client.post("/batches/from-recommendation", json={"recipe_key": KIMCHI})).json()
     [ph] = [r for r in body["reminders"] if r["action"] == PH_REMINDER]
-    stage_timers = [r["id"] for r in body["reminders"] if r["action"] != PH_REMINDER]
+    stage_timers = [r["id"] for r in body["reminders"] if r["kind"] == "stage"]
     assert stage_timers  # kimchi's first stage has a timer, so the test means something
     batch_id = body["batch"]["id"]
 

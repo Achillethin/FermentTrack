@@ -27,6 +27,7 @@ $wt = "<repo>\.worktrees\recommender"; $env:PYTHONPATH = "$wt\src"; Set-Location
 **Frontend:** `cd frontend; npm run build` (Vite). Hash routes live in `frontend/src/App.jsx` (`#/batch/<id>`, `#/levain?p=…` for a shared sourdough plan).
 
 **Conventions:**
+- **Line endings: LF only.** Every tracked text file is LF and `core.autocrlf=false`, so a file saved with CRLF on Windows shows as rewritten in full. Before handing off, check `git diff --stat` against `git diff --ignore-cr-at-eol --stat`; they must match. Write files with `newline="\n"` from Python. In PowerShell, never use `Set-Content -Encoding utf8`, which adds a BOM; use `[IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($false)))`.
 - Match existing style: ruff (line 100, rules E F I UP B), mypy strict, `# fmt: skip` where the codebase uses it, and dataclasses for engine-side values.
 - Tests mirror existing ones: async API tests use `client` / `db_session` from `tests/conftest.py`.
 - Tests co-land with the code in the same phase.
@@ -685,3 +686,47 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - confirm the garum minimum of 8.3 % (derived from the sourced recipes, not stated by any source);
   - admins may approve their own recipes (acceptable with one admin; refuse it once there are several).
 - **Known rare flake (watch):** `test_community.py::test_the_pseudonym_is_validated["x"*41]` failed once in about 38 runs of the B9 test files (12 sequential, 12 under 4-way parallel load, plus agent runs). It wasn't reproduced and no traceback was captured; the validation path is pure Pydantic and deterministic. If it recurs, capture `--tb=long` and suspect cross-test state (garbage-collected aiosqlite engines, leaked tasks).
+
+### B10 — tastings (commit: this one)
+- **Gates:**
+  - the implementer and the first reviewer were lost when the session resumed;
+  - review round 1: CHANGES REQUIRED (the tasting reminder reworded the pH rule; a NUL in notes could log them through Postgres' DataError) → fixed;
+  - review round 2: PASS (new reviewer);
+  - handoff: ACCEPT (37/37);
+  - orchestrator normalised CRLF again; full suite on the final tree: **1163 passed, 65 xfailed, 0 failed** (19:34).
+- **API:**
+  - `POST`/`GET`/`DELETE /batches/{id}/tastings[/{tid}]`, owner only (admins get 404); any batch can be tasted.
+  - `TastingIn`:
+    - `tasted_at` (UTC if no zone) → server-computed `t_h`;
+    - `ratings` {key: 0–3} over the 16 aroma series + sour, sweet, umami, alcohol (strict integers);
+    - `liking` 1–5, `make_again`, `notes` ≤ 1000 characters (no control characters);
+    - at least one of ratings or liking is required.
+- **Reminders:**
+  - Start batch adds a `kind="tasting"` reminder at stop-by;
+  - for acid-safety types its text carries `"Before tasting: " + gate.PH_DEADLINE_LINE` verbatim;
+  - closed by a tasting on that batch or by a dismissal, never by `advance_stage` (which now closes only `kind="stage"` reminders).
+- **`tastings_count`** appears in the batch preview.
+- **Community:**
+  - publishing needs ≥ 1 tasting plus outcome "success";
+  - made = distinct other owners with ≥ 1 tasting (author excluded);
+  - `mean_liking` = mean of per-person means, null below `LIKING_MIN_PEOPLE` (3).
+- **Export:** `/me/export` JSON gains per-batch `tastings`; `csv.js` output is unchanged. Recommendation links are NOT exported (owner decision Q34). FermentJSON doesn't exist, so that item is moot.
+- **Privacy:**
+  - `NoControlChars` on notes, community title and reject reason;
+  - `hide_parameters=True` on the engine;
+  - notes are never logged and never shown to others.
+- **Migration 0022:** `tastings` (FK CASCADE, checks on `t_h ≥ 0` and liking 1–5) and `recommendation_links.p_series`.
+- **For B11:**
+  - **data:** `tastings` (`batch_id`, `t_h`, `ratings`, `liking`) ⋈ `recommendation_links` (`batch_id`; `p_series` = `{"t_h": [...], "p": {target: [...]}}`, P at the card's model temperature; `grid_version`, `targets`, `source_kind`) ⋈ `batches` → `cultures.type`, which is the key for the per-type, per-series baseline (all tasted batches, linked or not);
+  - **computation:** `P = np.interp(t_h, p_series["t_h"], p_series["p"][s])`, only for `t_h` inside the axis (skip outside, never clamp); "noticed" = `ratings[s] ≥ 1`; score s only if it is in both `p` and `ratings`; skip null `p_series` (links before 0022, or no modelled target) and null entries in P lists;
+  - decide how several tastings per batch weigh (resampling is per batch).
+- **For B12:**
+  - the tasting form at stop-by (reminder `kind == "tasting"`) and on finishing (`ended_at` set and `tastings_count == 0`);
+  - deleting a tasting;
+  - mean liking on community cards.
+- **For B13:**
+  - `alembic/env.py`: `fileConfig(..., disable_existing_loggers=False)` (fixes the order-dependent `test_a_community_recipe_that_cannot_be_served_is_left_out`);
+  - design § 14 wording (`/me/export`, not FermentJSON);
+  - § 11.2 notes;
+  - tie-break `Batch.tastings` ordering by `created_at, id`;
+  - document the limits of the 3-person minimum (differencing, throwaway accounts).

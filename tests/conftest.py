@@ -42,6 +42,7 @@ async def db_session() -> AsyncIterator[AsyncSession]:
         "sqlite+aiosqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
+        hide_parameters=True,  # as the app's engine (database.py)
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

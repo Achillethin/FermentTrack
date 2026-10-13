@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -65,6 +67,7 @@ class BatchExportOut(BaseModel):
     outcome: str
     ended_at: datetime | None
     measurements: list["MeasurementOut"] = []
+    tastings: list[TastingOut] = []  # the CSV export (frontend/src/csv.js) ignores them
 
 
 class CultureExportOut(CultureOut):
@@ -153,6 +156,9 @@ class ReminderOut(BaseModel):
     repeat_interval: timedelta | None
     urgency: str
     completed_at: datetime | None
+    # stage: closed by a stage change; safety: the pH check; tasting: the card's stop-by
+    # prompt to fill in the tasting form (models.Reminder.kind)
+    kind: str = "stage"
 
 
 class ReminderSnooze(BaseModel):
@@ -337,6 +343,7 @@ class BatchPreview(BaseModel):
     timeline: list[TimelineEvent]
     safety: SafetyReportOut
     read_only: bool = False  # an admin viewing someone else's batch: no edits
+    tastings_count: int = 0  # 0: offer the tasting form (at stop-by, on finishing)
 
 
 # ── Biochemistry ─────────────────────────────────────────────────────────
@@ -1008,8 +1015,10 @@ class CommunityCardOut(BaseModel):
     id: uuid.UUID
     title: str
     pseudonym: str
-    made: int  # distinct other people who started a batch from it (Start batch), author excluded
-    mean_liking: float | None  # from tastings (B10); None until then
+    made: int  # distinct other people who started a batch from it (Start batch) and tasted it
+    # (at least one tasting), author excluded
+    # the mean over those people of each one's mean liking; None until 3 of them gave a liking
+    mean_liking: float | None
 
 
 class RecommendationCardOut(BaseModel):
@@ -1206,6 +1215,20 @@ class RecommendationJobOut(BaseModel):
 
 # ── Community recipes (design § 10.3, recommender.community) ─────────────────
 
+# C0 control characters, tab, line feed and carriage return aside.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _no_control_chars(v: str) -> str:
+    """Free text without control characters: Postgres refuses a NUL, and its error would carry
+    the text into the logs."""
+    if _CONTROL_CHARS.search(v):
+        raise ValueError("control characters are not allowed (tabs and line breaks are)")
+    return v
+
+
+NoControlChars = AfterValidator(_no_control_chars)
+
 CommunityStatus = Literal["pending", "approved", "rejected"]
 # A pen name, never checked against a real one: letters, digits, spaces and . _ ' -, starting
 # with a letter or digit; no @ or / (so not an e-mail address or a link).
@@ -1219,7 +1242,9 @@ class CommunityPublishIn(BaseModel):
     """POST /community-recipes: publish one of your finished batches as a community recipe."""
 
     batch_id: uuid.UUID
-    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    title: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120), NoControlChars
+    ]
     pseudonym: Pseudonym
 
 
@@ -1270,4 +1295,63 @@ class AdminCommunityRecipeOut(CommunityRecipeOut):
 class CommunityReviewIn(BaseModel):
     """An admin's decision; a rejection needs its reason."""
 
-    reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+    reason: (
+        Annotated[str, StringConstraints(strip_whitespace=True, max_length=500), NoControlChars]
+        | None
+    ) = None
+
+
+# ── Tastings (design § 11.2, routers/tastings.py) ───────────────────────────
+
+Rating = Annotated[int, Field(strict=True, ge=0, le=3)]  # 0 not noticed, 1 faint ... 3 strong
+Liking = Annotated[int, Field(strict=True, ge=1, le=5)]
+TastingNotes = Annotated[
+    str, StringConstraints(strip_whitespace=True, max_length=1000), NoControlChars
+]
+
+
+class TastingIn(BaseModel):
+    """POST /batches/{id}/tastings. tasted_at: when it was tasted (default: now; without a zone,
+    UTC); the server stores it as t_h, the hours since the batch started. ratings: 0-3 per aroma
+    series or taste (recommender.run.SERIES: the 16 series and sour, sweet, umami, alcohol); a
+    series left out is not rated. Give ratings, a liking, or both."""
+
+    tasted_at: datetime | None = None
+    ratings: dict[str, Rating] = {}
+    liking: Liking | None = None
+    make_again: bool | None = None
+    notes: TastingNotes | None = None  # your own; never shown to anyone else
+
+    @field_validator("ratings")
+    @classmethod
+    def _known_series(cls, v: dict[str, int]) -> dict[str, int]:
+        from fermenttrack.recommender.run import SERIES
+
+        unknown = sorted(set(v) - set(SERIES))
+        if unknown:
+            raise ValueError(f"unknown series or taste {unknown}; one of {', '.join(SERIES)}")
+        return {s: v[s] for s in SERIES if s in v}
+
+    @field_validator("notes")
+    @classmethod
+    def _blank_is_none(cls, v: str | None) -> str | None:
+        return v or None
+
+    @model_validator(mode="after")
+    def _something_rated(self) -> TastingIn:
+        if not self.ratings and self.liking is None:
+            raise ValueError("give at least one rating or a liking")
+        return self
+
+
+class TastingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    batch_id: uuid.UUID
+    t_h: float  # hours since the batch started
+    ratings: dict[str, int]
+    liking: int | None
+    make_again: bool | None
+    notes: str | None
+    created_at: datetime

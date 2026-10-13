@@ -21,7 +21,10 @@ def _to_async_url(url: str) -> str:
     return url
 
 
-engine = create_async_engine(_to_async_url(settings.database_url), future=True)
+engine = create_async_engine(
+    _to_async_url(settings.database_url), future=True,
+    hide_parameters=True,  # a database error never carries (nor logs) the user's values
+)  # fmt: skip
 async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 

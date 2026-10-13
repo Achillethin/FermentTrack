@@ -1,7 +1,8 @@
 """Community recipes' API (design § 10.3; recommender.community holds the rules).
 
 - POST /community-recipes {batch_id, title, pseudonym}: publish one of your finished batches
-  (404 for someone else's). Every automatic check of § 10.3 runs (422 with every reason); a
+  (404 for someone else's). Every automatic check of § 10.3 runs (422 with every reason),
+  the tasting form included (at least one tasting on the batch, routers/tastings.py); a
   batch already published and not rejected is a 409 (a partial unique index settles two
   simultaneous publishes). The recipe is then pending. The response
   carries the privacy notice: the recipe stays in the library if you delete your account,
@@ -26,7 +27,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -46,6 +47,7 @@ from fermenttrack.models import (
     Ingredient,
     RecommendationJob,
     RecommendationLink,
+    Tasting,
 )
 from fermenttrack.recommender import community, grid, service
 from fermenttrack.reminders import now_utc
@@ -131,12 +133,16 @@ async def publish(
         (m.type.lower(), m.measured_at, m.value_numeric)
         for m in batch.measurements if m.value_numeric is not None
     ]  # fmt: skip
+    tasted = await db.execute(
+        select(func.count()).select_from(Tasting).where(Tasting.batch_id == batch.id)
+    )
     source = community.SourceBatch(
         fermentation_type=batch.culture.type, rows=tuple(rows),
         temperatures=tuple((at, v) for t, at, v in readings if t == "temperature"),
         expected_temperature_c=batch.expected_temperature_c,
         ph=tuple((at, v) for t, at, v in readings if t == "ph"),
         started_at=batch.started_at, ended_at=batch.ended_at, outcome=batch.outcome,
+        tastings=tasted.scalar_one(),
     )  # fmt: skip
     if await _published(db, batch.id):
         raise HTTPException(status_code=409, detail=ALREADY_PUBLISHED)
@@ -248,10 +254,15 @@ async def reject(
 
 async def _forecasts_and_made(
     db: AsyncSession, ids: Sequence[uuid.UUID]
-) -> tuple[dict[uuid.UUID, list[CommunityRecipeForecast]], dict[uuid.UUID, int]]:
-    """Per recipe: its forecasts of the current grid version, and "made n×": the distinct
-    people (culture owners) who started a batch from it or a variant of it, its author
-    excluded."""
+) -> tuple[
+    dict[uuid.UUID, list[CommunityRecipeForecast]], dict[uuid.UUID, tuple[int, float | None]]
+]:
+    """Per recipe: its forecasts of the current grid version, and ("made n×", the mean liking):
+    the distinct people (culture owners) who started a batch from it or a variant of it and
+    tasted that batch (at least one tasting), its author excluded; and the mean over those
+    people of each one's mean liking, None unless at least community.LIKING_MIN_PEOPLE of them
+    gave a liking (so the author never reads one person's liking). Counts and a mean only: no
+    tasting's notes."""
     current = await run_in_threadpool(grid.version)
     found = await db.execute(
         select(CommunityRecipeForecast)
@@ -264,18 +275,38 @@ async def _forecasts_and_made(
     forecasts: dict[uuid.UUID, list[CommunityRecipeForecast]] = {}
     for f in found.scalars():
         forecasts.setdefault(f.recipe_id, []).append(f)
-    counted = await db.execute(
-        select(RecommendationLink.community_recipe_id, func.count(distinct(Culture.owner_id)))
+    person = (  # one row per (recipe, person who tasted a batch from it): their mean liking
+        select(
+            RecommendationLink.community_recipe_id.label("recipe_id"),
+            func.avg(Tasting.liking).label("liking"),  # None: no liking given
+        )
         .join(Batch, Batch.id == RecommendationLink.batch_id)
         .join(Culture, Culture.id == Batch.culture_id)
         .join(CommunityRecipe, CommunityRecipe.id == RecommendationLink.community_recipe_id)
+        .join(Tasting, Tasting.batch_id == Batch.id)  # tasted batches only
         .where(
             RecommendationLink.community_recipe_id.in_(ids),
+            Culture.owner_id.is_not(None),
             or_(CommunityRecipe.owner_id.is_(None), Culture.owner_id != CommunityRecipe.owner_id),
         )
-        .group_by(RecommendationLink.community_recipe_id)
+        .group_by(RecommendationLink.community_recipe_id, Culture.owner_id)
+        .subquery()
     )
-    made = {rid: int(n) for rid, n in counted.tuples() if rid is not None}
+    counted = await db.execute(
+        select(
+            person.c.recipe_id, func.count(), func.count(person.c.liking),
+            func.avg(person.c.liking),
+        ).group_by(person.c.recipe_id)
+    )  # fmt: skip
+    made = {
+        rid: (
+            int(n),
+            round(float(liking), 2)
+            if liking is not None and rated >= community.LIKING_MIN_PEOPLE else None,
+        )
+        for rid, n, rated, liking in counted.tuples()
+        if rid is not None
+    }  # fmt: skip
     return forecasts, made
 
 
@@ -302,7 +333,9 @@ async def approved_candidates(
     if not rows:
         return []
     forecasts, made = await _forecasts_and_made(db, [r.id for r in rows])
-    stored = [community.stored(r, forecasts.get(r.id, ()), made.get(r.id, 0)) for r in rows]
+    stored = [
+        community.stored(r, forecasts.get(r.id, ()), *made.get(r.id, (0, None))) for r in rows
+    ]
     return await run_in_threadpool(community.candidates, stored)
 
 
@@ -312,5 +345,5 @@ async def approved_candidate(db: AsyncSession, recipe_id: uuid.UUID) -> communit
     if row is None or row.status != COMMUNITY_APPROVED:
         raise HTTPException(status_code=404, detail="Community recipe not found")
     forecasts, made = await _forecasts_and_made(db, [row.id])
-    s = community.stored(row, forecasts.get(row.id, ()), made.get(row.id, 0))
+    s = community.stored(row, forecasts.get(row.id, ()), *made.get(row.id, (0, None)))
     return await run_in_threadpool(community.candidate, s)

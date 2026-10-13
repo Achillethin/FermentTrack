@@ -25,6 +25,7 @@ from fermenttrack.routers import (
     reminders,
     safety,
     sourdough,
+    tastings,
     webhooks,
 )
 from fermenttrack.routers import community as community_routes
@@ -79,6 +80,7 @@ app.include_router(admin.router)
 app.include_router(recipes.router)
 app.include_router(recommendations.router)
 app.include_router(community_routes.router)
+app.include_router(tastings.router)
 
 
 @app.get("/health")

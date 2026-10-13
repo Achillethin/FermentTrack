@@ -90,6 +90,9 @@ class Batch(Base):
     batch_organisms: Mapped[list["BatchOrganism"]] = relationship(
         back_populates="batch", cascade="all, delete-orphan"
     )
+    tastings: Mapped[list[Tasting]] = relationship(
+        back_populates="batch", cascade="all, delete-orphan", order_by="Tasting.t_h"
+    )
 
 
 class Measurement(Base):
@@ -109,10 +112,13 @@ class Measurement(Base):
 
 
 # Reminder.kind. A stage reminder is superseded (marked done) when the batch changes stage
-# (routers/batches.py advance_stage); a safety reminder (the recommender's "log pH by 48 h",
-# design § 7) is not: only the user closes it (PATCH /reminders/{id}/done).
+# (routers/batches.py advance_stage); no other kind is. A safety reminder (the recommender's
+# "log pH by 48 h", design § 7) is closed by the user only (PATCH /reminders/{id}/done). A
+# tasting reminder (the card's stop-by time: "fill in the tasting form", design § 11.2) is
+# closed by the user, or by the batch's next tasting (POST /batches/{id}/tastings).
 STAGE_REMINDER = "stage"
 SAFETY_REMINDER = "safety"
+TASTING_REMINDER = "tasting"
 
 
 class Reminder(Base):
@@ -409,6 +415,13 @@ class RecommendationLink(Base):
     window: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     # [{key, kind, e, u}]: E and U at the peak per target
     targets: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    # {"t_h": [...], "p": {target: [...]}}: P (score.noticeable) per modelled target on the
+    # card's time axis, hours since the batch started: a tasting at a t_h inside the axis is
+    # scored against np.interp(t_h, t_h_axis, p) (design § 13.2); one outside it is skipped,
+    # never extended (service.p_series_json). Null: no modelled target, or written before 0022.
+    p_series: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     grid_version: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
 
@@ -541,3 +554,38 @@ class RecommendationJob(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+
+class Tasting(Base):
+    """A tasting of a batch (design § 11.2; POST /batches/{id}/tastings, routers/tastings.py),
+    on any batch, recommended or not (the calibration baseline needs both, § 13.2). Deleted
+    with its batch (the relationship cascades on SQLite too, the FK on Postgres).
+
+    t_h: hours since the batch started when it was tasted, computed by the server from the
+    request's tasted_at. ratings: {series or taste: 0-3} over recommender.run.SERIES (the 16
+    aroma series and the 4 tastes; 0 not noticed ... 3 strong; a key absent was not rated).
+    liking 1-5 and make_again may be left out; a tasting has ratings or a liking. notes: the
+    user's own free text, at most 1000 characters: never logged, never shown to anyone else
+    (the community cards count tastings and average their liking, nothing more)."""
+
+    __tablename__ = "tastings"
+    __table_args__ = (
+        CheckConstraint("t_h >= 0", name="ck_tastings_t_h"),
+        CheckConstraint("liking IS NULL OR liking BETWEEN 1 AND 5", name="ck_tastings_liking"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("batches.id", ondelete="CASCADE"), nullable=False,
+        index=True,
+    )
+    t_h: Mapped[float] = mapped_column(Float, nullable=False)
+    ratings: Mapped[dict[str, int]] = mapped_column(JSON, nullable=False, default=dict)
+    liking: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    make_again: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+
+    batch: Mapped[Batch] = relationship(back_populates="tastings")

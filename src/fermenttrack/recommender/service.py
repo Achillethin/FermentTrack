@@ -74,7 +74,7 @@ import threading
 import uuid
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from types import MappingProxyType
 from typing import Any, Literal
@@ -336,6 +336,10 @@ class Evaluation:
     notes: tuple[str, ...]
     penalty: float = 0.0  # Experimental: the parent-relative off-note penalty at the peak
     rising: tuple[str, ...] = ()  # the off-notes behind it (more likely noticeable than the parent)
+    # P (noticeable) per modelled target on the statistics' time axis t_h: Start batch stores it
+    # in the link, so the calibration gate can read P at a tasting's time (design § 13.2)
+    t_h: FloatArray | None = field(default=None, compare=False, repr=False)
+    p: Mapping[str, FloatArray] = field(default_factory=dict, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -484,7 +488,8 @@ def evaluate(
         penalty = score.off_note_penalty(var_p, par_p, keys, chars)
         rising = tuple(o for o in sorted(var_p) if var_p[o] > par_p.get(o, 0.0))
     return Evaluation(
-        win, basis_kind, peak, scores, e_peak, u_peak, tuple(notes), penalty, rising
+        win, basis_kind, peak, scores, e_peak, u_peak, tuple(notes), penalty, rising,
+        t_h=t, p={k: stats.p[k] for k in keys if k in stats.p},
     )
 
 
@@ -1883,7 +1888,28 @@ def _link(
             {"key": s.target.key, "kind": s.target.kind, "e": _num(s.e, 4), "u": _num(s.u, 4)}
             for s in ev.targets
         ],
+        "p_series": p_series_json(ev),
         "grid_version": grid.version(),
+    }
+
+
+def p_series_json(ev: Evaluation) -> dict[str, Any] | None:
+    """recommendation_links.p_series: P (noticeable) per modelled target on the card's time
+    axis, the hours since the batch started (4 decimals; a non-finite value as null). The
+    calibration gate (design § 13.2) reads P_s at a tasting's t_h as np.interp(t_h,
+    p_series["t_h"], p_series["p"][s]) for t_h inside the axis only: a tasting before its first
+    time or after its last is SKIPPED, never scored on an extended (clamped) value. None
+    without a modelled target (a target the engine does not produce is left out: the card
+    called it not modelled)."""
+    if ev.t_h is None or not ev.p:
+        return None
+
+    def num(x: float) -> float | int | None:
+        return _num(x, 4) if math.isfinite(x) else None
+
+    return {
+        "t_h": [num(float(x)) for x in ev.t_h],
+        "p": {k: [num(float(x)) for x in v] for k, v in ev.p.items()},
     }
 
 
