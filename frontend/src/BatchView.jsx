@@ -1437,6 +1437,7 @@ export default function BatchView({ batchId, focus = null }) {
                   type={preview.culture.type}
                   reminder={reminder}
                   upcoming={reminders.upcoming}
+                  targets={preview.recommendation_targets}
                   onChange={tastingsChanged}
                 />
               )}

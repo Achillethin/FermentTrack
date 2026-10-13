@@ -5,14 +5,13 @@ import { parseApiDate } from "../prediction/format.js";
 import { Card } from "../shared.jsx";
 import { deleteTasting, getTastings, postTasting } from "./api.js";
 import {
-  deviceStorage,
   LIKINGS,
   likingWord,
   NOTES_MAX,
   phLine,
   RATINGS,
   ratingSummary,
-  recalledTargets,
+  recommendedTargets,
   TASTING_KEYS,
   tastedWhen,
   tastingPayload,
@@ -44,8 +43,9 @@ function Pills({ legend, name, value, options, onChange, extra }) {
 
 const RATING_OPTIONS = [[null, "skip"], ...RATINGS.map(([n, word]) => [n, `${n} ${word}`])];
 
-function TastingForm({ batchId, startedAt, type, reminder, onSaved }) {
-  const [recalled] = useState(() => recalledTargets(deviceStorage(), batchId)); // Start batch's targets
+// targets: the keys the batch was recommended for (the preview's recommendation_targets), rated first.
+function TastingForm({ batchId, startedAt, type, reminder, targets, onSaved }) {
+  const [recalled] = useState(() => recommendedTargets(targets)); // the card's targets
   const [keys, setKeys] = useState(recalled); // the keys being rated: targets first
   const [ratings, setRatings] = useState({});
   const [adding, setAdding] = useState("");
@@ -304,7 +304,8 @@ function TastingRow({ t, busy, onDelete }) {
 // A batch's tastings (design § 11.2): the form and the list (delete included). Owner only: an
 // admin's read-only view never shows it. headingRef: BatchView moves focus here when prompting.
 // reminder: the due stop-by reminder (its pH line); upcoming: one not due yet, only mentioned.
-export const TastingsCard = forwardRef(function TastingsCard({ batch, type, reminder, upcoming, onChange }, headingRef) {
+// targets: the preview's recommendation_targets (null: not started from a card).
+export const TastingsCard = forwardRef(function TastingsCard({ batch, type, reminder, upcoming, targets, onChange }, headingRef) {
   const [list, setList] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [said, setSaid] = useState("");
@@ -356,7 +357,14 @@ export const TastingsCard = forwardRef(function TastingsCard({ batch, type, remi
           (the stop-by time).
         </p>
       )}
-      <TastingForm batchId={batch.id} startedAt={batch.started_at} type={type} reminder={reminder} onSaved={saved} />
+      <TastingForm
+        batchId={batch.id}
+        startedAt={batch.started_at}
+        type={type}
+        reminder={reminder}
+        targets={targets}
+        onSaved={saved}
+      />
       <h3 ref={listRef} tabIndex={-1} className="mt-5 text-sm font-semibold text-slate-200 focus:outline-none">
         Your tastings{list ? ` (${list.length})` : ""}
       </h3>

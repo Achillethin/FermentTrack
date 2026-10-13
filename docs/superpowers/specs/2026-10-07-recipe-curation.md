@@ -1,7 +1,7 @@
 # Recipe curation (R0): the library behind the recommender's Proven section
 
 **Date:** 2026-10-07
-**Status:** DRAFT, for owner review. Owner decisions Q31–Q32 (2026-10-08) are applied.
+**Status:** IMPLEMENTED (2026-10-13). B1 of the recommender build (`8241879` on `feat/recommender-spec`) froze it into the v1 library; § 8 has the notes. Owner decisions Q31–Q32 (2026-10-08) are applied.
 - 17 recipes are curated in § 3; 13 are active.
 - 10 sourdough catalogue mappings are in § 3a; 7 are active and hand off to the sourdough planner.
 **Design:** `2026-10-07-fermentation-recommender-design.md` § 4.
@@ -9,7 +9,7 @@
 
 ## 1. How to read this
 
-The tables in § 3 are the input to `scripts/build_recipes.py`, which writes the frozen `src/fermenttrack/recommender/recipes_v1.csv` and `recipe_ingredients_v1.csv`. The drafts are evidence; **this file is the decision**.
+The tables in § 3 are the decisions that `scripts/build_recipes.py` applies to the research drafts to write the frozen `src/fermenttrack/recommender/recipes_v1.csv` and `recipe_ingredients_v1.csv`. The script encodes them as data, each citing its section here, and `tests/test_recommender_library.py` checks the result against these tables. The drafts are evidence; **this file is the decision**.
 
 Per recipe, the curation applies these rules, in order:
 
@@ -128,3 +128,71 @@ Ranked by recipes they would unlock or improve.
 - Noma-style koji garum: only secondary culinary pages so far, so not used.
 - Quark or cultured-milk curd, and a backslopped or mother-culture kefir: no single opened source stated dose, temperature and time together (dairy curator leads).
 - Vinegar: the profile range (24–30 °C) excludes the cooler home-cider envelope. This goes to the engine track, like the cheese item in § 5.
+
+## 8. Implementation notes (2026-10-13)
+
+**Build.**
+- `scripts/build_recipes.py` reads `docs/superpowers/research/recipes/*_draft_v0.*.csv` and applies every decision in §§ 1, 3, 3a and 4. The decisions are encoded as data in the script, each with a comment citing its section here. A draft key without a decision fails the build.
+- Q25 widening, `envelope_basis` and `model_scope` are derived from `prediction/profiles.py`.
+
+```bash
+python scripts/build_recipes.py           # rewrites both v1 files
+python scripts/build_recipes.py --check   # exit 1 if the committed files differ from a fresh build
+```
+
+**Tests:** `tests/test_recommender_library.py` checks the files against this spec, among others with:
+- `test_twenty_active_four_draft_and_no_excluded_styles`;
+- `test_v1_matches_the_curated_recipe_table` and `test_v1_matches_the_sourdough_table`;
+- `test_rice_koji_is_split_15_to_17`;
+- `test_sand_lance_books_anchovies_as_a_labelled_stand_in`;
+- `test_kimchi_keeps_chilies_labelled_and_new_seasonings_optional`;
+- `test_rename_and_cider_temperature`;
+- `test_q25_widens_single_values_and_clips_in_range_temperatures`;
+- `test_ingredient_medians_sum_to_1000_g_per_kg`.
+
+**v1 counts:** `recipes_v1.csv` has 24 rows.
+- **20 active:**
+  - the 13 curated recipes of § 3;
+  - the 7 sourdough styles of § 3a.
+- **4 draft:** dill pickles, carrot sticks, barley koji and budu. Draft recipes are library data (`GET /recipes?status=draft`) and are never served.
+- **3 excluded:** poolish, biga and Type III are not in v1 (`GET /recipes/{key}` is a 404).
+
+The per-type split is § 2's table.
+
+**Q31 (sourdough → planner), as built:**
+- Each of the 7 styles carries `handoff = planner` and its `planner_style`.
+- **Matching and scoring:** like any recipe. The grid runs the levain build through `bake.py` with the style's own flour; the v1 rows book every wheat as `White wheat flour`.
+- **No duration:** the four planner-timed styles (`home_starter`, `levain_liquide`, `levain_dur`, `lievito_madre`) run to the profile's horizon.
+- **Start batch** answers 409 with a planner link (`#/levain?p=…`, the planner's share format), pre-filled with the style at the served temperature and scaled to the batch size.
+- **Window and slider:** the window is the levain peak's P10 / P50 / P90 from the grid. Type II is source-only at 37 °C, so its window comes from the source. Sourdough cards have no temperature slider.
+- **Variants:** (ii) flour swap and (iii) temperature only. Search deeper leaves sourdough parents out, your own sourdough batch can't be a parent (422), and community publishing refuses sourdough.
+- **E1:** the sourdough styles have no ingredient query (their core is all staples), so they are listed as ineligible, not counted as misses.
+- **Not built:** the planner doesn't carry the card's id, so a batch it creates gets no recommendation link (an open item in the design's § 17.12).
+
+**Q32 (unmapped species), as built:**
+- `pacific_sand_lance_rice_koji_fish_sauce` books `Anchovies` at 800 g/kg, labelled "stand-in species: recipe uses Pacific sand lance".
+- Its rice koji is split into `White rice` 70.6 + `Water` 9.4 g/kg, and `temp_schedule` is `0:20;48:18`.
+- At its 18 °C median it is source-only, below the garum profile's 20 °C, so its window comes from the source. It is also beyond the horizon.
+- Its 12.0 % salt passes the garum salt minimum the gate added later (8.3 %, design § 7). That minimum is the low end of this recipe's own 8.3–15.4 %.
+
+**Also as decided in § 3:**
+- kimchi keeps `Chilies` with its label, and its two `new` seasonings are optional rows;
+- both misos and the sand lance split rice koji 15 : 17;
+- `green_tea_kombucha_variant` became `green_dominant_kombucha`;
+- cider vinegar runs at 21.1 (15.6–26.7) °C.
+
+All three salt-barrier recipes pass the minimums: shiro miso 6.1 %, red miso 11.9 %, sand lance 12.0 %.
+
+**Use levels:** `ingredient_use_levels_v1.csv` (tier T3) has 16 rows. They were bootstrapped only from the tier-T2 ingredient rows of the active recipes above, each sourced to its recipe row.
+
+**Evaluation on this library** (design § 13.1, on the committed grid):
+
+| id | result |
+|---|---|
+| E1 | 11/11 eligible recipes in the top 3 for their own ingredients. The 9 ineligible ones are the 7 sourdough styles and the 2 kombuchas |
+| E2 | 5/6 = 83.3 %. Kimchi is the miss (rank 17) |
+| E3 | 15/16 = 93.8 %, and 8/9 = 88.9 % without the source-only and beyond-horizon recipes. Kimchi is the only miss |
+
+The kimchi misses are an engine-calibration item, not a curation one. By 72 h the engine brings only 1–11 % of kimchi members to pH 4.6, so the window collapses at the safety milestone. It joins the engine-track items of § 5.
+
+The follow-up curation list in § 7 is unchanged and still open.

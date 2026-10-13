@@ -91,7 +91,8 @@ class Batch(Base):
         back_populates="batch", cascade="all, delete-orphan"
     )
     tastings: Mapped[list[Tasting]] = relationship(
-        back_populates="batch", cascade="all, delete-orphan", order_by="Tasting.t_h"
+        back_populates="batch", cascade="all, delete-orphan",
+        order_by="(Tasting.t_h, Tasting.created_at, Tasting.id)",  # as GET /batches/{id}/tastings
     )
 
 

@@ -27,11 +27,12 @@
   older ones being deleted as you start new ones.
 - GET /recommendations/calibration: the latest report of the calibration gate (design § 13.2,
   recommender.calibration) for any signed-in user, aggregates only, with every score and bin
-  value hidden below 30 batches and a bin's values below 3 ratings (calibration.public_json;
-  404 before the first one). Admins only: GET /admin/calibration (the full latest report) and
-  POST /admin/calibration/recompute (runs the gate now, answers the full report). While the
-  latest report passes, the cards of POST /recommendations carry their numbers ("calibrated on
-  n batches"), read from the process's cached report (no query per request).
+  value hidden below 30 batches and a bin's values while its ratings come from fewer than 3
+  batches (calibration.public_json; 404 before the first one). Admins only: GET
+  /admin/calibration (the full latest report) and POST /admin/calibration/recompute (runs the
+  gate now, answers the full report). While the latest report passes, the cards of POST
+  /recommendations carry their numbers ("calibrated on n batches"), read from the process's
+  cached report (no query per request).
 
 All of them need a signed-in user (anonymous sessions included); the library itself is public
 (GET /recipes). A parent batch must be the user's own (404 otherwise); a community recipe must

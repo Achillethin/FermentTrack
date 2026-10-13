@@ -1,7 +1,7 @@
 # Fermentation Recommender — Design
 
 **Date:** 2026-10-07
-**Status:** DRAFT. This is the outcome of a grilling session with the owner on 2026-10-07/08 (decisions Q1–Q33). Nothing is implemented yet.
+**Status:** IMPLEMENTED (2026-10-13) on branch `feat/recommender-spec`: phases B1–B12 in commits `8241879` (B1) to `9c3f108` (B12), after this spec (`287e897`) and its build plan (`2f0c7bd`); B13 (documentation and code follow-ups) closes the range. The decisions (Q1–Q35) come from a grilling session with the owner on 2026-10-07/08, plus two owner decisions during the build (Q34, Q35). **§ 17 lists every deviation, decision and measured number from the build**; where an owner or orchestrator decision changed the text above it, the text was edited and § 17.1 says where.
 **Builds on:**
 - `2026-09-24-fermentation-prediction-design.md`: the kinetic ensemble, `predict()`, temperature schedules and milestones.
 - `2026-10-02-flavour-nutrition-design.md`: taste activity, odour activity value (OAV), the "noticeable" probability, and its wording rules.
@@ -102,6 +102,8 @@ All of these are on the roadmap in § 15.
 | Q31 | Sourdough | Sourdough cards **hand off to the existing planner**: Start opens `/sourdough/plan` pre-filled with the style, and the window is the planner's forecast. The 7 sourced catalogue styles are active; poolish, biga and Type III are excluded. Sourdough variants use operators (ii) and (iii) only |
 | Q32 | Unmapped species | A fish missing from the catalogue (Pacific sand lance) is booked as `Anchovies`, labelled "stand-in species" |
 | Q33 | Delivery of this spec | Committed on `feat/recommender-spec`; PR after owner review |
+| Q34 | Export of recommendation links (2026-10-09) | Recommendation links are **not** included in `/me/export`; tastings are |
+| Q35 | Calibrated display (2026-10-13) | The number shown once calibrated is P (noticeable) at the peak; "model estimate, not validated" stays alongside "calibrated on n batches" |
 
 ## 3. Architecture
 
@@ -165,7 +167,7 @@ The pipeline mirrors the aroma catalogue exactly:
 | build | `scripts/build_aroma_compounds.py` | `scripts/build_recipes.py` |
 | frozen artefact | `prediction/aroma_compounds_v1.csv` | `recommender/recipes_v1.csv` and `recommender/recipe_ingredients_v1.csv` |
 
-**Frozen means frozen:** a change is `_v2` plus a new grid. Only the build script writes the `_v1` files; it reads the curation spec's tables, never the drafts.
+**Frozen means frozen:** a change is `_v2` plus a new grid. Only the build script writes the `_v1` files. It reads the research drafts and applies the curation spec's decisions, which are encoded as data in the script, each with a comment citing its curation section; tests check the result against the curation spec's tables (B1, 2026-10-08; § 17.2).
 
 ### 4.2 Schema
 
@@ -425,7 +427,7 @@ Shown under the results as "Not what you wanted? Search deeper (takes a few minu
 - **Then:** `status = pending`.
 
 **Review:** `GET /admin/community-recipes?status=pending`, then `POST /admin/community-recipes/{id}/approve|reject {reason}`.
-- Admin is a new allow-list of Supabase subjects in `FERMENTTRACK_ADMIN_SUBS`; no role system exists yet. The `feat/admin` branch only touches the Account page.
+- Admin is the existing allow-list of Supabase user ids (`sub`) in `FERMENTTRACK_ADMIN_USER_IDS`, checked by `auth.require_admin`; no role system exists yet. (Build plan § 0: this supersedes the `FERMENTTRACK_ADMIN_SUBS` first proposed here.)
 - Approval enqueues one forecast job per grid temperature into `community_recipe_forecasts` (same statistics as the grid).
 
 **Display:** a third section, **"Community — not proven"**.
@@ -517,7 +519,7 @@ Once **≥ 30 tasted batches** carry a recommendation link:
   - the upper bound of the paired-bootstrap 90 % CI of (Brier_model − Brier_baseline) is < 0;
   - **and (B11 review, 2026-10-13)** the 5th percentile of the bootstrap AUC of P against "noticed" is > 0.5. The AUC compares ratings **within each (type, series) cell**, so it is a pooled within-cell Mann–Whitney with ties counted as ½. A resample whose cells all lack one class counts as 0.5, the conservative choice.
   - **Why the AUC condition:** the leave-one-batch-out baseline carries a built-in penalty of about π(1−π)/n. In simulation, a model that only knows each type's base rate passed the Brier condition alone 29–54 % of the time; with the AUC condition that drops to about 0 %, while real models keep their power. An AUC over all ratings together would still pass base-rate models 30–42 % of the time when types differ, because P separates the types; within cells a base-rate model's AUC is exactly 0.5.
-  - **Privacy:** `GET /recommendations/calibration` (public) hides every score and per-bin value below 30 batches, and per-bin values for bins with fewer than 3 ratings. Admins read the full report at `GET /admin/calibration`. Numbers turn off if the latest report is older than 14 days.
+  - **Privacy:** `GET /recommendations/calibration` (any signed-in user, anonymous sessions included) hides every score and per-bin value below 30 batches. It also hides the per-bin values of any bin whose ratings come from fewer than 3 distinct batches (B13, 2026-10-13: this was 3 ratings, but one batch tasted three times is still one person's). Admins read the full report at `GET /admin/calibration`. Numbers turn off if the latest report is older than 14 days.
 - **Reporting:** a reliability diagram with 5 bins, and the number of batches and ratings.
 
 Until the gate passes, scores show as Low / Med / High. After it passes, the numbers appear with "calibrated on *n* batches". The gate re-runs weekly, and numbers turn off again if it fails.
@@ -530,7 +532,7 @@ Until the gate passes, scores show as Low / Med / High. After it passes, the num
 | R1 Proven | engine hooks (§ 9); `gate.py`; grid builder (the sourdough styles via `bake.py`) and staleness test; `score.py`, `window.py`; `POST /recommendations` (Proven); `POST /recommendations/forecast`; `POST /batches/from-recommendation` and `recommendation_links`; sourdough hand-off to the planner; Ideas page | E1, E3 (Proven), E4–E6 green |
 | R2 Experimental | `operators.py` (i, ii, iii, v); `ingredient_use_levels_v1.csv`; tiers T0–T3 and `ADDING_AN_INGREDIENT.md` tests; screening; Experimental section; own-batch parent; deep-search jobs and waiting UI | E2, E4 over variants, job lifecycle tests green |
 | R2b Community | publish, admin queue, `community_recipe_forecasts`, third section, `DELETE /me` and `/me/export` handling | publish, approve and serve tests; privacy tests |
-| R3 Feedback | `tastings` table and form; reminders at stop-by | form shipped; tastings exported in FermentJSON |
+| R3 Feedback | `tastings` table and form; reminders at stop-by | form shipped; tastings exported in the `/me/export` JSON (B10: there is no FermentJSON export to extend) |
 | R4 Gate | calibration job, reliability report, Low/Med/High ↔ numbers switch | § 13.2 implemented; gate decision logged |
 
 Each increment gets its own plan in `docs/superpowers/plans/` and its own PR. Tests co-land with each one.
@@ -569,4 +571,460 @@ Treat each rating as an ordinal observation of *L*ₛ at tasting time: P(rating 
 - **Grid size or build time** could grow with the library and operators. Mitigation: the § 8.2 budget, the release-asset fallback, and the emulator later.
 - **Render sleep** interrupts deep-search jobs. Mitigation: persisted queue, resume on startup, user-visible status.
 - **Safety-service scope mismatch:** salt rules apply to all `lactic` types in batch safety. This is noted, not fixed here; the recommender's gate scopes them to `lacto_ferment`. Raise it as a separate fix.
-- **Admin:** there is no role system. The `FERMENTTRACK_ADMIN_SUBS` allow-list is the minimum; revisit with account claiming.
+- **Admin:** there is no role system. The `FERMENTTRACK_ADMIN_USER_IDS` allow-list is the minimum; revisit with account claiming.
+
+## 17. Implementation notes (2026-10-13)
+
+Built in phases B1–B13 under `docs/superpowers/plans/2026-10-08-recommender-build.md`, whose § 5 is the handoff log (review rounds, accepted deviations, measured numbers). This section gathers what the build changed or decided, by section of this spec. Names in `code` are the shipped modules, constants and tests.
+
+### 17.1 Phases, migrations and text changed
+
+| phase | scope | commit |
+|---|---|---|
+| B1 | recipe library (R0) | `8241879` |
+| B2 | engine hooks (§ 9) | `fd919d6` |
+| B3 | gate, score, window | `27a704a` |
+| B4 | grid v1 | `f4364d9` |
+| B5 | Proven API | `8e78b20` |
+| B6 | Ideas page, Proven | `f7c460d` |
+| B7 | Experimental backend | `4c18db4` |
+| B8 | search deeper | `5ef3cd3` |
+| B9 | community recipes | `f6393e5` |
+| B10 | tastings | `b653742` |
+| B11 | calibration gate | `f42aeaf` |
+| B12 | frontend R2–R4 | `9c3f108` |
+| B13 | docs; code follow-ups from the handoffs | last commit of the branch |
+
+**Migrations:**
+- `0019`: `recommendation_links`, and `reminders.kind`;
+- `0020`: `recommendation_jobs`;
+- `0021`: `community_recipes`, `community_recipe_forecasts`, plus `recommendation_links.community_recipe_id` (now a foreign key) and `parent_batch_id`;
+- `0022`: `tastings` and `recommendation_links.p_series`;
+- `0023`: `calibration_reports`.
+
+**Code layout (§ 3), as shipped:**
+- `recommender/`: `library`, `gate`, `operators`, `score`, `window`, `grid`, `screen`, `jobs`, `service`, plus:
+  - `run.py`: how a recipe runs through the engine, shared by the grid builder and the live paths;
+  - `community.py`;
+  - `calibration.py`.
+- Routers: `recipes`, `recommendations` (which also carries the calibration routes), `community` and `tastings`. `me.py` gained `GET /me/community-recipes`.
+
+**Text edited because of an owner or orchestrator decision:**
+- § 4.1: the build reads the drafts plus the encoded curation decisions (B1).
+- § 10.3 and § 16: admin is `FERMENTTRACK_ADMIN_USER_IDS` with `auth.require_admin` (build plan § 0). The obsolete note on the `feat/admin` branch was removed.
+- § 14, R3: tastings are exported in the `/me/export` JSON (B10).
+- § 13.2, privacy: a bin's public values need 3 distinct batches, not 3 ratings (B13; build plan § 2, B13a item 9).
+
+**B13 code follow-ups** (B13a, from the B1–B12 handoffs):
+1. **USDA label fix (B9 bug):** publishing labelled catalogue ingredients that have an FDC link as USDA picks, and could drop their aroma data. A row is now a USDA pick only when it has an `fdc_id` **and** its name is not a catalogue name (`community.usda_pick`). Recipes stored earlier are read with the same rule, so no migration was needed (§ 17.9).
+2. **Test isolation:** `alembic/env.py` calls `fileConfig(..., disable_existing_loggers=False)`. This fixes the order-dependent `test_a_community_recipe_that_cannot_be_served_is_left_out`.
+3. **Helpers made public**, for `jobs.py` and `community.py`:
+   - `service.prerank`, `service.parent_combinations`, `service.live_variant`;
+   - `service.link_columns`, `service.forecast_body`, `service.live_json`, `service.model_note`;
+   - `grid.mix`.
+4. **Tastings order:** `Batch.tastings` is ordered by `t_h`, `created_at`, `id`.
+5. **Tasting targets from the server:** the batch preview carries `recommendation_targets`, and the tasting form uses it. The `ft.tasting-targets.<id>` localStorage key is gone (§ 17.10).
+6. **Sign-out and account change:** sign-out clears every `ft.*` localStorage key (`frontend/src/storage.js`, `clearAppKeys`). A session for a different account than the one recorded in `ft.owner` also clears them (`claimAppKeys`, called from `auth.js` `onAuthStateChange`). A guest who adds an email keeps the same user id and keeps the keys, and keys from before this change are adopted by the current user.
+7. **Pinned constants:** `tests/test_frontend_constants.py` pins the constants the frontend copies against the backend:
+   - the "Before tasting" pH line;
+   - the acid-safety types;
+   - the tasting clock skew;
+   - the privacy notice and the pseudonym rule;
+   - the calibrated label and the calibration gate's batch count, display period and "too few" reason.
+8. **Calibrated label:** a slider move or a confirmation now drops a card's calibrated numbers **and** its "calibrated on *n* batches" label.
+9. **Calibration:**
+   - `NO_CONTRAST` is a reason of its own (§ 17.11);
+   - `PUBLIC_BIN_MIN` is counted in distinct batches.
+
+**Full test suite after B13a: 1206 passed, 65 xfailed, 0 failed.** The baseline on `master@c438cd9` was 600 passed, 65 xfailed.
+
+**Edited during the build and kept:**
+- § 4.3 Q26, the temperature rule (B5);
+- § 7: safety lines by barrier (B3) and SALT-BARRIER (B9);
+- § 8.1: *U* across targets is an approximation (B3);
+- § 13.1, E1: eligibility (B5);
+- § 13.2: the AUC condition (B11).
+
+### 17.2 Library (§ 4)
+
+- **Build** (§ 4.1): `scripts/build_recipes.py` reads `research/recipes/*_draft_v0.*.csv` and applies every curation decision, kept as data in the script with a comment citing the curation section.
+  - Q25 widening, `envelope_basis` and `model_scope` are derived from `prediction/profiles.py`.
+  - `--check` exits 1 when the committed files differ from a fresh build.
+  - `tests/test_recommender_library.py` cross-checks the output against the curation tables.
+- **v1 contents:**
+  - 20 active: the 13 curated recipes, plus the 7 sourdough styles with `handoff = planner` and a `planner_style`;
+  - 4 draft: dill pickles, carrot sticks, barley koji, budu;
+  - not in v1: poolish, biga, Type III.
+- **Extra columns:**
+  - recipes: `handoff` and `planner_style`;
+  - ingredient rows: `label`, for example "stand-in species: recipe uses Pacific sand lance".
+- **`library.py`:**
+  - `active()` returns servable recipes; `get(key)` also returns drafts, so serving code uses `active()`.
+  - `STAPLES` excludes Rennet: it is a coagulant, so it counts as an ingredient to buy.
+  - Salt % comes from the ingredient rows. Kimchi is 3.5 % with its optional rows.
+- **API:** `GET /recipes?type=&status=active|draft` and `GET /recipes/{key}` need no token. Excluded styles are 404.
+- **§ 4.3 Q26, cross-checked against `service.resolve_temperature`:** the text holds. Two precisions:
+  - On cards, `model_c` is the served temperature clamped to the recipe's grid temperatures. Between grid temperatures the statistics are interpolated linearly, so "nearest grid temperature" applies only outside the grid's span.
+  - At their served (median) temperature, 5 recipes are source-only: black-tea kombucha, lactic cheese, cider vinegar, the sand-lance fish sauce and sourdough type II (`test_source_only_is_set_for_exactly_five_recipes_at_their_median`).
+- **Trust label:** "source temperature outside the model's range: forecasts use the nearest in-range temperature" shows only when the served temperature is outside the profile's range. Otherwise a recipe whose span leaves the range says "part of the documented temperature range is outside the model's range".
+
+### 17.3 Candidates, scoring and ranking (§ 5)
+
+- **Request** (§ 5.1):
+  - `community_recipe_id` (an approved community recipe as the Experimental parent) and `batch_g` (default 1000 g; cards scale to it) were added;
+  - `mode` defaults to `proven`;
+  - at most 20 ingredients and 5 USDA ids;
+  - `parent_batch_id`, `community_recipe_id` and `usda_fdc_ids` need mode `experimental` or `both`;
+  - one parent at most.
+- **Staples never exclude a recipe** (B5). A must-include ingredient missing from the parent is added by (i) or (v), or swapped in by (ii); that operator counts toward the 3.
+- **Operators** (`recommender/operators.py`):
+  - **(i) add:** only `flavoring` rows of `ingredient_use_levels_v1.csv` for the parent's type, at the row's median share. The ingredient must be T3.
+  - **(ii) swap**, *owner to confirm*: a core `base` or `flavoring` row (never salt or sugar) is replaced, mass kept. The substitute is a catalogue ingredient at T2 or above with the same role, tagged for the parent's type **and for every type the replaced ingredient is tagged for**. The second condition keeps substitutes of the same kind: rice koji never becomes fish in a fish sauce.
+  - **(iii) temperature:** the first stage moves to a temperature inside the profile's range, outside the documented span, that passes the gate. The candidates are the profile's `temp_range[0]`, `temp_c` and `temp_range[1]`, plus the user's temperature. A temperature variant is served at that temperature, with no slider.
+  - **(v) USDA**, *owner to confirm*: a picked USDA food, or a must-include catalogue ingredient at T0 or T1, at a fixed **5 %** share (`USDA_SHARE`, half the 10 % ceiling; no typical use level exists). It applies to salted or acidified types only. **A staple is never a (v) food**: staples are the rows the recipe already sets, and salt and sugar must stay as they are.
+  - **At most 3 operators** (`MAX_OPERATORS`). They touch disjoint ingredients, with at most one temperature operator. Every path runs the gate.
+  - **Salt and sugar % are preserved** by shrinking every other row. (i) and (v) therefore dilute acidifying rows, such as vinegar and starter liquid, by up to 5 % (open item, § 17.12).
+  - **Sourdough** takes (ii) on its flour row, and (iii); nothing else.
+- **Parents:**
+  - an active library recipe;
+  - your own batch (`parent_batch_id`):
+    - it must be yours (404 otherwise); sourdough is a 422;
+    - its variants run live, at most 3 per request;
+    - a retired or unknown ingredient row makes the salt % unknown, so the gate refuses;
+  - an approved community recipe, **only when named** by `community_recipe_id`: live, at most 3 variants, labelled "community recipe".
+- **Ranking** (§ 5.4):
+  - Proven ties end on the recipe key. Experimental ties end on the fewest operators, then the card id. Equal requests therefore give equal JSON (E5).
+  - Experimental shows the best variant per parent, for 3 parents. The best variant of an own-batch or community parent leads the section.
+  - The off-note penalty compares the variant with the parent as the parent's Proven card serves it.
+  - `mode=experimental` returns `proven: null`.
+- **Unmodelled targets:** a target series the engine does not produce for a ferment is absent from the grid, never zero. It scores 0, and the card says "not modelled for this ferment".
+
+### 17.4 Time window (§ 6)
+
+`recommender/window.py` is a pure function of the grid statistics.
+
+- **Source-only (Q26):** when the served temperature is outside the profile's range, the window is the documented (*d*_lo, *d*_med, *d*_hi) in every mode. Experimental gets no 1.5 × extension, and E3 uses this window unclipped too. The card's note names the safe documented temperatures, the range the model covers and the temperature aroma is computed at.
+- **Beyond the horizon:**
+  - aroma and the peak are searched up to the horizon only;
+  - taste from is max(*d*_lo, *t*_safe);
+  - stop by is the ceiling (*d*_hi, or 1.5 · *d*_hi for Experimental), and the decline and off-note rules don't apply;
+  - when no model time is left inside the window, the peak is *d*_med, time-shifted.
+- **Safety milestone late:** *t*_safe is the milestone's P90 crossing, or the end of the model run when 90 % of members don't reach it. If *t*_safe lies past the ceiling, the window collapses to that one time, with the note "modelled acidification (P90) is slower than the documented duration". This is what happens to kimchi (§ 17.11).
+- **No targets:** the peak shift uses the profile's **first** milestone as its main milestone.
+- **An off-note before the peak:** the peak is searched only up to the off-note.
+- **Temperature dependence:** a card interpolates the grid's statistics (*E*, *U*, *P* and the milestone times) linearly in temperature, then computes the window from them. It does not interpolate three windows. Outside the grid temperatures the statistics are clamped.
+- **Sourdough:** the window is the levain peak's P10 / P50 / P90 from the grid (the planner's own engine), or the source when the style is source-only (type II).
+- **Community** cards use the Proven rule: up to *d*_hi, never before *d*_lo.
+
+### 17.5 Safety gate (§ 7)
+
+The table in § 7 was cross-checked against `recommender/gate.py`:
+- the card lines are verbatim (`PH_DEADLINE_LINE`, `PH_LOG_LINE`, `KOJI_TEMP_LINE`, `TANE_KOJI_LINE`, `SALT_BARRIER_LINE`, `VINEGAR_LINES`);
+- `ACID_SAFETY_TYPES` and `SALT_BARRIER_MIN_PCT` (miso 4.0, garum 8.3) match.
+
+Implementation details:
+- **Fails closed:** on an unknown type, a missing, non-finite or negative mass, or a non-finite temperature.
+- **SALT-001/002**, like SALT-BARRIER, must hold both with and without the optional rows. Only the `Salt` row counts: salt inside other ingredients, such as kimchi's salted shrimp, is not added, which is stricter.
+- **KOJI-001's certified exception** applies only when `Koji spores (A. oryzae)` is the **sole** starter. The service then serves up to 35 °C (the profile maximum and the card's koji line), and otherwise up to 33 °C. Start batch above the cap clamps and answers 201 rather than refusing (B5).
+- **Where the gate runs:**
+  - on the served temperature and both slider ends;
+  - on every grid temperature: those that fail are dropped from the grid (garum at 60 °C fails TEMP-001).
+- **Vinegar's acidity lines** are card lines, not gate rules.
+- **Open:** the batch safety service still maps koji, miso and garum to its `lactic` / `enzymatic_koji` schemes and applies BOT-002 to them (§ 17.12).
+
+### 17.6 Grid (§ 8)
+
+- **`recommender/run.py`** turns a recipe into a forecast and a forecast into statistics. The builder and the live paths share it; B4's review moved it out of `scripts/` because scripts aren't importable at runtime. A recipe runs like a logged batch:
+  - `RecipeIn` rows at the median g/kg, with `liquid` booked as `base` and `new` rows skipped;
+  - nutrients as the database seeds them: the `fdc_nutrients_v1` snapshot, else the `fdc_catalog_v1` food of `INGREDIENT_FDC_IDS_V4`;
+  - the type's default organisms;
+  - the expected temperature or the planned schedule. Later stages of a schedule are clipped into the profile's range.
+- **Sourdough** runs through `bake.member_values`, with the style's own flour. The levain is held for max(grid end, 48 h), and milestones are searched over [0, 48 h]. Planner styles without a duration run to the horizon.
+- **Numbers**, from the manifest:
+  - **188 entries**:
+    - 59 recipe entries: 20 recipes × up to 3 gate-passing temperatures, with garum's 60 °C dropped;
+    - 129 single-operator entries, from 71 single operators: 1 add, 42 swap and 28 temperature. (v) is user-specific and runs live only.
+  - **177,559 B**, against the 5 MB budget. § 8.2 estimated 3–5 MB for about 1.9 k forecasts.
+  - **509.5 s on 4 workers.** B4 alone (59 entries) was 62,327 B and 176 s.
+  - **160 members per forecast; bake uses 128.**
+  - Statistics satisfy *U* ≥ *E* − 0.1 · (1 − *U*), the bound for a P90 of values in [0, 1].
+- **Determinism:** the caches are cleared per entry, so any worker count and order give the same file, byte for byte, on one platform.
+- **Staleness** (§ 8.3), `tests/test_recommender_grid.py`:
+  - **`test_grid_is_current`** compares:
+    - the hashes of the § 8.3 inputs, with line endings normalised;
+    - the engine's, bake's and derived layer's versions, τ and the schema;
+    - the set of active recipes and the operator catalogue.
+
+    On a mismatch it fails with "grid is stale (…): run `python scripts/build_recommender_grid.py --workers 4`".
+  - **Engine sources are not hashed** (orchestrator decision). Instead, a rebuild canary, `test_a_rebuilt_entry_matches_the_committed_one`, solves again one entry per fermentation type (9) plus 2 operator entries and compares them with the committed ones: exactly on the platform that built them, within a float16 step elsewhere.
+  - `test_grid_size` checks the budget.
+- **The manifest also records:** the bake and derived versions, the kept and dropped temperatures (with the gate's reasons) per recipe and operator, the platform, the worker count and the slowest entries.
+- **Builder options:** `--workers N`, and `--recipes KEY … --out DIR` for a subset.
+
+### 17.7 Additive screening (§ 8.5)
+
+- **`recommender/screen.py`** screens in logit space, clipped at ±6, for *E*, *U* **and *P***. *P* is needed by the window's off-note rule and by the penalty.
+- **Like-for-like terms:** the parent term is read at the variant's temperature, and each operator's pair (*p* + *k*, *p*) at one temperature where the grid has both.
+- **Absent series:** a series missing from one entry but present in another counts as 0 (logit −6). Missing everywhere, it stays absent.
+- **Milestones** take the latest crossing over the components, so tasting is never placed earlier than any component allows. The top compound of each series comes from the entry with the highest *E*.
+- **Selection:** combinations are pre-ranked with vectorised arithmetic, and the best 4 per parent (`EXACT_PER_PARENT`) are scored exactly.
+- **(v) foods** have no grid entry, so screening gives them no effect until a live forecast confirms them.
+- **Confirmation:** `POST /recommendations/forecast` with the card's operators runs a live 64-member forecast. The response carries `screened_e_peak` and `interaction_detected`, which is set when the confirmed *E*(peak) < 0.8 × the screened value.
+- **Cache and log:**
+  - live forecasts are kept in process by input fingerprint (128 entries);
+  - fresh ones are appended as JSON lines to `FERMENTTRACK_CANDIDATES_PATH`, when it is set;
+  - records carry no ids: a parent batch is logged as "own_batch", a community parent as "community";
+  - a write failure is logged and never fails the request.
+
+### 17.8 Engine hooks (§ 9)
+
+- **Signatures:**
+  - `PredictionInputs.planned_temperature`;
+  - `predict(inputs, temperature_c=None, horizon_h=None, members=None)`;
+  - `member_values(inputs, horizon_h, members=None)`.
+- **The planned temperature also fills the gaps between readings.** It sets the future and is used with readings too, not only without them (B2, deviation 7).
+- **A what-if replaces the stage in effect at "now".** For a card's recipe, which has no readings, that is the first stage, so Q27's "the slider shifts only the first stage" holds on cards.
+- **An empty plan** gives byte-identical outputs and fingerprints (checked on 32 outputs).
+- **Ensemble size:**
+  - an explicit `members` has no fallback, and gives exactly that many members only when there are no readings;
+  - the posterior cache is keyed `fingerprint|members`;
+  - pooled learning comes only from the default ensemble;
+  - 64 members cost about 0.65–0.7 × a 160-member run.
+- **Reporting:** the plan is reported as `source="expected"`, with the plan in the assumption line.
+- **Recommended staged batches:** their forecasts (`routers/prediction.py`) read `recommendation_links.temp_schedule`. A stored schedule wins over a later edit of the batch's expected temperature (a documented limitation).
+- **One change outside `service.py`:** `bake.member_values` also returns the derived taste and aroma values. It is additive and was verified byte-identical.
+
+### 17.9 Live paths (§ 10)
+
+**§ 10.1, the per-card forecast:**
+- **Members and `model_c`:** 64 members (`FORECAST_MEMBERS`). `model_c` is the served temperature clamped to the profile's range, the exact nearest temperature the model covers. The run is summarised by `run`, the grid builder's own code. When `model_c` differs from the served temperature, the card says "aroma, taste and timings computed at …".
+- **Input:** one of `recipe_key`, `parent_batch_id` or `community_recipe_id`, plus `operators`, the targets, `temperature_c` and `batch_g`.
+- **Output:**
+  - the window and level;
+  - *E* and *U* at the peak, overall and per target;
+  - bands (`t_h`, `e`, `u`) per target;
+  - safety lines, notes and the member count;
+  - for variants, the screening fields of § 17.7.
+- **Sourdough** answers with its planner link.
+- **Errors:** a library recipe the engine cannot run is logged and answered with 500 (`RecipeError`); an engine that cannot run at all answers 503.
+- **No calibrated numbers:** the forecast never carries them. After a slider move or a confirmation, the Ideas page drops a card's numbers and its "calibrated on *n* batches" label.
+
+**§ 10.2, search deeper:**
+- **Endpoints:**
+  - `POST /recommendations/deep-search` answers:
+    - 202 `{job_id, status: "queued"}`;
+    - 200 with your finished job when one has the same request fingerprint;
+    - 409 with `detail.job_id` while you have one queued or running;
+    - 422 for `parent_batch_id` or `community_recipe_id`, whose variants already run live.
+  - `GET /recommendations/jobs/{id}` is yours only (404 otherwise). It returns status, done, total, `eta_s`, the result cards, error, request and timestamps.
+  - `GET /recommendations/jobs` lists your 10 newest searches (`JOBS_KEPT`). Older ones are deleted when you start a new one.
+- **Worker** (`recommender/jobs.py`):
+  - one asyncio worker, started from the app's lifespan;
+  - a FIFO queue persisted in `recommendation_jobs`, with a partial unique index allowing one queued or running job per owner;
+  - jobs are claimed with a conditional UPDATE;
+  - plans and steps run in a worker thread, behind the engine's solve lock;
+  - progress and partial results are saved after every step.
+- **Resume:** at startup, and after a database connection error, running jobs go back to queued, ahead of newer jobs. They continue from their saved step.
+- **Limits and retries:**
+  - **Attempts:** a job runs at most 3 times (`MAX_ATTEMPTS`); the next claim fails it, "interrupted too many times". Resumes that made progress also count (open item O1).
+  - **Retries:** only connection errors (`OperationalError`, `InterfaceError`, a pool timeout) are retried, after `RETRY_S` = 30 s. Any other database error fails the job (B9 closed O2).
+- **Plan:** at most 20 live 64-member forecasts:
+  1. screened combinations not yet confirmed, 4 per parent, ranked across parents;
+  2. 2 extra temperatures for each of the Experimental section's top 3 parents;
+  3. one variant per USDA food the user picked.
+
+  Steps 2 and 3 keep their places; step 1 fills the rest.
+  - Sourdough parents are left out: the planner sets their timing.
+  - Cards are confirmed, never "screened", and carry `interaction_detected`. They are re-ranked after every step.
+  - Results are not limited to one per parent; the Ideas page groups them as "Variants of …".
+- **Fingerprint:** the request without `mode`, plus the grid, model and plan versions.
+- **ETA:** the remaining steps × the mean step time measured in this process. The prior is 15 s per step (`DEFAULT_STEP_S`), still to calibrate on Render.
+- **Registry:** `jobs.register(kind, Handler(...))` and `jobs.submit(...)`. System jobs have no owner, skip the per-owner limit and are invisible to users. Community forecasts use them.
+- **Your data:**
+  - `/me/export` is unchanged (a per-culture list); your jobs are readable at `GET /recommendations/jobs`;
+  - `DELETE /me` deletes them.
+- **Single process:** a Render deploy overlap may run a job twice. That is harmless: the same steps give the same results, and the last write wins.
+- **The page** polls every 5 s while visible, with the waiting message of § 10.2. "Hide this search" is remembered per browser.
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: POST /recommendations/deep-search
+    queued --> running: claimed (conditional UPDATE, attempts + 1)
+    running --> running: step saved (done, partial results)
+    running --> done: last step
+    running --> failed: a step's error, or a non-connection database error
+    running --> queued: restart or connection error (resume from saved step)
+    queued --> failed: claimed after 3 attempts
+```
+
+**§ 10.3, community recipes:**
+- **Publish:** `POST /community-recipes {batch_id, title, pseudonym}`. It answers:
+  - 201 with the privacy notice;
+  - 404 for someone else's batch;
+  - 409 when the batch is already published and not rejected (a partial unique index settles simultaneous publishes);
+  - 422 listing every failed check.
+- **Checks, as implemented:**
+  - **finished:** an end time after the start; the actual duration becomes the recipe's;
+  - **outcome "success" and at least one tasting** (B10 switched the feedback check to "tasting required");
+  - **type:** it has a forecast profile (not `generic`) and is not sourdough, which is shared through the planner;
+  - **rows:** each a live catalogue name or a USDA pick, with a known unit and a positive quantity. A retired ingredient refuses publication.
+    - **What counts as a USDA pick** (`community.usda_pick`, fixed in B13): a row with an `fdc_id` whose name is **not** a catalogue name. It is stored with its `fdc_id` and nutrients, labelled "USDA food: aroma effect unknown".
+    - **Catalogue ingredients keep their names:** many carry an `fdc_id` as the source of their nutrients (migrations 0007, 0018). They stay catalogue rows, so they keep their aroma data and get no label. B9 had labelled them as USDA picks.
+    - **Older recipes:** those published before the fix are read with the same rule, so no migration was needed.
+  - **masses:** normalised to g/kg; they balance to 1000 ± 5 %;
+  - **temperature:** the mean of the plausible logged temperatures (inside the engine's range, between start and end), else the expected temperature;
+  - **gate:** it passes at that temperature, salt-barrier minimums included, and at least one model temperature passes too;
+  - **pH (acid-safety types):** a logged pH between 2.0 and 4.6, between start and end. A lower value is treated as a meter fault or a typo.
+- **Text rules:**
+  - **Pseudonym:** 2–40 characters (letters, digits, spaces and `. _ ' -`), starting with a letter, digit or `_` (the schema's pattern is `^\w[\w .'-]*$`). With no `@` or `/` allowed, it can't be an e-mail address or a link. It is never checked against a real name.
+  - **Title:** at most 120 characters.
+  - Neither may contain control characters.
+- **Review:**
+  - Admins may approve their own recipes. That is acceptable with one admin; refuse it once there are several (open).
+  - Approval queues one system job (`community_forecast`) with one step per gate-passing model temperature: the grid's three of § 8.1. Each step is a live 64-member forecast on the recipe's own time axis, summarised like a grid entry into `community_recipe_forecasts` with its grid version.
+  - With no passing model temperature, approval is a 409. Approving again re-queues a failed job.
+  - A rejection needs a reason, which the author reads at `GET /me/community-recipes`.
+- **Startup recompute:** approved recipes whose forecasts are missing or of another grid version are queued again.
+  - A recipe is never queued twice (its job fingerprint).
+  - A recipe whose newest job failed on the current grid is not retried until it is approved again or the grid changes.
+  - It retries while the database is unreachable.
+- **As a card:**
+  - the temperature span is the publish temperature ± 3 °C and the duration span the actual duration ± 30 %, labelled "single-value source, widened";
+  - it is served like a library recipe (Q26), with statistics interpolated between the stored forecasts;
+  - the section holds at most 3 cards, each holding every must-include ingredient and gated at every temperature it can show;
+  - a candidate that cannot be built is logged and skipped;
+  - ranking: *E*(peak), then "made *n*×", then mean liking.
+- **"Made *n*×"** counts the distinct other people (culture owners) who started a batch from the recipe, or from a variant of it, and tasted that batch at least once. The author is excluded.
+- **Mean liking** is the mean over those people of each one's mean liking. It stays null until 3 people (`LIKING_MIN_PEOPLE`) have given one, so the author never reads a single person's liking. The minimum has limits:
+  - **differencing:** when one new liking changes the mean, comparing the before and after values reveals it;
+  - **throwaway accounts:** anonymous accounts are free, so one person can count as several. That inflates "made *n*×", and with two accounts whose likings they know, a person can read a third person's.
+
+  The minimum stops a casual reading, not a determined one.
+- **Privacy:**
+  - Responses to other users carry no owner, batch or user ids, and never a tasting's notes.
+  - `DELETE /me` detaches the recipe (`owner_id` and `source_batch_id` set to null; the pseudonym stays) and clears `reviewed_by` on the admin's reviews.
+  - **Deviation:** published recipes, every status with the reviewer's reason, are exported by `GET /me/community-recipes`. `/me/export` keeps its per-culture shape.
+- **Start batch** from a community card records `source_kind = "community"` and `community_recipe_id`.
+
+### 17.10 Cards and feedback (§ 11)
+
+**§ 11.1, the card:**
+- **Labels:** "Model-guided idea" and "model estimate, not validated". Levels show as Low / Med / High until the calibration gate passes.
+- **Low resolution:** the badge is derived, for series with 2 or fewer active compounds that have a threshold. Today that is phenolic, vinegary and fishy.
+- **Not built in v1:** the "copy as share link" action. Sourdough cards carry their planner link.
+- **Ideas page:**
+  - a batch-size input;
+  - a slider over the documented span ∩ the safety limits, in 0.1 °C steps;
+  - no slider on sourdough cards or temperature variants (`slider: null`);
+  - Start batch from the page always creates a new culture. The API accepts a `culture_id`; a culture picker is open.
+
+**§ 11.2, feedback:**
+- **Start batch,** one transaction:
+  - **culture:** a new one, or one of yours given by `culture_id` (404 if it isn't yours, 422 if it's another type);
+  - **batch:** the first stage becomes its `expected_temperature_c`;
+  - **ingredients:** `BatchIngredient` rows for catalogue names. A (v) food is booked like a USDA pick; `new` rows are skipped and listed;
+  - **reminders:**
+    - the first stage's timer;
+    - the pH check (`kind = "safety"`, for acid-safety types, due at 48 h, the card's lines verbatim);
+    - the tasting prompt at the stop-by time (`kind = "tasting"`).
+
+    Stage changes close neither of the last two.
+  - **the `recommendation_links` row:**
+    - `source_kind`: `library`, `variant`, `own_batch` or `community`;
+    - the parent: `recipe_key`, `parent_batch_id` or `community_recipe_id`;
+    - the operators, `temp_schedule`, `grid_version` and `p_series`.
+- **Sourdough** answers 409 with `planner_link`, and the planner opens pre-filled from its share format (`#/levain?p=…`). **Not built:** the planner doesn't carry a card id through, so batches it creates get no recommendation link (open).
+- **Tastings:**
+  - **Endpoints:** `POST` and `GET /batches/{id}/tastings`, and `DELETE /batches/{id}/tastings/{tasting_id}`. The batch's owner only; others, admins included, get 404. Any batch can be tasted.
+  - **Time:** `tasted_at` defaults to now, and to UTC when it has no zone. The server stores `t_h`, the hours since the batch started. A time before the start, or more than 10 minutes in the future, is a 422; a time after the end is accepted.
+  - **Ratings:** 0–3 on any of the 16 series and 4 tastes, not only the targets, as strict integers.
+  - **Other fields:**
+    - `liking` 1–5 and `make_again`;
+    - `notes`, at most 1000 characters, with no control characters except tab and line breaks;
+    - at least one rating or a liking is required.
+  - **Reminders:** a tasting closes the batch's open tasting reminders, and "Dismiss" does too. For acid-safety types the reminder text adds "Before tasting: " and the gate's pH line, verbatim.
+  - **`p_series`** holds P(noticeable) per modelled target on the card's time axis, at the card's model temperature. It is null when no target is modelled, and on links written before 0022.
+  - **Batch preview** (`GET /batches/{id}/preview`): it carries `tastings_count` and, from B13, `recommendation_targets`. That field holds the target keys of the card the batch was started from: `[]` when the card had none, `null` when the batch was not started from a card. The tasting form rates those targets first. B12's browser copy of the targets (`ft.tasting-targets.<id>`) is gone.
+  - **Order:** a batch's tastings are listed by `t_h`, then `created_at`, then id. B13 added the last two as tie-breaks.
+  - **Export:** the `/me/export` JSON carries each batch's tastings, notes included; the CSV download ignores them. **Recommendation links are not exported** (owner decision Q34).
+  - **Notes** are never logged and never shown to anyone else; the database engine runs with `hide_parameters=True`.
+- **Tasting form placement:** it opens at stop-by, from the due reminder (also on Today), and on a finished batch with no tasting. It sits in the batch's Log tab, and `#/batch/<id>/tasting` opens it.
+
+### 17.11 Plug-in contract and evaluation (§§ 12, 13)
+
+**§ 12:**
+- **`library.ingredient_tier(name, type)` returns −1** when the name isn't a live catalogue name: a `new` ingredient, a retired row or an aroma alias.
+- **T2** needs aroma data only; an FDC link is not required. Black tea leaves, for example, are T2 without one.
+- **T3** needs aroma data **and** a use-level row for that type. Only T3 depends on the type.
+- **Aliases:** `library.ALIASES` holds the documented non-catalogue `AROMA_INGREDIENTS` keys.
+- **`ingredient_use_levels_v1.csv`** has 16 rows, bootstrapped only from T2 rows of active recipes. Each source is the recipe's source plus a row locator. `#` lines are comments.
+- **Registering versions:** catalogue versions are listed in `library.py` (`_SEEDS` for T0, `_FDC_MAPPED` for T1), and the grid's nutrients in `run.per_100g_table`. A new seed-data or FDC version must be added there (`docs/ADDING_AN_INGREDIENT.md`).
+
+**§ 13.1, measured** (B5 and B7; re-run on 2026-10-13 on the committed grid with the same results, apart from E6's timings):
+
+| id | target | measured |
+|---|---|---|
+| E1 | ≥ 90 % | **11/11** eligible recipes (100 %); the 9 ineligible ones (core all staples: 7 sourdough styles, 2 kombuchas) are pinned in a test |
+| E2 | ≥ 60 % | **5/6 = 83.3 %**; the miss is kimchi (rank 17) |
+| E3 | ≥ 80 % | **15/16 = 93.8 %**; **8/9 = 88.9 %** without the source-only and beyond-horizon entries, which overlap by construction. The only miss is kimchi |
+| E4 | 0 violations | **0** everywhere:<ul><li>Proven: 1,002 cards over 500 seeded requests, plus 159 edge-temperature cases (the B5 reviewer's own 2,640-case sweep: 0);</li><li>variants: 1,648 cards from 2,000 seeded combinations (352 combinations outside the operator bounds were all refused);</li><li>`mode=both`: 544 cards (247 Proven, 297 Experimental).</li></ul> |
+| E5 | exact | 25/25 Proven and 12/12 `mode=both` requests byte-identical over 3 calls, one of them after a reload |
+| E6 | p95 ≤ 1.5 s on Render | measured **locally only**: Proven p95 29–55 ms; `mode=both` CPU p95 188–557 ms (wall p95 310 ms). Not yet measured on Render |
+
+- **The kimchi misses come from the engine's calibration.** By the grid's 72 h end, the engine brings only 1–11 % of kimchi members to pH 4.6 (kefir at 18 °C: about 80 %). The window therefore collapses at the safety milestone, since § 6 never places tasting before modelled acidification. This was reported, not tuned.
+- **Running the evaluation:** `tests/test_recommender_eval.py` prints every value (run it with `-s`). A target that is missed `xfail`s strictly, with the measured number.
+
+**§ 13.2, the calibration gate** (`recommender/calibration.py`):
+- **Final rule:** both conditions of § 13.2 (the Brier difference's 90 % CI upper bound < 0, **and** the within-cell AUC's 5th percentile > 0.5) on the same 2 000 batch-level resamples (seed 132), with at least 30 linked batches that have observations.
+- **Reasons** for a failed gate include two distinct AUC reasons, from B13:
+  - `NO_CONTRAST`, "no type and series has both noticed and not-noticed ratings yet, so the model's skill cannot be measured", when no cell of the data holds both classes, so every draw's AUC counts as 0.5;
+  - `NO_SKILL` otherwise, when the AUC's 5th percentile is not above 0.5.
+- **Observations:**
+  - one per tasting of a linked batch with a `p_series`, at a `t_h` inside its axis (skipped outside, never clamped), for each series that is both rated and a target;
+  - "noticed" means a rating ≥ 1;
+  - every tasting of a batch counts, but the batch is the unit for the count, the baseline and the bootstrap.
+- **Baseline:** leave-one-batch-out per (type, series). It falls back to the per-series rate, then to 0.5.
+- **Power at small *n* with several cells:** the B12 review recorded the cost at *n* = 30 batches over 3 types: a perfect model's pass rate falls from 0.35 to 0.17. Expect the gate to need more than 30 batches once several types are tasted.
+- **Storage and schedule:**
+  - reports are kept in `calibration_reports` (migration 0023), newest 52;
+  - a lifespan task recomputes at startup when the report is missing, unreadable or 7 days old, then weekly, with retries;
+  - `POST /admin/calibration/recompute` runs it now, and `GET /admin/calibration` returns the full report (admins only).
+- **Public report:**
+  - `GET /recommendations/calibration` is for any signed-in user (anonymous sessions included), not anonymous-public; it returns 404 before the first report;
+  - below 30 batches, every score and every bin's mean P and observed rate is null;
+  - a bin whose ratings come from fewer than 3 **distinct batches** (`PUBLIC_BIN_MIN`) hides its mean P and observed rate. This is counted in batches from B13; B11 counted ratings. Each bin now reports `batches` next to its rating count `n`. A report stored before B13 has no batch count, so its bin values stay hidden until the next weekly recompute;
+  - counts, the decision and its reason stay visible;
+  - residual limit: two consecutive reports that differ by one tasting can be compared.
+- **Display:**
+  - numbers show only while the latest report passed **and is at most 14 days old** (`DISPLAY_FOR`, twice the weekly cadence);
+  - Proven, Experimental and Community cards with targets then add `targets[].p_peak` and a card `p_peak` (left out if any target isn't modelled), plus `calibrated_on` and the label "calibrated on *n* batches";
+  - otherwise the JSON is byte-identical to the uncalibrated one;
+  - levels, windows and safety lines never change;
+  - the forecast endpoint, deep-search cards and Start batch links never carry the numbers;
+  - cards read a report cached in process, so there is no query per request.
+
+**§ 14:**
+- **R0:** 20 active recipes over the 9 types, not the 25–30 estimated.
+- **Delivery:** one build plan and one branch, not one plan and PR per increment.
+
+### 17.12 Open items for the owner
+
+1. **Kimchi engine calibration:** pH 4.6 is reached in only 1–11 % of members by 72 h, so kimchi windows collapse; this is behind the E2 and E3 misses. It belongs to the engine track.
+2. **The batch safety service** still applies BOT-002 to koji, miso and garum through its `lactic` / `enzymatic_koji` mapping. This predates the recommender; the recommender's gate scopes its rules by barrier.
+3. **The garum minimum of 8.3 % salt** is derived from the sourced recipes (the lowest), not stated by any source.
+4. **Operator choices to confirm:** the 5 % USDA share (operator v) and the swap rule (operator ii: same role, tagged for every type the original is).
+5. **Histamine:** the garum swap Anchovies → Mackerel raises a histamine question (Codex limit for fish sauce).
+6. **Dilution:** rescaling for (i) and (v) dilutes acidifying rows by up to 5 %.
+7. **Single-process assumptions:** the job worker and its re-queue, the calibration cache, the live-forecast cache and the candidates log all assume one API process. A second process needs a shared queue and cache.
+8. **Watch: a rare flake.** `tests/test_community.py::test_the_pseudonym_is_validated` (the 41-character case) failed once in about 38 runs and was never reproduced. If it recurs, capture `--tb=long`. The order-dependent `test_a_community_recipe_that_cannot_be_served_is_left_out` is a separate case, already fixed in B13 (§ 17.1).
+9. **Still to measure or build:**
+   - E6 and the 15 s step estimate, both on Render;
+   - a recommendation link for planner-created sourdough batches;
+   - a culture picker on Start batch;
+   - the card share link;
+   - refusing an admin's approval of their own recipe once there are several admins;
+   - O1: attempts also count resumes that made progress;
+   - "taste once pH ≤ 4.6 is measured" wording on acid-safety cards (B3 suggestion);
+   - merging the frontend request helpers (`ideas/api.js`, `shared.jsx`, `sourdough/api.js`). This was B13a item 10, skipped as regression-prone without a frontend test runner; community and tastings already reuse `ideas/api.js`;
+   - lazy-loading the Ideas and admin pages (the bundle grew by about 16 kB gzip in B12);
+   - two small edge cases: a pseudonym with a leading U+FEFF passes the frontend check but gets a 422 from the API, which is shown to the user; and a half-filled tasting form is lost when the batch page reloads after logging a reading.

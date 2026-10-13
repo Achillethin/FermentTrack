@@ -1,9 +1,11 @@
 // Self-check for ideas.js (no test runner in this frontend): node src/ideas/ideas.check.mjs
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   aromaTempText,
   AROMAS,
   basisText,
+  CALIBRATED_LABEL,
   calibratedOn,
   calibratedText,
   calibrationText,
@@ -34,6 +36,7 @@ import {
   toggleTarget,
   windowRows,
   withForecast,
+  withoutCalibration,
 } from "./ideas.js";
 
 // The vocabulary: 16 aroma series + 4 tastes; low resolution only on known aroma series.
@@ -214,6 +217,37 @@ assert.equal(withForecast(screened, { ...fc, interaction_detected: null }).inter
 // ...and a confirmed card stays confirmed through later slider forecasts.
 assert.equal(withForecast(confirmedCard, { ...fc, interaction_detected: false }).confirmed, true);
 assert.equal(withForecast(card, fc).confirmed, undefined); // a Proven card is never "confirmed"
+
+// A slider move or a confirmation drops the calibrated numbers, and their trust label with them:
+// levels never sit next to "calibrated on n batches".
+const calibrated = {
+  ...card,
+  calibrated_on: 34,
+  p_peak: 0.66,
+  targets: [{ ...card.targets[0], p_peak: 0.66 }],
+  trust: { labels: ["Model-guided idea", "calibrated on 34 batches"] },
+};
+const moved = withForecast(calibrated, fc);
+assert.deepEqual(moved.trust.labels, ["Model-guided idea"]);
+assert.ok(!("calibrated_on" in moved) && !("p_peak" in moved));
+assert.ok(moved.targets.every((x) => !("p_peak" in x)));
+assert.equal(calibratedText(moved), null);
+assert.deepEqual(targetLine(moved.targets[0], moved), { number: null, level: "High", text: "likely noticeable" });
+assert.doesNotMatch(levelsLegend(moved), /calibrated/i);
+assert.deepEqual(calibrated.trust.labels, ["Model-guided idea", "calibrated on 34 batches"]); // as served: unchanged
+const confirmedCalibrated = withForecast(
+  { ...calibrated, section: "experimental", screened: true, trust: { labels: ["Model-guided idea", "screened", "calibrated on 34 batches"] } },
+  { ...fc, interaction_detected: false }
+);
+assert.deepEqual(confirmedCalibrated.trust.labels, ["Model-guided idea"]);
+assert.ok(!("calibrated_on" in confirmedCalibrated) && !("p_peak" in confirmedCalibrated));
+assert.ok(CALIBRATED_LABEL.test("calibrated on 1 batch") && CALIBRATED_LABEL.test("calibrated on 34 batches"));
+assert.ok(!CALIBRATED_LABEL.test("Calibrated on 34 tasted batches: scores show as numbers."));
+assert.deepEqual(withoutCalibration({ trust: { labels: ["x"] }, calibrated_on: 3, p_peak: 0.5 }), { trust: { labels: ["x"] } });
+
+// Start batch keeps nothing on this device: the batch preview gives the tasting form its targets.
+const ideaCard = readFileSync(new URL("./IdeaCard.jsx", import.meta.url), "utf8");
+assert.doesNotMatch(ideaCard, /localStorage|tasting-targets|rememberTargets/);
 
 // Numbers only when calibrated (design § 13.2); a forecast's E/U never.
 const tgt = { key: "sour", modelled: true, level: "High", p_peak: 0.72 };

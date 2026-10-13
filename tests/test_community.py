@@ -49,7 +49,8 @@ from fermenttrack.models import (
     Reminder,
     Tasting,
 )
-from fermenttrack.recommender import calibration, gate, grid, jobs, library
+from fermenttrack.prediction.aroma import ingredient_shares
+from fermenttrack.recommender import calibration, gate, grid, jobs, library, run
 from fermenttrack.recommender import community as C
 from fermenttrack.recommender import service as S
 from fermenttrack.routers import community as community_routes
@@ -59,6 +60,7 @@ from tests.conftest import TEST_USER_ID
 KRAUT = "sauerkraut_dry_salted"
 OTHER = "someone-else"
 PERSIMMON = 169941  # USDA FDC: Persimmons, japanese, raw
+CATALOGUE_FDC = {"Cabbage": 169975, "Salt": 173468}  # USDA FDC: Cabbage, raw; Salt, table
 KRAUT_ROWS = [("Cabbage", 1.958, "kg"), ("Salt", 42.0, "g")]  # a 2 kg batch: 979 + 21 g/kg
 START = datetime(2026, 9, 1, 12, 0)
 PH_LINES = [gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE]
@@ -380,6 +382,94 @@ async def test_a_usda_pick_is_kept_with_its_nutrients_and_labelled(
     as_row = next(i for i in recipe.ingredients if i.fdc_id == PERSIMMON)
     assert as_row.nutrients == (("sugars_total", 12.5), ("water", 80.3))
     assert as_row.label == C.USDA_LABEL
+
+
+async def _linked_to_usda(db: AsyncSession) -> dict[str, uuid.UUID]:
+    """Cabbage and Salt as migration 0007 leaves them: linked to their USDA food (their
+    nutrients' source), with its nutrients. Their ids, by name."""
+    found = await db.execute(select(Ingredient).where(Ingredient.name.in_(CATALOGUE_FDC)))
+    ids = {}
+    for ingredient in found.scalars():
+        ingredient.fdc_id = CATALOGUE_FDC[ingredient.name]
+        db.add(IngredientNutrient(
+            ingredient_id=ingredient.id, nutrient="water", amount_per_100g=90.0,
+            source="usda_fdc", source_food_id=str(ingredient.fdc_id), source_version="test",
+        ))  # fmt: skip
+        ids[ingredient.name] = ingredient.id
+    await db.commit()
+    assert set(ids) == set(CATALOGUE_FDC)
+    return ids
+
+
+async def test_catalogue_ingredients_with_an_fdc_id_are_not_usda_picks(
+    client: AsyncClient, db_session: AsyncSession, catalogue: None  # noqa: F811
+) -> None:
+    """B13a (B9 bug): Cabbage and Salt carry an fdc_id, like most catalogue rows. They stay
+    catalogue rows: no USDA label, the catalogue's nutrients and Cabbage's aroma data. A true
+    USDA pick in the same batch keeps its label and its own nutrients."""
+    await _linked_to_usda(db_session)
+    name = "Persimmons, japanese, raw"
+    persimmon = await _ingredient(db_session, name, fdc_id=PERSIMMON)
+    db_session.add(IngredientNutrient(
+        ingredient_id=persimmon.id, nutrient="water", amount_per_100g=80.3, source="usda_fdc",
+        source_food_id=str(PERSIMMON), source_version="test",
+    ))  # fmt: skip
+    await db_session.commit()
+    rows = [("Cabbage", 950.0, "g"), ("Salt", 21.0, "g"), (name, 29.0, "g")]
+    resp = await _publish(client, await _batch(db_session, rows=rows))
+    assert resp.status_code == 201, resp.text
+    assert [(i["name"], i["fdc_id"], i["label"]) for i in resp.json()["ingredients"]] == [
+        ("Cabbage", None, None), (name, PERSIMMON, C.USDA_LABEL), ("Salt", None, None),
+    ]  # fmt: skip
+    row = await db_session.get(CommunityRecipe, uuid.UUID(resp.json()["id"]))
+    assert row is not None
+    assert {r["name"]: (r["fdc_id"], r["nutrients"]) for r in row.recipe} == {
+        "Cabbage": (None, None), "Salt": (None, None), name: (PERSIMMON, [["water", 80.3]]),
+    }  # fmt: skip
+
+    recipe = C.candidate(C.stored(row)).recipe
+    by_name = {i.name: i for i in recipe.ingredients}
+    for catalogued in ("Cabbage", "Salt"):
+        i = by_name[catalogued]
+        assert (i.catalogue_status, i.label, i.nutrients, i.fdc_id) == (
+            "existing", None, None, None,
+        )  # fmt: skip
+    # what the forecast runs: the catalogue's nutrients for Cabbage, the pick's own for it
+    booked = {r.name: r for r in run.recipe_rows(recipe)[0]}
+    assert booked["Cabbage"].per_100g == dict(run.per_100g_table()["Cabbage"])
+    assert booked[name].per_100g == {"water": 80.3}
+    shares, no_data, _ = ingredient_shares(
+        [(r.name, r.quantity, r.role) for r in booked.values()], "lacto_ferment"
+    )
+    assert "Cabbage" in shares and no_data == [name]  # Cabbage's aroma data; the pick has none
+
+
+def test_a_catalogue_row_stored_with_an_fdc_id_is_read_as_a_catalogue_row() -> None:
+    """Recipes published before the fix stored Cabbage with its fdc_id and nutrients: read
+    back, it is the catalogue's Cabbage (the API, the card and the forecast alike)."""
+    legacy = [
+        {"name": "Cabbage", "role": "base", "g_per_kg": 979.0,
+         "fdc_id": CATALOGUE_FDC["Cabbage"], "nutrients": [["water", 90.0]]},
+        {"name": "Salt", "role": "additive", "g_per_kg": 21.0,
+         "fdc_id": CATALOGUE_FDC["Salt"], "nutrients": [["water", 0.2]]},
+    ]  # fmt: skip
+    row = CommunityRecipe(
+        id=uuid.uuid4(), title="Old kraut", pseudonym="Ana", fermentation_type="lacto_ferment",
+        recipe=legacy, temperature_c=19.0, duration_h=336.0, status="approved", reason=None,
+        created_at=START, reviewed_at=None,
+    )  # fmt: skip
+    out = community_routes.recipe_out(row)["ingredients"]
+    assert [(i["name"], i["fdc_id"], i["label"]) for i in out] == [
+        ("Cabbage", None, None), ("Salt", None, None),
+    ]  # fmt: skip
+    recipe = C.candidate(C.stored(row)).recipe
+    assert [(i.name, i.catalogue_status, i.label, i.nutrients, i.fdc_id)
+            for i in recipe.ingredients] == [
+        ("Cabbage", "existing", None, None, None), ("Salt", "existing", None, None, None),
+    ]  # fmt: skip
+    assert C.usda_pick("Persimmons, japanese, raw", PERSIMMON)
+    assert not C.usda_pick("Cabbage", CATALOGUE_FDC["Cabbage"])
+    assert not C.usda_pick("Persimmons, japanese, raw", None)
 
 
 def test_masses_balance_to_1000_g_per_kg_within_5_percent() -> None:
@@ -1153,6 +1243,35 @@ async def test_start_batch_from_a_community_recipe_with_a_usda_row(
         name: (58.0, "flavoring", PERSIMMON),  # the same USDA ingredient, booked like a pick
     }  # fmt: skip
     assert resp.json()["link"]["community_recipe_id"] == str(rid)
+
+
+async def test_a_community_card_books_its_catalogue_rows_by_name_even_with_an_fdc_id(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    sessions: async_sessionmaker[AsyncSession],
+    catalogue: None,  # noqa: F811
+    as_admin: None,
+    fake: FakeLive,
+) -> None:
+    """B13a: Cabbage and Salt linked to their USDA food are the catalogue's rows on the card
+    (no USDA label) and are booked as those rows by Start batch, not looked up as USDA foods
+    (there is no FdcFood row for them here: that lookup would answer 404)."""
+    ids = await _linked_to_usda(db_session)
+    rid = await _approved(client, db_session, sessions)
+    card = _community((await client.post("/recommendations", json={"tastes": ["sour"]})).json())[0]
+    assert [
+        (i["name"], i["fdc_id"], i["label"], i["in_catalogue"])
+        for i in card["recipe"]["ingredients"]
+    ] == [("Cabbage", None, None, True), ("Salt", None, None, True)]
+    assert C.USDA_LABEL not in card["trust"]["labels"]
+    payload = {"community_recipe_id": str(rid), "tastes": ["sour"], "batch_g": 2000}
+    resp = await client.post("/batches/from-recommendation", json=payload)
+    assert resp.status_code == 201, resp.text
+    booked = await db_session.execute(
+        select(BatchIngredient.ingredient_id, BatchIngredient.quantity)
+        .where(BatchIngredient.batch_id == uuid.UUID(resp.json()["batch"]["id"]))
+    )
+    assert dict(booked.tuples().all()) == {ids["Cabbage"]: 1958.0, ids["Salt"]: 42.0}
 
 
 async def test_an_admin_s_account_deletion_removes_their_id_from_reviews(

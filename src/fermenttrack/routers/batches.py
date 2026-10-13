@@ -27,6 +27,7 @@ from fermenttrack.models import (
     Measurement,
     Organism,
     OrganismEnzyme,
+    RecommendationLink,
     Reminder,
     Tasting,
 )
@@ -625,6 +626,10 @@ async def get_batch_preview(
     tastings = await db.execute(
         select(func.count()).select_from(Tasting).where(Tasting.batch_id == batch.id)
     )
+    link = await db.execute(
+        select(RecommendationLink.targets).where(RecommendationLink.batch_id == batch.id)
+    )
+    targets = link.scalar_one_or_none()  # None: no link (its targets are never null)
 
     return BatchPreview(
         batch=BatchOut.model_validate(batch),
@@ -635,6 +640,10 @@ async def get_batch_preview(
         safety=safety,
         read_only=batch.culture.owner_id != user_id,
         tastings_count=tastings.scalar_one(),  # a count only: the tastings are the owner's
+        # target keys only (an admin may see them: no score, no tasting)
+        recommendation_targets=None if targets is None else [
+            str(t["key"]) for t in targets if isinstance(t, dict) and t.get("key")
+        ],
     )
 
 

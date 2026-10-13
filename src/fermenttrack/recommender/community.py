@@ -9,8 +9,11 @@ reads and writes it); everything here is computed from plain values.
 - finished: the batch has an end time, after its start (the actual duration is the recipe's);
 - the rows are the batch's BatchIngredient rows: each a live catalogue name or a USDA pick
   (stored with its fdc_id and nutrients, labelled "USDA food: aroma effect unknown"), with a
-  quantity in a known unit. A retired ingredient, an unknown unit or a missing, non-finite or
-  non-positive quantity refuses the publication, naming the rows;
+  quantity in a known unit. A catalogue ingredient is never a USDA pick, even with an fdc_id
+  (most have one, their nutrients' source): it keeps its catalogue identity, nutrients and
+  aroma data (`usda_pick`; recipes stored before this rule are read the same way). A retired
+  ingredient, an unknown unit or a missing, non-finite or non-positive quantity refuses the
+  publication, naming the rows;
 - **normalisation**: each logged quantity to grams (composition.to_grams: g, kg, mg; ml and l
   at 1 g/ml, the composition module's assumption), then g/kg of the batch's weighed total,
   1000 × g / total, rounded to 0.01 g/kg. **Mass balance**: the stored rows sum to 1000 g/kg
@@ -138,8 +141,8 @@ class LoggedRow:
     unit: str | None
     role: str
     active: bool  # Ingredient.is_active: False for a retired ingredient
-    fdc_id: int | None = None  # a USDA pick
-    nutrients: tuple[tuple[str, float], ...] = ()  # g/100 g (a USDA pick's)
+    fdc_id: int | None = None  # Ingredient.fdc_id: a USDA pick's, or a catalogue row's (usda_pick)
+    nutrients: tuple[tuple[str, float], ...] = ()  # g/100 g (kept for a USDA pick only)
 
 
 @dataclass(frozen=True)
@@ -193,6 +196,14 @@ def _names(rows: Iterable[LoggedRow]) -> str:
     return ", ".join(sorted({r.name for r in rows}))
 
 
+def usda_pick(name: str, fdc_id: int | None) -> bool:
+    """A row is a USDA pick (stored with its fdc_id and nutrients, labelled USDA_LABEL) when it
+    has a USDA food and is not a live catalogue name. Catalogue ingredients carry an fdc_id too
+    (their nutrients' source, migrations 0007 and 0018) but stay catalogue rows: their name
+    gives their nutrients and aroma data (run.recipe_rows)."""
+    return fdc_id is not None and name not in library.CATALOGUE_NAMES
+
+
 def normalise(rows: Sequence[LoggedRow]) -> tuple[list[dict[str, Any]], list[str]]:
     """(the rows as g/kg of the weighed total, the refusals naming the rows that cannot be)."""
     retired = [r for r in rows if not r.active]
@@ -222,14 +233,14 @@ def normalise(rows: Sequence[LoggedRow]) -> tuple[list[dict[str, Any]], list[str
     if reasons:
         return [], reasons
     total = math.fsum(grams.values())
-    out = [
-        {
+    out = []
+    for i, r in enumerate(rows):
+        usda = usda_pick(r.name, r.fdc_id)
+        out.append({
             "name": r.name, "role": r.role, "g_per_kg": round(1000.0 * grams[i] / total, 2),
-            "fdc_id": r.fdc_id,
-            "nutrients": [[n, v] for n, v in r.nutrients] if r.fdc_id is not None else None,
-        }
-        for i, r in enumerate(rows)
-    ]  # fmt: skip
+            "fdc_id": r.fdc_id if usda else None,
+            "nutrients": [[n, v] for n, v in r.nutrients] if usda else None,
+        })  # fmt: skip
     return out, []
 
 
@@ -313,16 +324,19 @@ def _utc(dt: datetime) -> datetime:
 
 
 def _ingredient(row: Mapping[str, Any]) -> RecipeIngredient:
+    """A stored row as a recipe row. A catalogue name stored with an fdc_id (published before
+    usda_pick) is read as the catalogue row it is."""
     g = float(row["g_per_kg"])
+    name = str(row["name"])
     fdc_id = None if row.get("fdc_id") is None else int(row["fdc_id"])
-    usda = fdc_id is not None
+    usda = usda_pick(name, fdc_id)
     nutrients = (
         tuple((str(n), float(v)) for n, v in row.get("nutrients") or ()) if usda else None
     )
     return RecipeIngredient(
-        str(row["name"]), "user" if usda else "existing", str(row["role"]), Span(g, g, g),
+        name, "user" if usda else "existing", str(row["role"]), Span(g, g, g),
         "core", "community recipe", "", USDA_LABEL if usda else None, nutrients=nutrients,
-        fdc_id=fdc_id,
+        fdc_id=fdc_id if usda else None,
     )  # fmt: skip
 
 
@@ -443,7 +457,7 @@ def interp(entries: Sequence[grid.Entry], temp_c: float) -> grid.Entry:
         if abs(e.temp_c - t) <= 1e-6:
             return replace(e, temp_c=t)
     k = next(i for i, e in enumerate(ordered) if e.temp_c > t)
-    return grid._mix(ordered[k].recipe_key, ordered[k - 1], ordered[k], t)
+    return grid.mix(ordered[k].recipe_key, ordered[k - 1], ordered[k], t)
 
 
 # ── an approved recipe, as served ───────────────────────────────────────
@@ -550,7 +564,7 @@ def community_card(
         recipe=recipe, temperature=temp, schedule=(), model_c=stats.temp_c, evaluation=ev,
         safety_lines=result.safety_lines, batch_g=batch_g,
         to_buy=service.to_buy(recipe, listed), not_modelled=stats.not_modelled,
-        notes=(*temp.notes, *service._model_note(stats.temp_c, temp, nearest), *ev.notes),
+        notes=(*temp.notes, *service.model_note(stats.temp_c, temp, nearest), *ev.notes),
     )  # fmt: skip
 
 
@@ -652,8 +666,8 @@ def forecast(
         raise service.GateRefused("this temperature does not pass the safety checks here")
     stats = _live(c, temp, members)
     ev = service.evaluate(recipe, stats, temp, targets, mode="community", basis=basis(c))
-    body = service._forecast_body(None, "community", [], False, result, temp)
-    return body | service._live_json(stats, temp, stats.temp_c, ev, targets)
+    body = service.forecast_body(None, "community", [], False, result, temp)
+    return body | service.live_json(stats, temp, stats.temp_c, ev, targets)
 
 
 def batch_plan(
@@ -684,7 +698,7 @@ def batch_plan(
              if r.quantity is not None]  # fmt: skip
     rows = tuple(g for g in grams if g[0] not in fdc)
     fdc_rows = tuple((fdc[n], q, role) for n, q, role in grams if n in fdc)
-    link = service._link(card, mode, "community", [], community_recipe_id=c.id)
+    link = service.link_columns(card, mode, "community", [], community_recipe_id=c.id)
     return service.BatchPlan(
         card, float(card.temperature.served_c), rows, skipped,
         gate.needs_ph_reminder(recipe.fermentation_type), link, f"{c.title} (community)",

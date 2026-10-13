@@ -4,12 +4,20 @@
 // (signInWithEmail). Patches window.fetch to attach the current access token to API
 // calls, so no fetch(`${API_URL}/...`) call site needs to change.
 import { createClient } from "@supabase/supabase-js";
+import { claimAppKeys, clearAppKeys } from "./storage.js";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase =
   supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+
+// This device's ft.* keys belong to one user: a session of another (a magic link to another
+// account, a new guest once the old session ended) clears them first (storage.js). Synchronous
+// on purpose: supabase-js warns against awaiting its own calls inside this callback.
+supabase?.auth.onAuthStateChange((_event, session) => {
+  if (session?.user?.id) claimAppKeys(session.user.id);
+});
 
 let signInPromise = null;
 
@@ -53,7 +61,11 @@ export async function signInWithEmail(email) {
 }
 
 export async function signOut() {
-  if (supabase) await supabase.auth.signOut();
+  try {
+    if (supabase) await supabase.auth.signOut();
+  } finally {
+    clearAppKeys(); // this app's keys on the device (ft.*): the next account starts clean
+  }
 }
 
 export const apiOrigin = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");

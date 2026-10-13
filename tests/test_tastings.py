@@ -281,6 +281,36 @@ async def test_the_preview_says_whether_the_batch_was_tasted(
     assert (await client.get(f"/batches/{batch['id']}/preview")).json()["tastings_count"] == 2
 
 
+async def test_the_preview_gives_the_targets_the_batch_was_recommended_for(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    catalogue: None,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tasting form rates the card's targets first: the preview hands them back (its
+    recommendation link's keys), so the browser keeps nothing."""
+    request = {"recipe_key": KIMCHI, "aromas": ["fruity"], "tastes": ["sour"]}
+    started = (await client.post("/batches/from-recommendation", json=request)).json()
+    url = f"/batches/{started['batch']['id']}/preview"
+    preview = (await client.get(url)).json()
+    assert [t["key"] for t in started["link"]["targets"]] == ["fruity", "sour"]
+    assert preview["recommendation_targets"] == ["fruity", "sour"]
+    plain = await client.post("/batches/from-recommendation", json={"recipe_key": KIMCHI})
+    assert (await client.get(f"/batches/{plain.json()['batch']['id']}/preview")).json()[
+        "recommendation_targets"
+    ] == []  # started from a card asked for no target
+    unlinked = await _batch(db_session)
+    assert (await client.get(f"/batches/{unlinked.id}/preview")).json()[
+        "recommendation_targets"
+    ] is None  # not started from a card
+    monkeypatch.setattr(settings, "admin_user_ids", OTHER)
+    with as_user(OTHER):  # an admin's read-only view: the keys too (no score, no tasting)
+        seen = (await client.get(url)).json()
+    assert (seen["read_only"], seen["recommendation_targets"]) == (True, ["fruity", "sour"])
+    with as_user(OTHER + "-not-admin"):
+        assert (await client.get(url)).status_code == 404
+
+
 async def test_the_export_includes_tastings_and_deleting_the_account_removes_them(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
@@ -300,6 +330,28 @@ async def test_the_export_includes_tastings_and_deleting_the_account_removes_the
     assert (await client.delete("/me")).status_code == 204
     left = (await db_session.execute(select(Tasting.batch_id))).scalars().all()
     assert left == [theirs.id]  # only the other account's
+
+
+async def test_tastings_at_the_same_time_keep_one_order_in_the_export_and_the_list(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Batch.tastings (the export) orders like GET /batches/{id}/tastings: by t_h, then
+    created_at, then id, so tastings at the same t_h never swap between reads."""
+    batch = await _batch(db_session)
+    at = datetime(2026, 10, 1, 12, 0)
+    low, high = sorted(uuid.uuid4() for _ in range(2))  # the same t_h and created_at: by id
+    rows = [
+        Tasting(id=high, batch_id=batch.id, t_h=5.0, ratings={}, liking=1, created_at=at),
+        Tasting(batch_id=batch.id, t_h=5.0, ratings={}, liking=2, created_at=at - timedelta(1)),
+        Tasting(id=low, batch_id=batch.id, t_h=5.0, ratings={}, liking=3, created_at=at),
+        Tasting(batch_id=batch.id, t_h=1.0, ratings={}, liking=4, created_at=at + timedelta(1)),
+    ]
+    db_session.add_all(rows)
+    await db_session.commit()
+    expected = [str(rows[3].id), str(rows[1].id), str(low), str(high)]
+    listed = [t["id"] for t in (await client.get(_url(batch.id))).json()]
+    [exported] = (await client.get("/me/export")).json()[0]["batches"]
+    assert listed == [t["id"] for t in exported["tastings"]] == expected
 
 
 # ── the stop-by reminder (Start batch) ──────────────────────────────────

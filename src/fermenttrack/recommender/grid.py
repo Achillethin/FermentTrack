@@ -320,18 +320,20 @@ class Grid:
         else:
             lo = self._at(recipe_key, temps[k - 1], operator)
             hi = self._at(recipe_key, temps[k], operator)
-            out = _mix(recipe_key, lo, hi, t)
+            out = mix(recipe_key, lo, hi, t)
         if len(self._interp) >= _INTERP_CACHE:
             self._interp.clear()
         self._interp[cache_key] = out
         return out
 
 
-def _mix(recipe_key: str, lo: Entry, hi: Entry, t: float) -> Entry:
+def mix(recipe_key: str, lo: Entry, hi: Entry, t: float) -> Entry:
+    """Two entries on the same time axis, linear in temperature at t (lo.temp_c < t <
+    hi.temp_c): the series and milestones both have; metadata from the nearer one."""
     f = (t - lo.temp_c) / (hi.temp_c - lo.temp_c)
     near = lo if f < 0.5 else hi
 
-    def mix(a: Mapping[str, FloatArray], b: Mapping[str, FloatArray]) -> Mapping[str, Any]:
+    def blend(a: Mapping[str, FloatArray], b: Mapping[str, FloatArray]) -> Mapping[str, Any]:
         return MappingProxyType({s: (1.0 - f) * a[s] + f * b[s] for s in a if s in b})
 
     milestones = {
@@ -343,8 +345,8 @@ def _mix(recipe_key: str, lo: Entry, hi: Entry, t: float) -> Entry:
         if name in hi.milestones
     }  # fmt: skip
     return Entry(
-        recipe_key=recipe_key, temp_c=t, t_h=lo.t_h, e=mix(lo.e, hi.e), u=mix(lo.u, hi.u),
-        p=mix(lo.p, hi.p), milestones=MappingProxyType(milestones),
+        recipe_key=recipe_key, temp_c=t, t_h=lo.t_h, e=blend(lo.e, hi.e), u=blend(lo.u, hi.u),
+        p=blend(lo.p, hi.p), milestones=MappingProxyType(milestones),
         members=min(lo.members, hi.members), schedule=near.schedule,
         top_compound=near.top_compound, not_modelled=near.not_modelled, skipped=near.skipped,
         operator=near.operator,

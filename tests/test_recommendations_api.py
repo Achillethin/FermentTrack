@@ -955,7 +955,7 @@ async def test_usda_picks_need_experimental_mode_and_a_known_food(client: AsyncC
     assert (await client.post("/recommendations", json=unknown)).status_code == 422
     resp = await client.post("/recommendations", json=ask | {"mode": "experimental"})
     assert resp.status_code == 200
-    combos = S._combos(S.library_parent(KRAUT), [], None, [PERSIMMON])
+    combos = S.parent_combinations(S.library_parent(KRAUT), [], None, [PERSIMMON])
     assert any(op.key == f"usda:fdc:{PERSIMMON}" for c in combos for op in c)
 
 

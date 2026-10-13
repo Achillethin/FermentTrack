@@ -7,9 +7,7 @@ import {
   phLine,
   promptReason,
   ratingSummary,
-  recalledTargets,
-  rememberTargets,
-  startedTargets,
+  recommendedTargets,
   TASTING_KEYS,
   tastedWhen,
   tastingPayload,
@@ -104,28 +102,13 @@ assert.equal(tastedWhen(120), "after 5 days");
 assert.equal(likingWord(5), "5/5 (loved it)");
 assert.equal(likingWord(null), null);
 
-// The batch's targets, kept on this device by Start batch.
-const mem = new Map();
-const storage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v) };
-rememberTargets(storage, "b1", [{ key: "sour", kind: "taste", e: 0.5 }, { key: "fruity", kind: "aroma" }, { key: "bogus" }]);
-assert.deepEqual(recalledTargets(storage, "b1"), ["sour", "fruity"]);
-assert.deepEqual(recalledTargets(storage, "b2"), []);
-rememberTargets(storage, "b3", []);
-assert.equal(mem.has("ft.tasting-targets.b3"), false);
-mem.set("ft.tasting-targets.b4", "{not json");
-assert.deepEqual(recalledTargets(storage, "b4"), []);
-mem.set("ft.tasting-targets.b5", JSON.stringify(["sour", "sour", "x", "umami", "sweet", "alcohol"]));
-assert.deepEqual(recalledTargets(storage, "b5"), ["sour", "umami", "sweet"]);
-assert.deepEqual(recalledTargets(null, "b1"), []);
-const broken = { getItem: () => { throw new Error("denied"); }, setItem: () => { throw new Error("denied"); } };
-assert.deepEqual(recalledTargets(broken, "b1"), []);
-rememberTargets(broken, "b1", ["sour"]); // never throws
-// Start batch's answer: the link's targets, else the request's; kept even if the card is gone.
-const link = { key: "fruity", kind: "aroma", e: 0.9, u: 1 };
-assert.deepEqual(startedTargets({ link: { targets: [link] } }, { aromas: ["floral"], tastes: ["sour"] }), [link]);
-assert.deepEqual(startedTargets({ link: { targets: [] } }, { aromas: ["floral"], tastes: ["sour"] }), ["floral", "sour"]);
-assert.deepEqual(startedTargets({}, {}), []);
-rememberTargets(storage, "b6", startedTargets({ link: { targets: [link] } }, {}));
-assert.deepEqual(recalledTargets(storage, "b6"), ["fruity"]);
+// The batch's targets, from the preview's recommendation_targets (the API keeps them: nothing on
+// this device): known keys only, once each, three at most; none when not started from a card.
+assert.deepEqual(recommendedTargets(["sour", "fruity"]), ["sour", "fruity"]);
+assert.deepEqual(recommendedTargets(["sour", "sour", "x", "umami", "sweet", "alcohol"]), ["sour", "umami", "sweet"]);
+assert.deepEqual(recommendedTargets([]), []);
+assert.deepEqual(recommendedTargets(null), []); // not started from a card
+assert.deepEqual(recommendedTargets(undefined), []);
+assert.deepEqual(recommendedTargets("sour"), []);
 
 console.log("tasting.js ok");

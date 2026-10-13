@@ -344,6 +344,9 @@ class BatchPreview(BaseModel):
     safety: SafetyReportOut
     read_only: bool = False  # an admin viewing someone else's batch: no edits
     tastings_count: int = 0  # 0: offer the tasting form (at stop-by, on finishing)
+    # The target keys of the card the batch was started from (its recommendation link's), which
+    # the tasting form rates first; None: not started from a card.
+    recommendation_targets: list[str] | None = None
 
 
 # ── Biochemistry ─────────────────────────────────────────────────────────
@@ -1378,6 +1381,7 @@ class CalibrationBinOut(BaseModel):
     lo: float
     hi: float
     n: int
+    batches: int | None = None  # the distinct batches its ratings come from (None: not counted)
     mean_p: float | None  # None when empty
     observed: float | None  # the share noticed (rating ≥ 1)
 
@@ -1392,8 +1396,8 @@ class CalibrationReportOut(BaseModel):
     bootstrap values are None below 30 batches). passed: ci_high < 0 and auc_low > 0.5, and
     then cards show numbers ("calibrated on n_batches batches"). reason: why it did not pass.
     GET /recommendations/calibration (any signed-in user) hides every score and bin value below
-    30 batches, and a bin's values below 3 ratings (null); admins get the full report (GET
-    /admin/calibration)."""
+    30 batches, and a bin's values while its ratings come from fewer than 3 batches (null);
+    admins get the full report (GET /admin/calibration)."""
 
     computed_at: datetime
     n_tastings: int

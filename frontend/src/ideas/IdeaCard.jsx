@@ -3,7 +3,6 @@ import { Button } from "../components/ui.jsx";
 import "../prediction/prediction.css"; // .ft-range, the app's slider
 import { formatC } from "../prediction/temperature.js";
 import { humanize } from "../shared.jsx";
-import { deviceStorage, rememberTargets, startedTargets } from "../tastings/tasting.js";
 import { postForecast, postStartBatch } from "./api.js";
 import {
   aromaTempText,
@@ -323,9 +322,6 @@ export default function IdeaCard({ card, query, onUseAsParent }) {
         // a variant is Experimental whatever the request's mode (search deeper runs from any)
         mode: card.section === "experimental" && query.mode === "proven" ? "experimental" : query.mode,
       });
-      // The tasting form rates the batch's targets: the API does not hand the link back later.
-      // Kept even when the card is gone: the batch exists.
-      rememberTargets(deviceStorage(), out.batch.id, startedTargets(out, query));
       if (!mounted.current) return;
       if (out.skipped_ingredients.length) setStarted(out);
       else window.location.hash = `#/batch/${out.batch.id}`;

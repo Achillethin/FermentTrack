@@ -553,7 +553,7 @@ def build_card(
         recipe=recipe, temperature=temp, schedule=card_schedule(recipe, temp, temperature_c),
         model_c=stats.temp_c, evaluation=ev, safety_lines=result.safety_lines, batch_g=batch_g,
         to_buy=to_buy(recipe, listed), not_modelled=stats.not_modelled,
-        notes=(*temp.notes, *_model_note(stats.temp_c, temp, PRECOMPUTED), *ev.notes),
+        notes=(*temp.notes, *model_note(stats.temp_c, temp, PRECOMPUTED), *ev.notes),
     )  # fmt: skip
     return card, result
 
@@ -562,7 +562,7 @@ PRECOMPUTED = "the nearest precomputed temperature"  # a card: the recipe's grid
 IN_RANGE = "the nearest temperature the model covers"  # the live forecast: the profile range
 
 
-def _model_note(model_c: float, temp: Temperature, nearest: str) -> tuple[str, ...]:
+def model_note(model_c: float, temp: Temperature, nearest: str) -> tuple[str, ...]:
     """Where the model window and scores come from, when not the served temperature (a
     source-only window says it in its own note)."""
     if temp.source_only or abs(model_c - temp.served_c) <= 1e-9:
@@ -900,7 +900,7 @@ def variant_card(
         v.recipe, stats, temp, targets, mode="experimental", reference=reference, basis=basis
     )
     nearest = IN_RANGE if live else PRECOMPUTED
-    notes = [*temp.notes, *_model_note(stats.temp_c, temp, nearest), *ev.notes]
+    notes = [*temp.notes, *model_note(stats.temp_c, temp, nearest), *ev.notes]
     if v.parent.kind == "own_batch" and v.parent.recipe.notes:
         notes.append(v.parent.recipe.notes)  # e.g. a batch still running: typical timings
     if ev.rising:
@@ -935,7 +935,7 @@ def experimental_rank_key(card: Card) -> tuple[float, int, int, int, int, str]:
     )
 
 
-def _combos(
+def parent_combinations(
     parent: Parent, listed: Sequence[str], temperature_c: float | None, usda_ids: Sequence[int]
 ) -> list[tuple[Operator, ...]]:
     """The parent's operator combinations (up to 3) that contain every must-include
@@ -952,7 +952,7 @@ def _combos(
 EXACT_PER_PARENT = 4  # combinations per parent scored exactly after the vectorised pre-ranking
 
 
-def _prerank(
+def prerank(
     parent: Parent,
     combos: Sequence[tuple[Operator, ...]],
     targets: Sequence[Target],
@@ -1072,11 +1072,11 @@ def best_variant(
     reference: Reference,
 ) -> Card | None:
     """The parent's best served variant (§ 5.4). With targets, every combination is pre-ranked
-    from the grid (_prerank) and the first EXACT_PER_PARENT that pass the gate are scored
+    from the grid (prerank) and the first EXACT_PER_PARENT that pass the gate are scored
     exactly; the best of those wins. Without targets the keys need no forecast: the first
     combination in key order (fewest to buy, fewest operators, id) that passes the gate."""
     if targets:
-        order = [combos[i] for i in _prerank(parent, combos, targets, temperature_c, reference)]
+        order = [combos[i] for i in prerank(parent, combos, targets, temperature_c, reference)]
         scored = []
         for combo in order:
             card, _ = variant_card(
@@ -1112,7 +1112,7 @@ def experimental_cards(
     cards = []
     for recipe in library.active():
         parent = Parent(recipe, "library", recipe.name)
-        combos = _combos(parent, listed, temperature_c, usda_ids)
+        combos = parent_combinations(parent, listed, temperature_c, usda_ids)
         if not combos:
             continue
         reference = library_reference(recipe, temperature_c)
@@ -1266,7 +1266,7 @@ def own_batch_cards(
     before any forecast: combinations that hold every
     must-include ingredient and pass the gate, the ones whose new ingredients carry odorants
     of the aroma targets first, then the fewest operators, then their keys."""
-    combos = _combos(own, listed, temperature_c, usda_ids)
+    combos = parent_combinations(own, listed, temperature_c, usda_ids)
     combos.sort(key=lambda c: (-_relevance(c, targets), len(c), [operators.sort_key(o) for o in c]))
     chosen: list[Variant] = []
     for combo in combos:
@@ -1707,12 +1707,12 @@ def experimental_section(
     per parent."""
     cards = experimental_cards(listed, targets, temperature_c, batch_g, usda_ids)
     considered = bool(cards) or any(
-        _combos(Parent(r, "library", r.name), listed, temperature_c, usda_ids)
+        parent_combinations(Parent(r, "library", r.name), listed, temperature_c, usda_ids)
         for r in library.active()
     )
     if own is not None:
         mine = own_batch_cards(own, listed, targets, temperature_c, batch_g, usda_ids)
-        considered = considered or bool(_combos(own, listed, temperature_c, usda_ids))
+        considered = considered or bool(parent_combinations(own, listed, temperature_c, usda_ids))
         cards = [*mine[:1], *cards][:CARDS_PER_SECTION]
     return considered, cards
 
@@ -1752,7 +1752,7 @@ def forecast(
     result = check_gate(recipe, temp)
     if not result.ok:
         raise GateRefused("this temperature does not pass the safety checks for this recipe")
-    body = _forecast_body(recipe.key, "library", [], False, result, temp)
+    body = forecast_body(recipe.key, "library", [], False, result, temp)
     if recipe.handoff == "planner":
         return body | {
             "handoff": "planner",
@@ -1762,10 +1762,10 @@ def forecast(
     model_c = model_temperature(recipe, temp.served_c)
     stats = _live(recipe.key, model_c, members)
     ev = evaluate(recipe, stats, temp, targets)
-    return body | _live_json(stats, temp, model_c, ev, targets)
+    return body | live_json(stats, temp, model_c, ev, targets)
 
 
-def _forecast_body(
+def forecast_body(
     recipe_key: str | None,
     source_kind: str,
     chips: list[dict[str, Any]],
@@ -1773,6 +1773,8 @@ def _forecast_body(
     result: gate.GateResult,
     temp: Temperature,
 ) -> dict[str, Any]:
+    """A forecast response (schemas.RecommendationForecastOut) before its forecast: the source,
+    the operator chips and the gate's safety lines; live_json adds the rest."""
     return {
         "recipe_key": recipe_key, "source_kind": source_kind, "operators": chips,
         "screened": screened, "screened_e_peak": None, "interaction_detected": None,
@@ -1782,9 +1784,11 @@ def _forecast_body(
     }  # fmt: skip
 
 
-def _live_json(
+def live_json(
     stats: grid.Entry, temp: Temperature, model_c: float, ev: Evaluation, targets: Sequence[Target]
 ) -> dict[str, Any]:
+    """A live forecast's part of a forecast response: the temperature, the window, the levels
+    (E and U at the peak per target), the bands and the notes."""
     return {
         "members": stats.members,
         "temperature": _temperature_json(temp, model_c),
@@ -1804,7 +1808,7 @@ def _live_json(
             for tg in targets
             if tg.key in stats.e
         ],  # fmt: skip
-        "notes": [*temp.notes, *_model_note(model_c, temp, IN_RANGE), *ev.notes],
+        "notes": [*temp.notes, *model_note(model_c, temp, IN_RANGE), *ev.notes],
     }
 
 
@@ -1813,7 +1817,7 @@ def library_parent(recipe_key: str) -> Parent:
     return Parent(recipe, "library", recipe.name)
 
 
-def _live_variant(
+def live_variant(
     v: Variant, temp: Temperature, members: int, temperature_c: float | None
 ) -> tuple[Variant, grid.Entry, str, bool, Reference]:
     """A variant's live forecast at the nearest temperature the model covers, on its parent's
@@ -1853,14 +1857,14 @@ def variant_forecast(
         raise GateRefused("this variant does not pass the safety checks at this temperature")
     chips = [operator_json(op, parent.recipe) for op in v.operators]
     key = parent.recipe.key if parent.kind == "library" else None
-    body = _forecast_body(key, v.source_kind, chips, v.screened, result, temp)
+    body = forecast_body(key, v.source_kind, chips, v.screened, result, temp)
     if v.recipe.handoff == "planner":
         return body | {
             "handoff": "planner",
             "planner_link": planner_link(v.recipe, temp.served_c, batch_g),
             "notes": [*temp.notes, "sourdough timing comes from the levain planner"],
         }
-    v, stats, fp, fresh, reference = _live_variant(v, temp, members, temperature_c)
+    v, stats, fp, fresh, reference = live_variant(v, temp, members, temperature_c)
     basis = v.parent.basis or grid_basis(v.parent.recipe, temp.recipe_c)
     ev = evaluate(
         v.recipe, stats, temp, targets, mode="experimental", reference=reference, basis=basis
@@ -1877,7 +1881,7 @@ def variant_forecast(
         interaction = ev.e < INTERACTION_RATIO * screened_e
     if fresh:
         log_candidate(candidate_record(v, stats, fp, ev, screened_e))
-    out = body | _live_json(stats, temp, stats.temp_c, ev, targets)
+    out = body | live_json(stats, temp, stats.temp_c, ev, targets)
     if interaction:
         out["notes"] = [
             *out["notes"],
@@ -1908,7 +1912,7 @@ class BatchPlan:
     fdc_rows: tuple[tuple[int, float, str], ...] = ()  # operator (v): (USDA food, grams, role)
 
 
-def _link(
+def link_columns(
     card: Card,
     mode: str,
     source_kind: str,
@@ -1988,7 +1992,7 @@ def batch_plan(
         if r.quantity is not None  # always set: recipe_rows skips rows without a mass
     )
     first = card.schedule[0][1] if card.schedule else card.temperature.served_c
-    link = _link(card, mode, "library", [], recipe_key=recipe.key)
+    link = link_columns(card, mode, "library", [], recipe_key=recipe.key)
     return BatchPlan(
         card, float(first), rows, skipped, gate.needs_ph_reminder(recipe.fermentation_type), link,
         recipe.name,
@@ -2013,7 +2017,7 @@ def variant_batch_plan(
         temp = variant_temperature(v, temperature_c)
         if not variant_gate(v, temp).ok:
             raise GateRefused("this variant does not pass the safety checks at this temperature")
-        v, stats, fp, fresh, reference = _live_variant(v, temp, FORECAST_MEMBERS, temperature_c)
+        v, stats, fp, fresh, reference = live_variant(v, temp, FORECAST_MEMBERS, temperature_c)
         card, _ = variant_card(v, targets, temperature_c, batch_g, (), reference, stats=stats)
         if card is not None and fresh:
             log_candidate(candidate_record(v, stats, fp, card.evaluation, None))
@@ -2028,7 +2032,7 @@ def variant_batch_plan(
     fdc_rows = tuple((fdc[n], q, role) for n, q, role in grams if n in fdc)
     first = card.schedule[0][1] if card.schedule else card.temperature.served_c
     chips = [operator_json(op, parent.recipe) for op in v.operators]
-    link = _link(card, mode, v.source_kind, chips, **v.link_parent)
+    link = link_columns(card, mode, v.source_kind, chips, **v.link_parent)
     return BatchPlan(
         card, float(first), rows, skipped, gate.needs_ph_reminder(v.recipe.fermentation_type),
         link, f"{parent.recipe.name} (variant)", fdc_rows,

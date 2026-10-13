@@ -64,19 +64,24 @@ router = APIRouter(tags=["community"])
 ALREADY_PUBLISHED = "This batch is already published."
 
 
+def _ingredient_out(r: dict[str, Any]) -> dict[str, Any]:
+    """A stored row as schemas.CommunityIngredientOut. Only a USDA pick has its fdc_id and
+    label: a catalogue name stored with an fdc_id (published before community.usda_pick) has
+    neither."""
+    usda = community.usda_pick(str(r["name"]), r.get("fdc_id"))
+    return {
+        "name": r["name"], "role": r["role"], "g_per_kg": r["g_per_kg"],
+        "fdc_id": r.get("fdc_id") if usda else None,
+        "label": community.USDA_LABEL if usda else None,
+    }  # fmt: skip
+
+
 def recipe_out(row: CommunityRecipe) -> dict[str, Any]:
     """schemas.CommunityRecipeOut's fields."""
     return {
         "id": row.id, "title": row.title, "pseudonym": row.pseudonym,
         "fermentation_type": row.fermentation_type,
-        "ingredients": [
-            {
-                "name": r["name"], "role": r["role"], "g_per_kg": r["g_per_kg"],
-                "fdc_id": r.get("fdc_id"),
-                "label": community.USDA_LABEL if r.get("fdc_id") is not None else None,
-            }
-            for r in row.recipe
-        ],
+        "ingredients": [_ingredient_out(r) for r in row.recipe],
         "temperature_c": row.temperature_c, "duration_h": row.duration_h, "status": row.status,
         "reason": row.reason, "created_at": row.created_at, "reviewed_at": row.reviewed_at,
     }  # fmt: skip

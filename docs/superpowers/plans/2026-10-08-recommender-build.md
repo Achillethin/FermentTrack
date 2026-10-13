@@ -375,6 +375,30 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
 - Full test suite, ruff and mypy compared with the baseline.
 - A final quality review across all phases.
 
+**Added 2026-10-13: deferred code items from the B1–B12 handoffs.** These are split into B13a (code) and B13b (docs), which run in parallel and own disjoint files.
+
+**B13a (code):**
+1. **B9 bug:** publishing labels catalogue ingredients that have an FDC link as USDA picks ("aroma effect unknown"), which may also drop their aroma data. Fix with tests.
+2. **`alembic/env.py`:** `fileConfig(..., disable_existing_loggers=False)`. This fixes the order-dependent community test.
+3. **Make helpers public:**
+   - `service._prerank`, `_combos`, `_live_variant` (used by `jobs.py`);
+   - `service._link`, `_forecast_body`, `_live_json`, `_model_note` and `grid._mix` (used by `community.py`).
+4. `Batch.tastings` ordering tie-break: `created_at, id`.
+5. The batch preview exposes the recommendation link's target keys. The frontend tasting form uses them and drops the localStorage fallback.
+6. Clear the frontend `ft.*` localStorage keys on sign-out.
+7. A pytest pinning the constants the frontend copies (pH line, acid-safety types, privacy notice, pseudonym rule) against the backend.
+8. **Frontend:** a slider move or confirmation that drops `p_peak` also drops the "calibrated on n batches" trust label.
+9. **Calibration:**
+   - a clearer `NO_SKILL` reason when no cell has both outcomes;
+   - `PUBLIC_BIN_MIN` counted in distinct batches.
+10. **Optional:** merge the frontend API helpers (`ideas/api.js`, `shared.jsx`, `sourdough/api.js`).
+
+**B13b (docs):**
+- README;
+- design status IMPLEMENTED plus implementation notes per section (from § 5);
+- curation spec notes;
+- `ADDING_AN_INGREDIENT.md` names.
+
 ## 3. Baseline (`master@c438cd9`, recorded before B1)
 
 - **pytest (full):** 600 passed, 65 xfailed, 0 failed. It took 26:47 while running alongside other agents; budget about 15–30 min.
@@ -407,8 +431,8 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - Sources are citation keys, defined in `research/recipes/01-*.md`.
 - **For B13:** design § 4.1's wording "never the drafts" must change to "drafts plus encoded curation decisions".
 
-### B2 — engine hooks
-- **Gates:** review PASS (byte-identical against HEAD on 32 outputs; 15 new tests and 91 regression tests pass).
+### B2 — engine hooks (commit `fd919d6`)
+- **Gates:** review PASS (byte-identical against HEAD on 32 outputs; 15 new tests and 91 regression tests pass); handoff ACCEPT (17/17; deviation 7, the plan also filling reading gaps, ruled an extension).
 - **Signatures:**
   - `PredictionInputs.planned_temperature: tuple[tuple[float, float], ...] = ()`, a step schedule;
   - `predict(inputs, temperature_c=None, horizon_h=None, members=None)`;
@@ -523,7 +547,7 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - merge the `api.js` / `errorText` duplication with `sourdough/api.js` (B13);
   - a radio-group mode toggle (B12).
 
-### B5 — Proven API (commit: this one)
+### B5 — Proven API (commit `8e78b20`)
 - **Gates:**
   - review round 1: CHANGES REQUIRED (koji could be served and booked at 36–40 °C; the E4 checker was blind to it);
   - review round 2: CHANGES REQUIRED (false notes caused by my over-reaching round-1 rule);
@@ -572,7 +596,7 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
 - **For B10:** `/me/export` should include links and tastings.
 - **For the owner:** a minimum salt for miso and garum before B9; kimchi engine calibration.
 
-### B7 — Experimental backend (commit: this one)
+### B7 — Experimental backend (commit `4c18db4`)
 - **Gates:**
   - review round 1: CHANGES REQUIRED (the candidates log carried an own-batch id; retired own-batch rows were dropped, overstating salt);
   - review round 2: PASS;
@@ -644,7 +668,7 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - calibrate the 15 s step estimate on Render;
   - single-process assumption.
 
-### B9 — community recipes (commit: this one)
+### B9 — community recipes (commit `f6393e5`)
 - **Gates:**
   - the original implementer was lost when the session resumed; a fresh implementer finished from its partial work;
   - review: PASS (no required changes); 9 optional follow-ups applied;
@@ -687,7 +711,7 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - admins may approve their own recipes (acceptable with one admin; refuse it once there are several).
 - **Known rare flake (watch):** `test_community.py::test_the_pseudonym_is_validated["x"*41]` failed once in about 38 runs of the B9 test files (12 sequential, 12 under 4-way parallel load, plus agent runs). It wasn't reproduced and no traceback was captured; the validation path is pure Pydantic and deterministic. If it recurs, capture `--tb=long` and suspect cross-test state (garbage-collected aiosqlite engines, leaked tasks).
 
-### B10 — tastings (commit: this one)
+### B10 — tastings (commit `b653742`)
 - **Gates:**
   - the implementer and the first reviewer were lost when the session resumed;
   - review round 1: CHANGES REQUIRED (the tasting reminder reworded the pH rule; a NUL in notes could log them through Postgres' DataError) → fixed;
@@ -731,11 +755,11 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - tie-break `Batch.tastings` ordering by `created_at, id`;
   - document the limits of the 3-person minimum (differencing, throwaway accounts).
 
-### B11 — calibration gate (commit: this one)
+### B11 — calibration gate (commit `f42aeaf`)
 - **Gates:**
   - review round 1: CHANGES REQUIRED (`exclude_if` needs pydantic ≥ 2.12; the public report could reveal one tasting), plus an orchestrator amendment adding an AUC condition to the gate;
   - review round 2: PASS (within-cell AUC hand-checked; brute-force bootstrap equivalence; simulations);
-  - handoff: see below;
+  - handoff: ACCEPT (35/35);
   - full suite: **1196 passed, 65 xfailed, 0 failed**.
 - **`recommender/calibration.py`:**
   - **Observations:** tastings ⋈ link `p_series`, with P by `np.interp` inside the axis only (axis strictly increasing; outside is skipped); "noticed" = rating ≥ 1.
@@ -759,7 +783,7 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - `tests/test_community.py`, `tests/test_recommendation_jobs.py` (lifespan tests patch `run_schedule`).
 - **Public report:** bin counts stay visible below 30 batches, while each bin's mean P and observed rate are hidden.
 
-### B12 — frontend R2–R4 (commit: this one)
+### B12 — frontend R2–R4 (commit `9c3f108`)
 - **Gates:**
   - review round 1: CHANGES REQUIRED (prompt before stop-by; numbers next to levels; deep-search polls resetting the slider forecast; calibration report unused);
   - review round 2: PASS; two follow-ups applied (Start batch never aborted; "Try again" focus);
@@ -800,3 +824,24 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - record in the implementation notes the power cost at small n with several cells (perfect model at n = 30, 3 types: 0.35 → 0.17);
   - consider a clearer `NO_SKILL` text when no cell has both outcomes;
   - consider counting `PUBLIC_BIN_MIN` in batches rather than ratings.
+
+### B13 — code follow-ups and documentation (commit: the final one on this branch)
+- **B13a (code):**
+  - review: PASS on code. Its only "required" item was the nestle-it2 standards-wiki check, a process item; see the standards note below.
+  - Items 1–9 done:
+    - the USDA-pick rule (`community.usda_pick`, correcting stored recipes on read);
+    - `alembic/env.py` `disable_existing_loggers=False` (fixes the order-dependent community test);
+    - public helpers (`prerank`, `parent_combinations`, `live_variant`, `link_columns`, `forecast_body`, `live_json`, `model_note`, `grid.mix`);
+    - tastings ordered by `t_h, created_at, id`;
+    - preview `recommendation_targets`, replacing the localStorage fallback;
+    - `ft.*` keys cleared on sign-out and on account change (`ft.owner`);
+    - `tests/test_frontend_constants.py` pinning the frontend's copied constants, including the title, reason, notes and USDA limits;
+    - `withoutCalibration` drops the number, `calibrated_on` and the label together;
+    - the `NO_CONTRAST` reason, and `PUBLIC_BIN_MIN` counted in distinct batches.
+  - Item 10 (merging the frontend API helpers) was skipped as regression-prone without a test runner (review accepted); it is listed in design § 17.12.
+- **B13b (docs):** README Ideas section; design status IMPLEMENTED with § 17 implementation notes; curation spec notes; `ADDING_AN_INGREDIENT.md` names. Every fact was verified against the code.
+- **Final quality review (whole package):** scope fit, artefact consistency, reviewer findings, evidence, and safety and privacy invariants all hold.
+  - Its consistency items were fixed by the orchestrator: Q34 and Q35 added to design § 2; the § 13.2 calibration endpoint wording; `ft.owner` documented; this log's missing commit hashes and B2/B11 handoff verdicts; the dropped B12/B13 items added to design § 17.12.
+  - Its only blocker is the standards-wiki process gate; see the standards note below.
+- **Final checks on the B13 tree:** full suite **1207 passed, 65 xfailed, 0 failed** (17:29); ruff 149 (baseline); mypy no new errors; frontend build and 8 node checks pass; LF verified before commit.
+- **Standards source:** every review used plan § 0, § 3 and § 4 as the standards source. The nestle-it2 wiki could not be reached (it needs authentication, and the Azure DevOps MCP was not available in these sessions). **Owner decision (2026-10-13): waived.** FermentTrack is a personal project and plan § 0 is its standard, which clears the final quality gate's only blocker.

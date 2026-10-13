@@ -1,5 +1,5 @@
-// Tastings (design § 11.2): the form's vocabulary, its payload and the list's text. Pure (storage
-// is passed in): `node src/tastings/tasting.check.mjs` runs it.
+// Tastings (design § 11.2): the form's vocabulary, its payload and the list's text. Pure:
+// `node src/tastings/tasting.check.mjs` runs it.
 import { AROMAS, TASTES } from "../ideas/ideas.js";
 import { duration, parseApiDate } from "../prediction/format.js";
 
@@ -103,38 +103,7 @@ export function tastingReminder(reminders, batchId, now = Date.now()) {
   return { due: open.find((r) => isDue(r, now)) ?? null, upcoming: open.find((r) => !isDue(r, now)) ?? null };
 }
 
-// The targets a batch was recommended for, kept on this device when Start batch creates it (the
-// API does not hand a batch's recommendation link back). Storage: localStorage or a stand-in.
-const STORE = (batchId) => `ft.tasting-targets.${batchId}`;
-
-// localStorage, or null where the browser refuses it.
-export function deviceStorage() {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// The targets a started batch was recommended for: its link's (Start batch's answer), else the
-// request's; kept with rememberTargets as soon as the answer arrives.
-export const startedTargets = (out, query) =>
-  out?.link?.targets?.length ? out.link.targets : [...(query?.aromas ?? []), ...(query?.tastes ?? [])];
-
-export function rememberTargets(storage, batchId, targets) {
-  const keys = (targets ?? []).map((t) => (typeof t === "string" ? t : t?.key)).filter((k) => TASTING_KEYS.includes(k));
-  try {
-    if (keys.length) storage?.setItem(STORE(batchId), JSON.stringify(keys.slice(0, 3)));
-  } catch {
-    // storage full or disabled: the form falls back to the picker
-  }
-}
-
-export function recalledTargets(storage, batchId) {
-  try {
-    const keys = JSON.parse(storage?.getItem(STORE(batchId)) ?? "[]");
-    return Array.isArray(keys) ? [...new Set(keys.filter((k) => TASTING_KEYS.includes(k)))].slice(0, 3) : [];
-  } catch {
-    return [];
-  }
-}
+// The targets a batch was recommended for (the batch preview's recommendation_targets: its
+// recommendation link's keys; null when not started from a card): the ones the form rates first.
+export const recommendedTargets = (keys) =>
+  Array.isArray(keys) ? [...new Set(keys.filter((k) => TASTING_KEYS.includes(k)))].slice(0, 3) : [];

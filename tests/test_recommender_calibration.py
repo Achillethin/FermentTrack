@@ -245,6 +245,31 @@ def test_a_base_rate_model_beats_the_brier_baseline_but_fails_the_auc() -> None:
     assert pooled is not None and pooled > 0.6  # across types it would have looked skilled
 
 
+def test_no_cell_with_both_outcomes_has_its_own_reason() -> None:
+    """Each batch its own type: no (type, series) cell holds a noticed and a not-noticed
+    rating, so the AUC is undefined in the data and in every resample. The reason says that,
+    not that the model has no skill. The Brier condition is judged as usual."""
+
+    def each_its_own_type(good: bool) -> list[K.TastingRow]:
+        rows = []
+        for b in range(40):
+            noticed = b % 2 == 1
+            p = 0.9 if noticed == good else 0.1
+            rows.append(row(
+                f"b{b:02d}", {"sour": 2 if noticed else 0}, {"sour": [p] * 3},
+                ftype=f"type{b:02d}",
+            ))  # fmt: skip
+        return rows
+
+    report = K.compute(each_its_own_type(good=True), NOW)
+    assert (report.auc, report.auc_low) == (None, K.UNDEFINED_AUC)
+    assert report.ci_high is not None and report.ci_high < 0  # the Brier condition holds
+    assert (report.passed, report.reason) == (False, K.NO_CONTRAST)
+    assert "noticed and not-noticed" in K.NO_CONTRAST
+    worse = K.compute(each_its_own_type(good=False), NOW)
+    assert (worse.passed, worse.reason) == (False, f"{K.NOT_BETTER}; {K.NO_CONTRAST}")
+
+
 def test_the_auc_counts_ties_as_one_half_within_each_cell() -> None:
     """Hand-computed. Noticed at P 0.4 and 0.8, not noticed at 0.2 and 0.4: of the 4 pairs, 3
     are ordered and 1 is tied, (3 + ½) / 4 = 0.875 (average ranks: noticed ranks 2.5 + 4, U =
@@ -338,8 +363,12 @@ def test_reliability_bins() -> None:
         (0.0, 0.2, 2, 0.05, 0.0), (0.2, 0.4, 2, 0.295, 0.5), (0.4, 0.6, 1, 0.5, 1.0),
         (0.6, 0.8, 0, None, None), (0.8, 1.0, 2, 0.995, 1.0),
     ]  # fmt: skip
+    assert {b.batches for b in K.reliability(p, y)} == {None}  # no batches given: not counted
+    groups = np.array([0, 0, 1, 2, 3, 4, 4], dtype=np.intp)
+    assert [b.batches for b in K.reliability(p, y, groups=groups)] == [1, 2, 1, 0, 1]
     report = K.compute(synthetic(40), NOW)
     assert sum(b.n for b in report.bins) == report.n_observations
+    assert sum(b.batches or 0 for b in report.bins) == report.n_batches  # one P per batch here
     assert [b.n > 0 for b in report.bins] == [True, False, False, False, True]
 
 
@@ -370,9 +399,30 @@ def test_the_public_report_hides_what_could_show_one_tasting() -> None:
     full = K.report_json(big)
     assert {k: public[k] for k in K.SCORES} == {k: full[k] for k in K.SCORES}  # 30+ batches
     for b, f in zip(public["bins"], full["bins"], strict=True):
-        shown = f["n"] >= K.PUBLIC_BIN_MIN
+        shown = f["batches"] >= K.PUBLIC_BIN_MIN
         assert b == (f if shown else f | {"mean_p": None, "observed": None})
     assert [b["n"] for b in public["bins"]] == [16, 0, 1, 0, 15]  # counts always stay
+
+
+def test_a_bin_s_values_need_ratings_from_3_batches_in_the_public_report() -> None:
+    """PUBLIC_BIN_MIN counts distinct batches, not ratings: one batch tasted three times is
+    still one person's tastings. A report stored before batches were counted shows none."""
+    thrice = [row("odd", {"sour": 2}, {"sour": [0.5] * 3}, tasting=f"odd-{k}") for k in range(3)]
+    big = K.compute([*synthetic(31), *thrice], NOW)
+    assert (big.bins[2].n, big.bins[2].batches) == (3, 1)
+    middle = K.public_json(big)["bins"][2]
+    assert (middle["n"], middle["batches"], middle["mean_p"], middle["observed"]) == (
+        3, 1, None, None,
+    )  # fmt: skip
+    three = [row(f"odd{k}", {"sour": 2}, {"sour": [0.5] * 3}) for k in range(3)]
+    shown = K.public_json(K.compute([*synthetic(31), *three], NOW))["bins"][2]
+    assert (shown["n"], shown["batches"], shown["mean_p"], shown["observed"]) == (3, 3, 0.5, 1.0)
+    legacy = K.report_json(big)
+    legacy["bins"] = [{k: v for k, v in b.items() if k != "batches"} for b in legacy["bins"]]
+    old = K.report_from_json(legacy)
+    assert {b.batches for b in old.bins} == {None}
+    assert all(b["mean_p"] is None for b in K.public_json(old)["bins"])
+    CalibrationReportOut.model_validate(legacy)
 
 
 # ── stored reports, the schedule, the admin trigger ─────────────────────
@@ -569,11 +619,13 @@ async def test_the_report_holds_aggregates_only(
     body = resp.json()
     assert set(body) == REPORT_KEYS
     assert (body["passed"], body["n_batches"], body["reason"]) == (True, 32, None)
-    assert [set(b) for b in body["bins"]] == [{"lo", "hi", "n", "mean_p", "observed"}] * 5
+    assert [set(b) for b in body["bins"]] == [
+        {"lo", "hi", "n", "batches", "mean_p", "observed"}
+    ] * 5
 
     with as_user(OTHER):  # any signed-in user reads the same report
         got = await client.get("/recommendations/calibration")
-    # 30+ batches and no bin under 3 ratings but the empty ones: the public report is the full one
+    # 30+ batches and no bin under 3 batches but the empty ones: the public report is the full one
     assert got.status_code == 200 and got.json() == body
     assert (await client.get("/admin/calibration")).json() == body
     text = got.text

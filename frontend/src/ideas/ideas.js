@@ -87,14 +87,15 @@ export const plannerHref = (link, loc) => (PLANNER_LINK.test(link || "") ? `${lo
 
 // A live forecast (POST /recommendations/forecast) over the card it updates. Its E/U
 // numbers are dropped: scores stay Low / Med / High, and a calibrated card's numbers
-// (p_peak) belong to the card as served, so they go too. Q27: the slider moves the first
-// stage of a staged recipe only. A screened card's live forecast confirms it (design § 8.5).
+// (p_peak) belong to the card as served, so they go too, with calibrated_on and the
+// "calibrated on n batches" label (levels never sit next to a "calibrated" tag). Q27: the
+// slider moves the first stage of a staged recipe only. A screened card's live forecast
+// confirms it (design § 8.5).
 export function withForecast(card, fc) {
   const served = fc.temperature.served_c;
   const [first, ...later] = card.recipe.temp_schedule;
-  const { p_peak: _p, ...rest } = card;
   const merged = {
-    ...rest,
+    ...withoutCalibration(card),
     recipe: {
       ...card.recipe,
       temperature_c: served,
@@ -189,6 +190,18 @@ export function confirmedBy(card, fc) {
 // and each modelled target's p_peak. Nothing else (a forecast's e_peak or u_peak) is ever shown.
 export const calibratedOn = (card) =>
   Number.isInteger(card?.calibrated_on) && card.calibrated_on > 0 ? card.calibrated_on : null;
+
+// service.CALIBRATED_LABEL ("calibrated on {n} batches"), the trust label calibrated cards carry.
+export const CALIBRATED_LABEL = /^calibrated on \d+ batch(es)?$/;
+
+// The card without its calibrated numbers: no p_peak, no calibrated_on, no "calibrated on n
+// batches" label. trust is kept as is when it has no such label.
+export function withoutCalibration(card) {
+  const { p_peak: _p, calibrated_on: _n, ...rest } = card;
+  const labels = card.trust?.labels ?? [];
+  if (!labels.some((l) => CALIBRATED_LABEL.test(l))) return rest;
+  return { ...rest, trust: { ...card.trust, labels: labels.filter((l) => !CALIBRATED_LABEL.test(l)) } };
+}
 
 export function pText(target, card) {
   if (calibratedOn(card) == null || !target.modelled) return null;

@@ -55,17 +55,21 @@ over pairs of ratings in the same baseline cell (type, series) only (`auc`).
   about π(1 − π)/n (B11 review).
 - A draw where no cell holds both classes has no AUC. It counts as 0.5, "no discrimination
   shown": conservative, since it can only pull auc_low down to 0.5 and so towards failing,
-  never towards passing.
+  never towards passing. When no cell of the data holds both classes, every draw is such a
+  draw: the reason then says so (NO_CONTRAST) rather than NO_SKILL.
 - With fewer batches there is no bootstrap, and the gate does not pass ("fewer than 30 tasted
   batches").
 
 **Reliability** (`reliability`): 5 equal-width bins of P on [0, 1] (P = 1 goes in the last).
-Each bin reports its n, its mean P and its observed noticed rate (None when empty).
+Each bin reports its n (ratings), the distinct batches they come from, its mean P and its
+observed noticed rate (None when empty).
 
 **Privacy** (`public_json`): the report GET /recommendations/calibration gives every signed-in
 user hides what could show one person's tastings:
 - below MIN_BATCHES, every score (Brier, d, CI, AUC) and every bin's mean P and observed rate;
-- at any size, the mean P and observed rate of a bin with fewer than PUBLIC_BIN_MIN (3) ratings.
+- at any size, the mean P and observed rate of a bin whose ratings come from fewer than
+  PUBLIC_BIN_MIN (3) distinct batches (one batch tasted three times is still one person's), or
+  whose batch count is unknown (a report stored before it was counted).
 
 Counts, the decision and its reason stay. Admins get the full report (GET
 /admin/calibration, POST /admin/calibration/recompute). **Residual limit:** two consecutive
@@ -123,7 +127,7 @@ CI_LEVEL = 0.9  # the CI of d: 5th to 95th percentiles; auc_low: the 5th
 AUC_MIN = 0.5  # auc_low must be above it
 UNDEFINED_AUC = 0.5  # a resample with one class only: no discrimination shown
 N_BINS = 5  # reliability bins of equal width on [0, 1]
-PUBLIC_BIN_MIN = 3  # ratings in a bin before the public report shows its mean P and rate
+PUBLIC_BIN_MIN = 3  # distinct batches in a bin before the public report shows its mean P and rate
 NOTICED = 1  # a rating this high or higher: noticed (0 not noticed ... 3 strong)
 MAX_RATING = 3
 NO_DATA_RATE = 0.5  # the baseline when no other batch rated the series
@@ -138,6 +142,10 @@ TOO_FEW = f"fewer than {MIN_BATCHES} tasted batches"
 NOT_BETTER = "the model does not beat the baseline (the 90 % CI's upper bound is not below 0)"
 NO_SKILL = (
     "the model does not tell noticed from not noticed (the AUC's 5th percentile is not above 0.5)"
+)
+NO_CONTRAST = (
+    "no type and series has both noticed and not-noticed ratings yet, so the model's skill "
+    "cannot be measured"
 )
 SCORES = ("brier_model", "brier_baseline", "diff", "ci_low", "ci_high", "auc", "auc_low")
 
@@ -176,9 +184,10 @@ class Bin:
 
     lo: float
     hi: float
-    n: int
+    n: int  # the ratings in it
     mean_p: float | None  # None when empty
     observed: float | None  # the noticed rate
+    batches: int | None = None  # the distinct batches they come from (None: not counted)
 
 
 @dataclass(frozen=True)
@@ -385,16 +394,22 @@ def _r(x: float) -> float:
     return round(float(x), DIGITS)
 
 
-def reliability(p: FloatArray, y: FloatArray, n_bins: int = N_BINS) -> tuple[Bin, ...]:
-    """The reliability diagram: n_bins equal-width bins of P on [0, 1], P = 1 in the last."""
+def reliability(
+    p: FloatArray, y: FloatArray, n_bins: int = N_BINS, groups: IntArray | None = None
+) -> tuple[Bin, ...]:
+    """The reliability diagram: n_bins equal-width bins of P on [0, 1], P = 1 in the last.
+    groups: each observation's batch, to count each bin's distinct batches (None: not
+    counted)."""
     index = np.minimum((p * n_bins).astype(np.intp), n_bins - 1)
     bins = []
     for i in range(n_bins):
         inside = index == i
         n = int(inside.sum())
+        batches = None if groups is None else int(np.unique(groups[inside]).size)
         bins.append(Bin(
             _r(i / n_bins), _r((i + 1) / n_bins), n,
             _r(float(p[inside].mean())) if n else None, _r(float(y[inside].mean())) if n else None,
+            batches,
         ))  # fmt: skip
     return tuple(bins)
 
@@ -411,8 +426,10 @@ def compute(
     obs = observations(rows)
     p = np.asarray([o.p for o in obs], dtype=np.float64)
     y = np.asarray([o.y for o in obs], dtype=np.float64)
-    bins = reliability(p, y)
     batches = sorted({o.batch_id for o in obs})
+    index = {b: i for i, b in enumerate(batches)}
+    groups = np.asarray([index[o.batch_id] for o in obs], dtype=np.intp)
+    bins = reliability(p, y, groups=groups)
     at = computed_at if computed_at.tzinfo is not None else computed_at.replace(tzinfo=UTC)
     if not obs:
         return Report(at, 0, 0, 0, None, None, None, None, None, None, None, False, TOO_FEW, bins)
@@ -428,13 +445,13 @@ def compute(
     boot = None
     reasons = [TOO_FEW]
     if len(batches) >= MIN_BATCHES:
-        index = {b: i for i, b in enumerate(batches)}
-        groups = np.asarray([index[o.batch_id] for o in obs], dtype=np.intp)
         boot = bootstrap(
             groups, err_model - err_baseline, p, y, strata, seed=seed, resamples=resamples
         )
+        # no cell with both outcomes in the data: none in any resample either
+        no_auc = NO_CONTRAST if point_auc is None else NO_SKILL
         reasons = [why for why, failed in (
-            (NOT_BETTER, not boot.ci_high < 0.0), (NO_SKILL, not boot.auc_low > AUC_MIN),
+            (NOT_BETTER, not boot.ci_high < 0.0), (no_auc, not boot.auc_low > AUC_MIN),
         ) if failed]  # fmt: skip
     return Report(
         computed_at=at, n_tastings=len({o.tasting_id for o in obs}), n_observations=len(obs),
@@ -466,22 +483,32 @@ def report_json(r: Report) -> dict[str, Any]:
         "ci_low": r.ci_low, "ci_high": r.ci_high, "auc": r.auc, "auc_low": r.auc_low,
         "passed": r.passed, "reason": r.reason,
         "bins": [
-            {"lo": b.lo, "hi": b.hi, "n": b.n, "mean_p": b.mean_p, "observed": b.observed}
+            {
+                "lo": b.lo, "hi": b.hi, "n": b.n, "batches": b.batches, "mean_p": b.mean_p,
+                "observed": b.observed,
+            }
             for b in r.bins
         ],
     }  # fmt: skip
 
 
+def _public_bin(b: Mapping[str, Any]) -> bool:
+    """A bin's mean P and rate are public once its ratings come from PUBLIC_BIN_MIN distinct
+    batches (not counted in a report stored before B13: hidden)."""
+    return b.get("batches") is not None and b["batches"] >= PUBLIC_BIN_MIN
+
+
 def public_json(r: Report) -> dict[str, Any]:
     """The report every signed-in user gets (see Privacy in the module docstring): below
-    MIN_BATCHES no score and no bin value; at any size no value for a bin of fewer than
-    PUBLIC_BIN_MIN ratings. Counts, the decision and its reason stay."""
+    MIN_BATCHES no score and no bin value; at any size no value for a bin whose ratings come
+    from fewer than PUBLIC_BIN_MIN distinct batches. Counts, the decision and its reason
+    stay."""
     body = report_json(r)
     small = r.n_batches < MIN_BATCHES
     if small:
         body |= dict.fromkeys(SCORES)
     body["bins"] = [
-        b | {"mean_p": None, "observed": None} if small or b["n"] < PUBLIC_BIN_MIN else b
+        b if not small and _public_bin(b) else b | {"mean_p": None, "observed": None}
         for b in body["bins"]
     ]
     return body
@@ -490,9 +517,12 @@ def public_json(r: Report) -> dict[str, Any]:
 def report_from_json(d: Mapping[str, Any]) -> Report:
     at = datetime.fromisoformat(str(d["computed_at"]))
     bins = tuple(
-        Bin(float(b["lo"]), float(b["hi"]), int(b["n"]), b["mean_p"], b["observed"])
+        Bin(
+            float(b["lo"]), float(b["hi"]), int(b["n"]), b["mean_p"], b["observed"],
+            None if b.get("batches") is None else int(b["batches"]),
+        )
         for b in d["bins"]
-    )
+    )  # fmt: skip
     return Report(
         computed_at=at if at.tzinfo is not None else at.replace(tzinfo=UTC),
         n_tastings=int(d["n_tastings"]), n_observations=int(d["n_observations"]),

@@ -51,7 +51,7 @@ deletes all but the newest kept − 1 finished ones (in the same transaction).
 no live engine forecast here (POST /recommendations/forecast hands them off too).
 1. **The best screened combinations not yet confirmed**: per parent, the first
    SCREENED_PER_PARENT screened combinations (2–3 operators, or a (v) must-include ingredient)
-   that pass the gate, in B7's pre-ranking order (service._prerank; with no targets, the tie
+   that pass the gate, in B7's pre-ranking order (service.prerank; with no targets, the tie
    keys), scored on the grid and ranked across parents like the Experimental section (§ 5.4:
    U − penalty, ...). The user's USDA foods are step 3's: screening gives them no effect, so
    here they would only repeat their parent.
@@ -61,7 +61,7 @@ no live engine forecast here (POST /recommendations/forecast hands them off too)
    farthest from every temperature the grid holds for it (`extra_temperatures`).
 3. **The user's USDA foods** (operator v): for each, the best variant holding it.
 (2) and (3) keep their places; (1) fills the rest. Each step is the variant's live forecast
-(kept by fingerprint in service._live_variant), turned into a card exactly like those of POST
+(kept by fingerprint in service.live_variant), turned into a card exactly like those of POST
 /recommendations (service.card_json), now confirmed: never "screened", and for a screened
 combination `interaction_detected` (the confirmed E(peak) below 0.8 × the screened one). A fresh
 forecast is logged as a grid and emulator candidate (service.log_candidate: no ids). The cards
@@ -539,7 +539,7 @@ def _ordered(
     """The parent's combinations, best first, as the Experimental section orders them
     (service.best_variant): B7's pre-ranking with targets, else the tie keys."""
     if q.targets:
-        rank = service._prerank(parent, combos, q.targets, q.temperature_c, reference)
+        rank = service.prerank(parent, combos, q.targets, q.temperature_c, reference)
         return [combos[i] for i in rank]
 
     def cheap(combo: tuple[Operator, ...]) -> tuple[int, int, str]:
@@ -634,7 +634,7 @@ def plan_deep_search(request: Mapping[str, Any]) -> list[dict[str, Any]]:
         if recipe.handoff == "planner":
             continue
         parent = service.Parent(recipe, "library", recipe.name)
-        combos = service._combos(parent, q.listed, q.temperature_c, q.usda_ids)
+        combos = service.parent_combinations(parent, q.listed, q.temperature_c, q.usda_ids)
         if not combos:
             continue
         reference = service.library_reference(recipe, q.temperature_c)
@@ -678,7 +678,7 @@ def run_deep_search_step(request: Mapping[str, Any], step: Mapping[str, Any]) ->
     if not service.variant_gate(v, temp).ok:
         return None
     members = service.FORECAST_MEMBERS
-    v, stats, fp, fresh, reference = service._live_variant(v, temp, members, q.temperature_c)
+    v, stats, fp, fresh, reference = service.live_variant(v, temp, members, q.temperature_c)
     card, _ = service.variant_card(
         v, q.targets, q.temperature_c, q.batch_g, q.listed, reference, stats=stats
     )
