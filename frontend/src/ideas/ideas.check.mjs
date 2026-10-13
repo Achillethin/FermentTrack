@@ -4,14 +4,32 @@ import {
   aromaTempText,
   AROMAS,
   basisText,
+  calibratedOn,
+  calibratedText,
+  calibrationText,
+  cardSource,
+  chipText,
   errorText,
+  finishedParents,
   fmtGrams,
+  groupByParent,
+  isTemperatureVariant,
   levelPhrase,
+  levelsLegend,
+  likingText,
   LOW_RESOLUTION,
+  madeText,
+  mergeDeep,
+  MODES,
   plannerHref,
+  pText,
+  sameSearch,
   scheduleText,
+  searchSummary,
+  shareText,
   TASTES,
   targetBody,
+  targetLine,
   tierText,
   toggleTarget,
   windowRows,
@@ -132,5 +150,194 @@ assert.equal(
   "aromas: at most 3 target aromas and tastes in total"
 );
 assert.equal(errorText(500, {}), "The server answered 500");
+
+// ── B12: Experimental, Community, calibration ──
+assert.deepEqual(MODES.map((m) => m.value), ["proven", "experimental", "both"]);
+
+// Operator chips (design § 11.1).
+const chip = (x) => ({ key: "k", ingredient: null, replaces: null, share: null, from_c: null, to_c: null, fdc_id: null, label: null, ...x });
+assert.equal(chipText(chip({ op: "add", ingredient: "Fresh ginger", share: 0.0078 })), "+ Fresh ginger 0.8 %");
+assert.equal(chipText(chip({ op: "add", ingredient: "Fresh ginger", share: 0.02 })), "+ Fresh ginger 2 %");
+assert.equal(chipText(chip({ op: "add", ingredient: "Chili flakes", share: 0.0004 })), "+ Chili flakes < 0.1 %");
+assert.equal(chipText(chip({ op: "add", ingredient: "Garlic" })), "+ Garlic");
+assert.equal(chipText(chip({ op: "swap", ingredient: "Cucumber", replaces: "Cabbage" })), "swap Cabbage → Cucumber");
+assert.equal(chipText(chip({ op: "temperature", from_c: 24, to_c: 27 })), "24 → 27 °C");
+assert.equal(chipText(chip({ op: "temperature", from_c: 20.25, to_c: 22.5 })), "20.3 → 22.5 °C");
+assert.equal(chipText(chip({ op: "temperature", to_c: 18 })), "→ 18 °C");
+assert.equal(
+  chipText(chip({ op: "usda", ingredient: "Persimmons, japanese, raw", share: 0.05, fdc_id: 169941, label: "aroma effect unknown" })),
+  "+ USDA: Persimmons, japanese, raw — aroma effect unknown"
+);
+assert.equal(chipText(chip({ op: "usda", fdc_id: 1 })), "+ USDA: food 1 — aroma effect unknown");
+assert.equal(chipText(chip({ op: "usda", ingredient: "Carrot", share: 0.05 })), "+ Carrot 5 % — aroma effect unknown");
+assert.equal(shareText(null), null);
+assert.equal(shareText(0), null);
+
+// Where a card comes from, for its forecast and Start batch.
+const lib = { section: "proven", recipe_key: "sauerkraut", operators: [], parent: null };
+const ops = [chip({ op: "add", ingredient: "Fresh ginger", share: 0.0078 })];
+assert.deepEqual(cardSource(lib), { recipe_key: "sauerkraut" });
+assert.deepEqual(
+  cardSource({ section: "experimental", recipe_key: "sauerkraut", operators: ops, parent: { kind: "library", recipe_key: "sauerkraut", batch_id: null } }),
+  { recipe_key: "sauerkraut", operators: ops }
+);
+assert.deepEqual(
+  cardSource({ section: "experimental", recipe_key: null, operators: ops, parent: { kind: "own_batch", recipe_key: null, batch_id: "b-1" } }),
+  { parent_batch_id: "b-1", operators: ops }
+);
+assert.deepEqual(
+  cardSource({ section: "experimental", recipe_key: null, operators: ops, parent: { kind: "community", recipe_key: null, batch_id: null, community_recipe_id: "c-1" } }),
+  { community_recipe_id: "c-1", operators: ops }
+);
+assert.deepEqual(cardSource({ section: "community", recipe_key: null, operators: [], parent: null, community: { id: "c-2" } }), { community_recipe_id: "c-2" });
+assert.ok(isTemperatureVariant({ operators: [chip({ op: "temperature", to_c: 27 })] }));
+assert.ok(!isTemperatureVariant({ operators: ops }));
+assert.ok(!isTemperatureVariant({}));
+
+// A screened card's live forecast confirms it: no "screened" left; interaction as the API says.
+const screened = {
+  ...card,
+  section: "experimental",
+  screened: true,
+  interaction_detected: null,
+  trust: { labels: ["Model-guided idea", "screened"] },
+  p_peak: 0.7,
+  calibrated_on: 31,
+};
+const confirmedCard = withForecast(screened, { ...fc, interaction_detected: true });
+assert.equal(confirmedCard.screened, false);
+assert.equal(confirmedCard.confirmed, true);
+assert.equal(confirmedCard.interaction_detected, true);
+assert.deepEqual(confirmedCard.trust.labels, ["Model-guided idea"]);
+assert.ok(!("p_peak" in confirmedCard)); // the numbers belong to the card as served
+assert.equal(withForecast(screened, { ...fc, interaction_detected: null }).interaction_detected, null);
+// ...and a confirmed card stays confirmed through later slider forecasts.
+assert.equal(withForecast(confirmedCard, { ...fc, interaction_detected: false }).confirmed, true);
+assert.equal(withForecast(card, fc).confirmed, undefined); // a Proven card is never "confirmed"
+
+// Numbers only when calibrated (design § 13.2); a forecast's E/U never.
+const tgt = { key: "sour", modelled: true, level: "High", p_peak: 0.72 };
+assert.equal(pText(tgt, { calibrated_on: 34 }), "72 %");
+assert.equal(pText(tgt, {}), null);
+assert.equal(pText(tgt, { calibrated_on: null }), null);
+assert.equal(pText(tgt, { calibrated_on: 0 }), null);
+assert.equal(pText({ ...tgt, modelled: false }, { calibrated_on: 34 }), null);
+assert.equal(pText({ ...tgt, p_peak: undefined }, { calibrated_on: 34 }), null);
+assert.equal(pText({ ...tgt, p_peak: 1.4 }, { calibrated_on: 34 }), null);
+assert.equal(pText({ key: "sour", modelled: true, e_peak: 0.8, u_peak: 0.9 }, { calibrated_on: 34 }), null);
+assert.equal(calibratedOn({ calibrated_on: 34 }), 34);
+assert.equal(calibratedOn({ calibrated_on: "34" }), null);
+assert.equal(calibratedText({ calibrated_on: 34 }), "calibrated on 34 batches");
+assert.equal(calibratedText({}), null);
+
+// Once calibrated, the number replaces Low / Med / High (E gives the level, P the number: both
+// could contradict, e.g. "High · 41 %").
+const calCard = {
+  calibrated_on: 34,
+  targets: [
+    { key: "fruity", modelled: true, level: "High", p_peak: 0.72 },
+    { key: "sour", modelled: true, level: "High", p_peak: 0.41 },
+  ],
+};
+const numbered = targetLine(calCard.targets[1], calCard);
+assert.deepEqual(numbered, { number: "41 %", level: null, text: "chance of being noticeable at the peak" });
+assert.doesNotMatch(`${numbered.number} ${numbered.text}`, /High|Med|Low|likely|tastes? like/);
+assert.deepEqual(targetLine({ key: "sour", modelled: true, level: "High" }, {}), { number: null, level: "High", text: "likely noticeable" });
+assert.deepEqual(targetLine({ key: "sour", modelled: true, level: "Low", p_peak: 0.41 }, {}), { number: null, level: "Low", text: "unlikely to be noticeable" }); // not calibrated: no number
+assert.deepEqual(targetLine({ key: "umami", modelled: false, level: null }, calCard), { number: null, level: null, text: "not modelled for this ferment" });
+assert.equal(
+  levelsLegend(calCard),
+  "Calibrated on 34 batches: numbers are the model's chance of being noticed at the peak. A model estimate of compounds above their detection threshold, not of how it will taste to you."
+);
+assert.doesNotMatch(levelsLegend(calCard), /Low \/ Med \/ High/);
+const mixed = { ...calCard, targets: [...calCard.targets, { key: "umami", modelled: false, level: null }] };
+assert.match(levelsLegend(mixed), /^Calibrated on 34 batches: numbers .* Low \/ Med \/ High where there is no number\. /);
+assert.equal(
+  levelsLegend({ targets: [{ key: "sour", modelled: true, level: "High" }] }),
+  "Low / Med / High: how likely each target is to be noticeable at the peak. A model estimate of compounds above their detection threshold, not of how it will taste to you."
+);
+
+// The calibration gate's status line: counts and decision only, never a score (nulls never 0).
+const nowMs = Date.parse("2026-10-13T12:00:00Z");
+const report = (x) => ({
+  computed_at: "2026-10-13T06:00:00+00:00",
+  n_tastings: 4,
+  n_observations: 9,
+  n_batches: 3,
+  brier_model: null,
+  brier_baseline: null,
+  diff: null,
+  ci_low: null,
+  ci_high: null,
+  auc: null,
+  auc_low: null,
+  passed: false,
+  reason: "fewer than 30 tasted batches",
+  bins: [{ lo: 0, hi: 0.2, n: 2, mean_p: null, observed: null }],
+  ...x,
+});
+assert.equal(calibrationText(null, nowMs), "Not calibrated yet: scores show as Low / Med / High."); // 404
+assert.equal(calibrationText(report(), nowMs), "Not calibrated yet: 3 of 30 tasted batches; scores show as Low / Med / High.");
+assert.equal(calibrationText(report({ n_batches: 1 }), nowMs), "Not calibrated yet: 1 of 30 tasted batches; scores show as Low / Med / High.");
+assert.equal(calibrationText(report({ n_batches: 0, reason: null }), nowMs), "Not calibrated yet: 0 of 30 tasted batches; scores show as Low / Med / High.");
+const notBetter = "the model does not beat the baseline (the 90 % CI's upper bound is not below 0)";
+assert.equal(
+  calibrationText(report({ n_batches: 34, reason: notBetter, brier_model: 0.21, diff: 0.01 }), nowMs),
+  `Not calibrated: 34 tasted batches (${notBetter}); scores show as Low / Med / High.`
+);
+assert.equal(calibrationText(report({ n_batches: 34, passed: true, reason: null }), nowMs), "Calibrated on 34 tasted batches: scores show as numbers.");
+assert.equal(
+  calibrationText(report({ n_batches: 34, passed: true, reason: null, computed_at: "2026-09-20T06:00:00" }), nowMs),
+  "Not calibrated: the last check (on 34 tasted batches) is out of date; scores show as Low / Med / High."
+);
+for (const r of [null, report(), report({ n_batches: 34, reason: notBetter, brier_model: 0.21, diff: 0.01, auc: 0.6 })]) {
+  assert.doesNotMatch(calibrationText(r, nowMs), /0\.\d|\bNaN\b|undefined|null|Brier|AUC/);
+}
+
+// Community cards.
+assert.equal(madeText(3), "made 3×");
+assert.equal(madeText(0), "made 0×");
+assert.equal(likingText(4.25), "liked 4.3 / 5 on average");
+assert.equal(likingText(null), null);
+
+// Search deeper: replace a screened card with the same id, never repeat one, group by parent.
+const v = (id, parentKey, screenedFlag = false) => ({
+  id,
+  screened: screenedFlag,
+  name: parentKey,
+  recipe_key: parentKey,
+  parent: { kind: "library", recipe_key: parentKey, batch_id: null, community_recipe_id: null, label: `Recipe ${parentKey}` },
+});
+const section = [v("a", "kraut", true), v("b", "kimchi"), v("c", "kraut")];
+const results = [{ ...v("a", "kraut"), confirmed: true }, v("b", "kimchi"), v("d", "kimchi"), v("e", "kraut"), v("f", "kimchi")];
+const merged2 = mergeDeep(section, results);
+assert.deepEqual(merged2.cards.map((x) => [x.id, x.screened]), [["a", false], ["b", false], ["c", false]]);
+assert.equal(merged2.cards[0], results[0]);
+assert.deepEqual(merged2.groups.map((g) => [g.label, g.cards.map((x) => x.id)]), [["Recipe kimchi", ["d", "f"]], ["Recipe kraut", ["e"]]]);
+assert.deepEqual(mergeDeep([], results).groups.map((g) => g.cards.length), [2, 3]); // kraut first: ranked order
+const own = { id: "o", name: "Kraut, your batch #2", parent: { kind: "own_batch", recipe_key: null, batch_id: "b1", label: "your batch #2" } };
+assert.deepEqual(groupByParent([own]).map((g) => [g.key, g.label]), [["b1", "your batch #2"]]);
+
+// The same deep search (mode aside, order aside).
+const q1 = { ingredients: ["Cabbage", "Carrot"], aromas: ["fruity"], tastes: ["sour"], mode: "proven", temperature_c: null, batch_g: 1000, usda_fdc_ids: [] };
+assert.ok(sameSearch(q1, { ...q1, mode: "both", ingredients: ["Carrot", "Cabbage"] }));
+assert.ok(sameSearch(q1, { ...q1, usda_fdc_ids: undefined }));
+assert.ok(!sameSearch(q1, { ...q1, temperature_c: 21 }));
+assert.ok(!sameSearch(q1, { ...q1, aromas: [] }));
+assert.ok(!sameSearch(q1, null));
+assert.ok(!sameSearch(q1, { ...q1, mode: "experimental", parent_batch_id: "b1" })); // results with a parent
+assert.ok(!sameSearch(q1, { ...q1, mode: "experimental", community_recipe_id: "c1" }));
+assert.equal(searchSummary({ ...q1, temperature_c: 21, usda_fdc_ids: [1] }), "Cabbage, Carrot · aiming for fruity, sour · 1 USDA food · at 21 °C");
+assert.equal(searchSummary({ aromas: ["fruity"] }), "aiming for fruity");
+
+// Your finished batches as parents: not sourdough, not running, newest first.
+const batches = [
+  { id: "1", outcome: "success", ended_at: "2026-10-01T10:00:00", culture_type: "lacto_ferment" },
+  { id: "2", outcome: "in_progress", ended_at: null, culture_type: "lacto_ferment" },
+  { id: "3", outcome: "success", ended_at: "2026-10-05T10:00:00Z", culture_type: "kombucha" },
+  { id: "4", outcome: "success", ended_at: "2026-10-06T10:00:00Z", culture_type: "sourdough" },
+  { id: "5", outcome: "failure", ended_at: "2026-09-01T10:00:00Z", culture_type: "miso" },
+];
+assert.deepEqual(finishedParents(batches).map((b) => b.id), ["3", "1", "5"]);
 
 console.log("ideas.js ok");

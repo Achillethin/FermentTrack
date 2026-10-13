@@ -758,6 +758,44 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - `pyproject.toml` (`pydantic>=2.12`, needed by `exclude_if`);
   - `tests/test_community.py`, `tests/test_recommendation_jobs.py` (lifespan tests patch `run_schedule`).
 - **Public report:** bin counts stay visible below 30 batches, while each bin's mean P and observed rate are hidden.
+
+### B12 — frontend R2–R4 (commit: this one)
+- **Gates:**
+  - review round 1: CHANGES REQUIRED (prompt before stop-by; numbers next to levels; deep-search polls resetting the slider forecast; calibration report unused);
+  - review round 2: PASS; two follow-ups applied (Start batch never aborted; "Try again" focus);
+  - handoff: ACCEPT (47/47).
+- **Build:** JS 424.24 kB (gzip 129.92 kB), +54 kB raw / +16 kB gzip against pre-B12. 7 check scripts pass. Browser smoke against a real API: 110/110 plus a round-2 re-check; screenshots in the session folder `files/b12_smoke/`.
+- **Component map:**
+  ```
+  App ─ #/ideas → Ideas: IngredientPicker · TargetChips · ModeToggle(radio + calibration status line) · [ParentPicker · UsdaPicker] · TemperatureField
+    │     Results → Section(Proven | Experimental | Community — not proven) → IdeaCard
+    │       IdeaCard: tags · "Variant of …" · CommunityLine · OperatorChips · VariantStatus · Safety · recipe · window
+    │                 · slider | no-slider reason · Confirm · targets (numbers instead of levels when calibrated) · trust · Start batch | planner · Use as a starting point
+    │     DeepSearchPanel + useDeepSearch: start · waiting/progress (aria-live) · Try again · "Variants of …" groups → IdeaCard
+    ├─ #/batch/<id>[/tasting] → BatchView: TastingPrompt (due reminder / finished & untasted) · Log: TastingsCard(TastingForm, list, delete) · Recipe: PublishRecipe (finished + success)
+    ├─ #/today → Today: due tasting reminder → "Fill in the tasting form" · Dismiss
+    ├─ #/account → Account: MyRecipes (+ admin link)
+    └─ #/admin | #/admin/community → AdminNav + AdminLog | AdminCommunity(Review × n)
+  api: ideas/api.js (shared request; errors carry status + detail) · community/api.js · tastings/api.js
+  pure + checks: ideas.js · deep.js · community.js · tasting.js
+  ```
+- **Accepted deviations:**
+  - tasting targets kept in localStorage (`ft.tasting-targets.<id>`), with the 20-key picker as fallback;
+  - backend constants copied and pinned in checks (pH line, acid-safety types, privacy notice, pseudonym rule);
+  - search deeper offered in every mode;
+  - "Hide this search" stored per browser (`ft.deep-search.hidden`);
+  - the tasting form sits in the Log tab;
+  - "Dismiss" for tasting reminders;
+  - `App.jsx` and `Today.jsx` edited outside Owns.
+- **For B13:**
+  - the B9 USDA-label bug: catalogue ingredients with an FDC link are labelled as USDA picks on publish;
+  - expose the link's targets in the batch preview, then drop the localStorage fallback;
+  - clear the `ft.*` keys on sign-out;
+  - a pytest pinning the copied constants against the backend;
+  - after a slider move or a confirmation, also drop the "calibrated on n batches" trust label (it currently stays next to levels);
+  - merge `ideas/api.js`, `shared.jsx` and `sourdough/api.js`; consider lazy-loading Ideas and admin;
+  - README: new routes and localStorage keys;
+  - the U+FEFF pseudonym edge case; a half-filled tasting form is lost on reload.
 - **For B13:**
   - record in the implementation notes the power cost at small n with several cells (perfect model at n = 30, 3 types: 0.35 → 0.17);
   - consider a clearer `NO_SKILL` text when no cell has both outcomes;

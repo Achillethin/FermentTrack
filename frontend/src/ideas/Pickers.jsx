@@ -1,7 +1,20 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "../components/ui.jsx";
-import { getIngredients } from "./api.js";
-import { AROMAS, FAMILY_GLOSS, LOW_RESOLUTION, MAX_INGREDIENTS, MAX_TARGETS, TASTES, toggleTarget } from "./ideas.js";
+import { parseApiDate } from "../prediction/format.js";
+import { humanize } from "../shared.jsx";
+import { getIngredients, getMyBatches, searchFoods } from "./api.js";
+import {
+  AROMAS,
+  FAMILY_GLOSS,
+  finishedParents,
+  LOW_RESOLUTION,
+  MAX_INGREDIENTS,
+  MAX_TARGETS,
+  MAX_USDA,
+  MODES,
+  TASTES,
+  toggleTarget,
+} from "./ideas.js";
 
 const MAX_MATCHES = 8;
 const CHIP =
@@ -200,26 +213,236 @@ export function TargetChips({ value, onChange }) {
   );
 }
 
-// Proven only until the Experimental backend ships (B7): the other modes are shown, disabled.
-export function ModeToggle() {
-  const on = "bg-slate-700 font-semibold text-white";
-  const base = "min-h-[40px] rounded-md px-3 text-sm";
+// Proven, Experimental or Both: a radio group (arrow keys move the choice). note: the calibration
+// gate's status line.
+export function ModeToggle({ value, onChange, note = null }) {
+  const id = useId();
+  const current = MODES.find((m) => m.value === value) ?? MODES[0];
   return (
     <fieldset>
       <legend className="mb-1 text-sm font-medium text-slate-300">Kind of idea</legend>
       <div className="inline-flex flex-wrap rounded-lg border border-slate-700 bg-slate-950/60 p-0.5">
-        <button type="button" aria-pressed="true" className={`${base} ${on}`}>
-          Proven
-        </button>
-        {["Experimental", "Both"].map((label) => (
-          <button key={label} type="button" disabled className={`${base} text-slate-500`}>
-            {label} <span className="text-xs">(coming soon)</span>
-          </button>
+        {MODES.map((m) => (
+          <label key={m.value} className="relative">
+            <input
+              type="radio"
+              name={`${id}-mode`}
+              value={m.value}
+              checked={value === m.value}
+              onChange={() => onChange(m.value)}
+              aria-describedby={`${id}-hint`}
+              className="peer sr-only"
+            />
+            <span className="flex min-h-[40px] cursor-pointer items-center rounded-md px-3 text-sm text-slate-300 hover:text-slate-100 peer-checked:bg-slate-700 peer-checked:font-semibold peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-400">
+              {m.label}
+            </span>
+          </label>
         ))}
       </div>
-      <p className="mt-1 text-xs text-slate-400">
-        Proven: curated, cited recipes kept inside their documented ranges.
+      <p id={`${id}-hint`} className="mt-1 text-xs text-slate-400">
+        {current.label}: {current.hint}.
       </p>
+      {note && <p className="mt-0.5 text-xs text-slate-400">{note}</p>}
     </fieldset>
+  );
+}
+
+const SELECT =
+  "w-full rounded-lg border border-slate-600 bg-slate-950/50 px-3 py-2 text-base sm:text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400";
+
+// An Experimental parent (Q16, § 10.3): a library recipe (default), one of your finished
+// batches, or the community recipe picked with "Use as a starting point".
+// value: null | {kind: "batch", id} | {kind: "community", id, title, pseudonym}.
+export function ParentPicker({ value, onChange }) {
+  const [batches, setBatches] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [reload, setReload] = useState(0);
+  const id = useId();
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setLoadError(null);
+    getMyBatches(ctrl.signal)
+      .then((rows) => setBatches(finishedParents(rows)))
+      .catch((e) => e.name !== "AbortError" && setLoadError(e.message));
+    return () => ctrl.abort();
+  }, [reload]);
+
+  const selected = value ? `${value.kind}:${value.id}` : "";
+  function pick(v) {
+    if (!v) return onChange(null);
+    const [kind, ...rest] = v.split(":");
+    if (kind === "batch") onChange({ kind, id: rest.join(":") });
+  }
+  const when = (iso, time) =>
+    parseApiDate(iso).toLocaleString(undefined, time ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "medium" });
+
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-sm font-medium text-slate-300">
+        Start from <span className="font-normal text-slate-400">· optional</span>
+      </label>
+      <select id={id} value={selected} onChange={(e) => pick(e.target.value)} aria-describedby={`${id}-hint`} className={SELECT}>
+        <option value="">Library recipes (the usual)</option>
+        {value?.kind === "community" && (
+          <option value={selected}>
+            Community recipe “{value.title}” by {value.pseudonym}
+          </option>
+        )}
+        {batches?.length > 0 && (
+          <optgroup label="Your finished batches">
+            {batches.map((b) => (
+              <option key={b.id} value={`batch:${b.id}`}>
+                {b.culture_name} ({humanize(b.culture_type)}), {when(b.started_at)} to {when(b.ended_at, true)}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+      <p id={`${id}-hint`} className="mt-1 text-xs text-slate-400">
+        {value?.kind === "batch"
+          ? "Up to 3 variants of your batch, each forecast live: this takes a few seconds."
+          : value?.kind === "community"
+            ? "Up to 3 variants of this community recipe, each forecast live."
+            : batches?.length === 0
+              ? "Variants of library recipes. Finish a batch (not sourdough) to vary your own."
+              : "Variants of library recipes, or pick one of your finished batches to vary it."}
+      </p>
+      {loadError && (
+        <p role="alert" className="mt-1 text-xs text-red-400">
+          Could not load your batches: {loadError}{" "}
+          <button type="button" className="underline" onClick={() => setReload((n) => n + 1)}>
+            Try again
+          </button>
+        </p>
+      )}
+    </div>
+  );
+}
+
+// USDA foods operator (v) may add (design § 5.2): "aroma effect unknown", Experimental only.
+export function UsdaPicker({ value, onChange }) {
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState(null); // null: nothing searched yet
+  const [error, setError] = useState(null);
+  const inputRef = useRef(null);
+  const refocus = useRef(false);
+  const id = useId();
+  const full = value.length >= MAX_USDA;
+  const q = query.trim();
+
+  useEffect(() => {
+    setFound(null);
+    setError(null);
+    if (q.length < 2) return undefined;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      searchFoods(q, ctrl.signal)
+        .then(setFound)
+        .catch((e) => {
+          if (e.name === "AbortError") return;
+          setError(e.message);
+          setFound([]);
+        });
+    }, 250);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [q]);
+
+  useEffect(() => {
+    if (refocus.current) inputRef.current?.focus();
+    refocus.current = false;
+  }, [value]);
+
+  const chosen = new Set(value.map((f) => f.fdc_id));
+  const matches = (found ?? []).filter((f) => !chosen.has(f.fdc_id)).slice(0, MAX_MATCHES);
+  let status = "";
+  if (full) status = `Up to ${MAX_USDA} USDA foods.`;
+  else if (error) status = `Could not search: ${error}`;
+  else if (q.length >= 2 && found === null) status = "Searching…";
+  else if (found && matches.length === 0) status = `No USDA food matches “${q}”.`;
+  else if (matches.length) status = `${matches.length} match${matches.length === 1 ? "" : "es"}.`;
+
+  function add(food) {
+    if (!full) onChange([...value, { fdc_id: food.fdc_id, description: food.description }]);
+    setQuery("");
+    inputRef.current?.focus();
+  }
+
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-sm font-medium text-slate-300">
+        USDA foods to try <span className="font-normal text-slate-400">· optional, up to {MAX_USDA}</span>
+      </label>
+      <p id={`${id}-hint`} className="mb-2 text-xs text-slate-400">
+        Any food from USDA FoodData Central, added to salted or acidified ferments at a small share of the batch. Its
+        aroma effect is unknown: the model only follows its sugars and acids.
+      </p>
+      {value.length > 0 && (
+        <ul aria-label="Chosen USDA foods" className="mb-2 flex flex-wrap gap-2">
+          {value.map((f) => (
+            <li key={f.fdc_id}>
+              <button
+                type="button"
+                onClick={() => {
+                  refocus.current = true;
+                  onChange(value.filter((x) => x.fdc_id !== f.fdc_id));
+                }}
+                aria-label={`Remove ${f.description}`}
+                className={`${CHIP} border-amber-500/40 bg-amber-950/30 text-slate-100 hover:bg-amber-900/30`}
+              >
+                {f.description}
+                <span aria-hidden="true" className="text-slate-400">
+                  ×
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <input
+        id={id}
+        ref={inputRef}
+        type="search"
+        className="w-full rounded-lg border border-slate-600 bg-slate-950/50 px-3 py-2 text-base placeholder:text-slate-500 disabled:opacity-50 sm:text-sm"
+        placeholder="Search USDA foods, e.g. persimmon"
+        disabled={full}
+        value={query}
+        autoComplete="off"
+        aria-describedby={`${id}-hint ${id}-status`}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (matches[0]) add(matches[0]);
+          }
+          if (e.key === "Escape") setQuery("");
+        }}
+      />
+      <p id={`${id}-status`} aria-live="polite" className="mt-1 min-h-[1rem] text-xs text-slate-400">
+        {status}
+      </p>
+      {matches.length > 0 && (
+        <ul aria-label="Matching USDA foods" className="mt-1 max-h-72 divide-y divide-slate-800 overflow-y-auto rounded-lg border border-slate-800">
+          {matches.map((f) => (
+            <li key={f.fdc_id}>
+              <button
+                type="button"
+                onClick={() => add(f)}
+                className="flex min-h-[44px] w-full items-center justify-between gap-2 px-3 text-left text-sm hover:bg-slate-800 focus:outline-none focus-visible:bg-slate-800 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400"
+              >
+                <span>
+                  <span className="sr-only">Add </span>
+                  {f.description}
+                </span>
+                <span className="shrink-0 text-xs text-slate-500">{f.data_type}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

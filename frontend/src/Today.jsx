@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui.jsx";
 import { API_URL, Card, apiError, errText } from "./shared.jsx";
+import { isDue } from "./tastings/tasting.js";
 
 // Reminder urgency is low | medium | high | critical (stages.py); shared.urgencyColor keys safety actions.
 const URGENCY_CLASS = {
@@ -62,8 +63,24 @@ function ReminderRow({ r, batch, busy, error, now, onDone, onSnooze }) {
         {name}
       </a>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button size="sm" disabled={busy} aria-label={`Mark done: ${who}`} onClick={() => onDone(r)}>
-          Done
+        {/* the tasting form once the stop-by time has come, never before (tasting.isDue) */}
+        {r.kind === "tasting" && isDue(r, now) && (
+          <a
+            href={`#/batch/${r.batch_id}/tasting`}
+            aria-label={`Fill in the tasting form for ${name}`}
+            className="inline-flex min-h-[32px] items-center rounded-lg bg-emerald-700 px-3 text-xs font-medium text-white hover:bg-emerald-600"
+          >
+            Fill in the tasting form
+          </a>
+        )}
+        <Button
+          size="sm"
+          variant={r.kind === "tasting" ? "secondary" : "primary"}
+          disabled={busy}
+          aria-label={`${r.kind === "tasting" ? "Dismiss" : "Mark done"}: ${who}`}
+          onClick={() => onDone(r)}
+        >
+          {r.kind === "tasting" ? "Dismiss" : "Done"}
         </Button>
         {SNOOZES.map((h) => (
           <Button

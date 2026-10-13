@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { currentUser, signInWithEmail, signOut } from "./auth.js";
+import MyRecipes from "./community/MyRecipes.jsx";
 import { Button, Input } from "./components/ui.jsx";
 import { API_URL, Card } from "./shared.jsx";
 import SaveAccount from "./sourdough/SaveAccount.jsx";
@@ -76,6 +77,7 @@ export default function Account({ blocked = null }) {
         </Card>
       )}
       {!blocked && guest && <SaveAccount />}
+      {!blocked && <MyRecipes admin={Boolean(me?.admin)} />}
       {guest && <EmailSignIn />}
     </div>
   );

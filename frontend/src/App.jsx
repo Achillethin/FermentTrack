@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Account from "./Account.jsx";
 import BatchView from "./BatchView.jsx";
 import Batches from "./Batches.jsx";
+import AdminCommunity from "./community/AdminCommunity.jsx";
 import Compare from "./Compare.jsx";
 import ExportButton from "./ExportButton.jsx";
 import Ideas from "./ideas/Ideas.jsx";
@@ -16,13 +17,44 @@ if (legacyBatch && !window.location.hash) {
   window.history.replaceState(null, "", `${window.location.pathname}#/batch/${legacyBatch}`);
 }
 
+// The admin pages' own links: every account's logbook, the community review queue.
+function AdminNav({ current }) {
+  const link = (href, key, label) => (
+    <a
+      href={href}
+      aria-current={current === key ? "page" : undefined}
+      className={`flex min-h-[40px] items-center rounded-lg px-3 text-sm ${
+        current === key ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200"
+      }`}
+    >
+      {label}
+    </a>
+  );
+  return (
+    <nav aria-label="Admin" className="flex flex-wrap gap-1">
+      {link("#/admin", "log", "Logbook")}
+      {link("#/admin/community", "community", "Community review")}
+    </nav>
+  );
+}
+
 function AdminLog() {
   return (
     <div className="space-y-3">
+      <AdminNav current="log" />
       <p className="text-sm text-slate-400">
         Every account’s logbook, read-only. Open an entry to see that bake; only its owner can change it.
       </p>
       <Logbook admin />
+    </div>
+  );
+}
+
+function AdminReview() {
+  return (
+    <div className="space-y-3">
+      <AdminNav current="community" />
+      <AdminCommunity />
     </div>
   );
 }
@@ -35,6 +67,7 @@ const PAGES = {
   compare: Compare,
   account: Account,
   admin: AdminLog,
+  "admin/community": AdminReview,
 };
 const NAV = [
   ["today", "Today"],
@@ -46,12 +79,12 @@ const NAV = [
   ["account", "Account"],
 ];
 
-// #/batch/<id> | #/today | #/logbook | #/batches | #/ideas | #/compare | #/levain[?p=<shared plan>]
-// | #/account | #/admin; anything else → today.
+// #/batch/<id>[/tasting] | #/today | #/logbook | #/batches | #/ideas | #/compare
+// | #/levain[?p=<shared plan>] | #/account | #/admin | #/admin/community; anything else → today.
 function parseHash(hash) {
-  const m = hash.match(/^#\/batch\/([^/?]+)\/?$/);
-  if (m) return { page: "batch", id: m[1] };
-  const page = hash.slice(2).split("?")[0]; // a shared plan rides after "?" (#/levain?p=...)
+  const m = hash.match(/^#\/batch\/([^/?]+)(\/tasting)?\/?$/);
+  if (m) return { page: "batch", id: m[1], focus: m[2] ? "tasting" : null };
+  const page = hash.slice(2).split("?")[0].replace(/\/$/, ""); // a shared plan rides after "?" (#/levain?p=...)
   if (page === "levain") return { page };
   return { page: Object.prototype.hasOwnProperty.call(PAGES, page) ? page : "today" };
 }
@@ -80,19 +113,21 @@ export default function App() {
       });
   }, []);
 
-  const { page, id } = parseHash(hash);
+  const { page, id, focus } = parseHash(hash);
   // The levain planner is a full-screen page with its own way back (a baker's entry point).
   if (page === "levain" && !authBlocked) {
     return <Planner onOpenBatch={(batchId) => (window.location.hash = `#/batch/${batchId}`)} />;
   }
   const Page = PAGES[page];
-  const active = page === "batch" ? "batches" : page; // a batch page lives under Batches
+  const adminPage = page === "admin" || page === "admin/community";
+  // a batch page lives under Batches, the review queue under Admin
+  const active = page === "batch" ? "batches" : adminPage ? "admin" : page;
   const nav = me?.admin ? [...NAV, ["admin", "Admin"]] : NAV;
 
   let content;
   if (authBlocked) content = <Account blocked={authBlocked} />;
-  else if (page === "batch") content = <BatchView key={id} batchId={id} />;
-  else if (page === "admin" && !me?.admin) content = <p className="text-sm text-slate-400">Admins only.</p>;
+  else if (page === "batch") content = <BatchView key={id} batchId={id} focus={focus} />;
+  else if (adminPage && !me?.admin) content = <p className="text-sm text-slate-400">Admins only.</p>;
   else content = <Page />;
 
   return (
