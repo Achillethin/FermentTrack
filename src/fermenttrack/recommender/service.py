@@ -61,7 +61,11 @@ Experimental (R2, design §§ 5.2–5.4, 6, 8.5, Q13, Q16, Q19):
   "community recipe"; its links carry community_recipe_id (your batch's, parent_batch_id).
 
 Responses carry no timestamps and round every number, so a request and a grid give the same
-JSON (E5). Scores show as Low / Med / High until the calibration gate (§ 13.2).
+JSON (E5). Scores show as Low / Med / High until the calibration gate (§ 13.2): while the latest
+calibration report passes (recommender.calibration; the router passes its batch count as
+`calibrated`), cards with targets add P (noticeable) at the peak per modelled target and, when
+every target is modelled, its mean, 2 decimals, and the label "calibrated on n batches"
+(`calibrated_json`). Without it the JSON is exactly as before.
 """
 
 from __future__ import annotations
@@ -120,6 +124,7 @@ LOW_RESOLUTION: frozenset[str] = frozenset(
 PROVENANCE_RANK = {"institutional_tested": 0, "peer_reviewed": 1, "traditional_documented": 2}
 CONFIDENCE_RANK = {"established": 0, "exploratory": 1}
 CARD_LABELS = ("Model-guided idea", "model estimate, not validated")
+CALIBRATED_LABEL = "calibrated on {n} batches"  # once the calibration gate passes (§ 13.2)
 NOT_MODELLED = "not modelled for this ferment"
 
 Level = Literal["Low", "Med", "High"]
@@ -1526,7 +1531,10 @@ def _bookable(i: library.RecipeIngredient) -> bool:
     return i.name in library.CATALOGUE_NAMES or i.nutrients is not None
 
 
-def card_json(card: Card) -> dict[str, Any]:
+def card_json(card: Card, calibrated: int | None = None) -> dict[str, Any]:
+    """A card (schemas.RecommendationCardOut). calibrated: the batch count of the latest
+    calibration report when it passed (the numbers, `calibrated_json`); None: Low / Med / High
+    only."""
     r, ev, v = card.recipe, card.evaluation, card.variant
     parent = v.parent.recipe if v else r
     served = card.temperature.served_c
@@ -1540,7 +1548,7 @@ def card_json(card: Card) -> dict[str, Any]:
         labels.append(SCREENED)
     if v is not None and any(op.kind == "usda" for op in v.operators):
         labels.append(operators.AROMA_UNKNOWN)
-    return {
+    body = {
         "id": v.id if v else f"library:{r.key}",
         "section": "experimental" if v else "proven",
         "source_kind": v.source_kind if v else "library",
@@ -1588,6 +1596,42 @@ def card_json(card: Card) -> dict[str, Any]:
         "planner_link": link,
         "notes": list(card.notes),
     }
+    return body if calibrated is None else calibrated_json(body, ev, calibrated)
+
+
+def _p_at_peak(ev: Evaluation, s: TargetScore) -> float | None:
+    """P (noticeable) of a modelled target at the card's peak; None when not modelled."""
+    p = ev.p.get(s.target.key) if s.modelled else None
+    if p is None or ev.t_h is None:
+        return None
+    x = _at(ev.t_h, p, ev.peak_h)
+    return x if math.isfinite(x) else None
+
+
+def calibrated_json(body: dict[str, Any], ev: Evaluation, n_batches: int) -> dict[str, Any]:
+    """A card once the calibration gate passed (design §§ 5.4, 13.2), in addition to its levels:
+    each modelled target's `p_peak`, P (noticeable, the probability the gate scores) at the
+    peak; the card's `p_peak`, their mean, only when every target is modelled (a card-level
+    number must not average in a target the model cannot see); `calibrated_on` and the trust
+    label "calibrated on n batches". A card without targets has no score and is returned as is.
+    The levels, the window and the safety lines do not change."""
+    if not ev.targets:
+        return body
+    ps = [_p_at_peak(ev, s) for s in ev.targets]
+    targets = [
+        t | ({"p_peak": _num(p, 2)} if p is not None else {})
+        for t, p in zip(body["targets"], ps, strict=True)
+    ]
+    out = body | {
+        "targets": targets,
+        "calibrated_on": n_batches,
+        "trust": body["trust"]
+        | {"labels": [*body["trust"]["labels"], CALIBRATED_LABEL.format(n=n_batches)]},
+    }
+    values = [p for p in ps if p is not None]
+    if len(values) == len(ps):  # every target modelled, with its P
+        out["p_peak"] = _num(float(np.mean(values)), 2)
+    return out
 
 
 def recommend(
@@ -1599,12 +1643,15 @@ def recommend(
     batch_g: float = DEFAULT_BATCH_G,
     usda_fdc_ids: Sequence[int] = (),
     own: Parent | None = None,
+    *,
+    calibrated: int | None = None,
 ) -> dict[str, Any]:
     """POST /recommendations (design § 5), shaped like schemas.RecommendationsOut: the Proven
     section (mode proven or both) and the Experimental one (experimental or both). own: the
     user's batch or a community recipe as a parent (Q16, § 10.3; live forecasts); its best
     variant leads the Experimental section, the user asked for it. The community section is
-    the router's (recommender.community reads the database's recipes)."""
+    the router's (recommender.community reads the database's recipes). calibrated: the cards'
+    numbers (card_json)."""
     targets = parse_targets(aromas, tastes)
     listed = tuple(dict.fromkeys(ingredients))
     required = must_include(listed)
@@ -1619,7 +1666,7 @@ def recommend(
                 if refused or not required
                 else f"No proven recipe contains all of: {', '.join(required)}."
             )
-        proven = {"cards": [card_json(c) for c in cards], "message": message}
+        proven = {"cards": [card_json(c, calibrated) for c in cards], "message": message}
     experimental = None
     if mode in ("experimental", "both"):
         considered, cards = experimental_section(
@@ -1632,7 +1679,7 @@ def recommend(
                 if required and not considered
                 else "No experimental idea passes the safety checks here."
             )
-        experimental = {"cards": [card_json(c) for c in cards], "message": message}
+        experimental = {"cards": [card_json(c, calibrated) for c in cards], "message": message}
     return {
         "mode": mode,
         "grid_version": grid.version(),

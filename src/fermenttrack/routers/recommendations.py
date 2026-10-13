@@ -25,6 +25,13 @@
   live. GET /recommendations/jobs/{job_id} polls it (yours only, 404 otherwise); GET
   /recommendations/jobs lists yours (your data, as DELETE /me erases it): your 10 newest, the
   older ones being deleted as you start new ones.
+- GET /recommendations/calibration: the latest report of the calibration gate (design § 13.2,
+  recommender.calibration) for any signed-in user, aggregates only, with every score and bin
+  value hidden below 30 batches and a bin's values below 3 ratings (calibration.public_json;
+  404 before the first one). Admins only: GET /admin/calibration (the full latest report) and
+  POST /admin/calibration/recompute (runs the gate now, answers the full report). While the
+  latest report passes, the cards of POST /recommendations carry their numbers ("calibrated on
+  n batches"), read from the process's cached report (no query per request).
 
 All of them need a signed-in user (anonymous sessions included); the library itself is public
 (GET /recipes). A parent batch must be the user's own (404 otherwise); a community recipe must
@@ -37,6 +44,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
@@ -45,7 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
-from fermenttrack.auth import get_current_user_id
+from fermenttrack.auth import get_current_user_id, require_admin
 from fermenttrack.composition import to_grams
 from fermenttrack.database import get_db
 from fermenttrack.models import (
@@ -60,12 +68,13 @@ from fermenttrack.models import (
     Reminder,
 )
 from fermenttrack.prediction.service import PredictionUnavailable
-from fermenttrack.recommender import community, gate, jobs, run, service
+from fermenttrack.recommender import calibration, community, gate, jobs, run, service
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.routers.batches import _get_batch, _ingredient_for_fdc_food
 from fermenttrack.routers.community import approved_candidate, approved_candidates
 from fermenttrack.schemas import (
     BatchOut,
+    CalibrationReportOut,
     CultureOut,
     DeepSearchOut,
     FromRecommendationIn,
@@ -182,16 +191,18 @@ async def recommend(
         own = await _own_parent(db, payload.parent_batch_id, user_id)
     elif payload.community_recipe_id is not None:
         own = community.parent(await approved_candidate(db, payload.community_recipe_id))
+    calibrated = calibration.calibrated_on(calibration.cached())  # in memory: no query
     try:
         body = await run_in_threadpool(
             service.recommend, payload.ingredients, payload.aromas, payload.tastes,
             payload.mode, payload.temperature_c, payload.batch_g, payload.usda_fdc_ids, own,
+            calibrated=calibrated,
         )  # fmt: skip
         if payload.mode in ("proven", "both"):
             candidates = await approved_candidates(db, payload.ingredients)
             body["community"] = await run_in_threadpool(
                 community.section, candidates, payload.ingredients, payload.aromas,
-                payload.tastes, payload.temperature_c, payload.batch_g,
+                payload.tastes, payload.temperature_c, payload.batch_g, calibrated=calibrated,
             )  # fmt: skip
     except PredictionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
@@ -460,3 +471,51 @@ async def get_job(
     if job is None or job.owner_id != user_id or job.kind != jobs.DEEP_SEARCH:
         raise HTTPException(status_code=404, detail="Job not found")
     return await _job_out(db, job)
+
+
+# ── the calibration gate (design § 13.2) ────────────────────────────────
+
+
+_NO_REPORT: dict[int | str, dict[str, Any]] = {404: {"description": "No calibration report yet"}}
+
+
+async def _latest_report(db: AsyncSession) -> calibration.Report:
+    report = await calibration.latest(db)
+    if report is None:
+        raise HTTPException(status_code=404, detail="No calibration report yet.")
+    return report
+
+
+@router.get(
+    "/recommendations/calibration", response_model=CalibrationReportOut, responses=_NO_REPORT
+)
+async def calibration_report(
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    user_id: str = Depends(get_current_user_id),
+) -> CalibrationReportOut:
+    """The latest calibration report, for anyone signed in: counts, the decision and, from 30
+    batches on, the scores and the reliability bins of 3 ratings or more; nothing about any
+    user or batch (calibration.public_json)."""
+    report = await _latest_report(db)
+    return CalibrationReportOut.model_validate(calibration.public_json(report))
+
+
+@router.get("/admin/calibration", response_model=CalibrationReportOut, responses=_NO_REPORT)
+async def full_calibration_report(
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    admin_id: str = Depends(require_admin),
+) -> CalibrationReportOut:
+    """The latest calibration report in full, every score and bin value included."""
+    report = await _latest_report(db)
+    return CalibrationReportOut.model_validate(calibration.report_json(report))
+
+
+@router.post("/admin/calibration/recompute", response_model=CalibrationReportOut)
+async def recompute_calibration(
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    admin_id: str = Depends(require_admin),
+) -> CalibrationReportOut:
+    """Run the calibration gate now (it also runs weekly); the cards follow the new report. The
+    full report."""
+    report = await calibration.recompute(db)
+    return CalibrationReportOut.model_validate(calibration.report_json(report))

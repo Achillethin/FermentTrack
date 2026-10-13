@@ -45,7 +45,7 @@ from fermenttrack.main import app
 from fermenttrack.models import RecommendationJob
 from fermenttrack.prediction import service as engine
 from fermenttrack.prediction.profiles import PROFILES
-from fermenttrack.recommender import grid, jobs, library, operators
+from fermenttrack.recommender import calibration, grid, jobs, library, operators
 from fermenttrack.recommender import service as S
 from fermenttrack.schemas import RecommendationCardOut, RecommendationRequest
 from tests.conftest import TEST_USER_ID
@@ -669,6 +669,8 @@ async def test_the_app_starts_the_worker_resumes_and_runs_jobs(
 
     app.dependency_overrides[database.get_db] = get_db
     monkeypatch.setattr(database, "async_session_maker", file_sessions)
+    # the calibration schedule has its own test (test_recommender_calibration)
+    monkeypatch.setattr(calibration, "run_schedule", lambda _: asyncio.sleep(0))
     then = datetime(2026, 1, 1, tzinfo=UTC)
     async with file_sessions() as db:  # left running when the previous process stopped
         left = RecommendationJob(

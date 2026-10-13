@@ -513,7 +513,11 @@ E1–E3 are reported as numbers with their *n*, so they are not pass/fail only, 
 Once **≥ 30 tasted batches** carry a recommendation link:
 - **Score:** the Brier score of *P*ₛ(t_tasting) against "noticed" (rating ≥ 1), over every target in every tasting.
 - **Baseline:** a per-type, per-series noticed rate (leave-one-batch-out).
-- **Pass:** the upper bound of the paired-bootstrap 90 % CI of (Brier_model − Brier_baseline) is < 0 (2 000 batch-level resamples).
+- **Pass** (both conditions, on the same 2 000 batch-level resamples):
+  - the upper bound of the paired-bootstrap 90 % CI of (Brier_model − Brier_baseline) is < 0;
+  - **and (B11 review, 2026-10-13)** the 5th percentile of the bootstrap AUC of P against "noticed" is > 0.5. The AUC compares ratings **within each (type, series) cell**, so it is a pooled within-cell Mann–Whitney with ties counted as ½. A resample whose cells all lack one class counts as 0.5, the conservative choice.
+  - **Why the AUC condition:** the leave-one-batch-out baseline carries a built-in penalty of about π(1−π)/n. In simulation, a model that only knows each type's base rate passed the Brier condition alone 29–54 % of the time; with the AUC condition that drops to about 0 %, while real models keep their power. An AUC over all ratings together would still pass base-rate models 30–42 % of the time when types differ, because P separates the types; within cells a base-rate model's AUC is exactly 0.5.
+  - **Privacy:** `GET /recommendations/calibration` (public) hides every score and per-bin value below 30 batches, and per-bin values for bins with fewer than 3 ratings. Admins read the full report at `GET /admin/calibration`. Numbers turn off if the latest report is older than 14 days.
 - **Reporting:** a reliability diagram with 5 bins, and the number of batches and ratings.
 
 Until the gate passes, scores show as Low / Med / High. After it passes, the numbers appear with "calibrated on *n* batches". The gate re-runs weekly, and numbers turn off again if it fails.

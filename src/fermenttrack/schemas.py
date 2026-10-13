@@ -917,6 +917,10 @@ class CompoundRefOut(BaseModel):
     tier: str  # evidence tier: calibrated | reported | plausible | engine
 
 
+def _unset(v: Any) -> bool:
+    return v is None
+
+
 class CardTargetOut(BaseModel):
     key: str
     kind: TargetKind
@@ -924,6 +928,9 @@ class CardTargetOut(BaseModel):
     modelled: bool
     low_resolution: bool
     top_compound: CompoundRefOut | None
+    # P (noticeable) at the peak, 2 decimals: only while the calibration gate passes (design
+    # § 13.2); absent otherwise (never null), so the JSON before the gate is unchanged
+    p_peak: float | None = Field(default=None, exclude_if=_unset)
 
 
 class CardIngredientOut(BaseModel):
@@ -1046,6 +1053,11 @@ class RecommendationCardOut(BaseModel):
     planner_link: str | None  # "#/levain?p=…", the planner's share link
     notes: list[str]
     community: CommunityCardOut | None = None  # a community card's author and "made n×"
+    # While the calibration gate passes (design § 13.2) only, absent otherwise: the targets'
+    # mean P at the peak (2 decimals; only when every target is modelled) and the batch count
+    # behind "calibrated on n batches"
+    p_peak: float | None = Field(default=None, exclude_if=_unset)
+    calibrated_on: int | None = Field(default=None, exclude_if=_unset)
 
 
 class RecommendationSectionOut(BaseModel):
@@ -1355,3 +1367,45 @@ class TastingOut(BaseModel):
     make_again: bool | None
     notes: str | None
     created_at: datetime
+
+
+# ── Calibration gate (design § 13.2, recommender.calibration) ───────────────
+
+
+class CalibrationBinOut(BaseModel):
+    """A reliability bin: the ratings whose P is in [lo, hi) ([lo, hi] for the last)."""
+
+    lo: float
+    hi: float
+    n: int
+    mean_p: float | None  # None when empty
+    observed: float | None  # the share noticed (rating ≥ 1)
+
+
+class CalibrationReportOut(BaseModel):
+    """The latest run of the calibration gate (recommender.calibration). Aggregates only: no
+    user, batch or tasting appears in it. n_tastings: the tastings scored; n_observations:
+    their scored ratings (a target rated at a time inside the card's time axis); n_batches: the
+    linked batches they come from (the gate needs 30). diff: Brier_model − Brier_baseline;
+    ci_low / ci_high: its 90 % batch-bootstrap CI; auc: the AUC of P against noticed, over
+    pairs of ratings of the same type and series; auc_low: its bootstrap 5th percentile (both
+    bootstrap values are None below 30 batches). passed: ci_high < 0 and auc_low > 0.5, and
+    then cards show numbers ("calibrated on n_batches batches"). reason: why it did not pass.
+    GET /recommendations/calibration (any signed-in user) hides every score and bin value below
+    30 batches, and a bin's values below 3 ratings (null); admins get the full report (GET
+    /admin/calibration)."""
+
+    computed_at: datetime
+    n_tastings: int
+    n_observations: int
+    n_batches: int
+    brier_model: float | None
+    brier_baseline: float | None
+    diff: float | None
+    ci_low: float | None
+    ci_high: float | None
+    auc: float | None
+    auc_low: float | None
+    passed: bool
+    reason: str | None
+    bins: list[CalibrationBinOut]

@@ -589,3 +589,21 @@ class Tasting(Base):
     )
 
     batch: Mapped[Batch] = relationship(back_populates="tastings")
+
+
+class CalibrationReport(Base):
+    """A run of the calibration gate (design § 13.2, recommender.calibration): one row per run,
+    the newest calibration.REPORTS_KEPT kept, so the gate's decisions over time stay on record.
+    report: the report as JSON (calibration.report_json): counts, Brier scores, the bootstrap
+    CI, the decision and the reliability bins. Aggregates only: no user, batch or tasting id,
+    no notes. passed and n_batches repeat the report's, for reading without it."""
+
+    __tablename__ = "calibration_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    computed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, index=True
+    )
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    n_batches: Mapped[int] = mapped_column(Integer, nullable=False)
+    report: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)

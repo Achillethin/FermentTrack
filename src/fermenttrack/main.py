@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fermenttrack import database
 from fermenttrack.config import settings
-from fermenttrack.recommender import community, jobs
+from fermenttrack.recommender import calibration, community, jobs
 from fermenttrack.routers import (
     admin,
     batches,
@@ -35,19 +35,27 @@ from fermenttrack.routers import community as community_routes
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """The recommender's background job worker (design § 10.2) runs as long as the app. At
     startup, approved community recipes whose forecasts are missing or of another grid are
-    queued again (design § 10.3; importing recommender.community registers their job kind)."""
+    queued again (design § 10.3; importing recommender.community registers their job kind),
+    and the calibration gate (design § 13.2) loads its latest report, recomputed when missing
+    or a week old, then again weekly (recommender.calibration.run_schedule)."""
     worker = jobs.Worker(database.async_session_maker)
     await worker.start()
-    recompute = asyncio.create_task(
-        community.recompute_at_startup(database.async_session_maker),
-        name="community-forecasts-recompute",
-    )
+    tasks = [
+        asyncio.create_task(
+            community.recompute_at_startup(database.async_session_maker),
+            name="community-forecasts-recompute",
+        ),
+        asyncio.create_task(
+            calibration.run_schedule(database.async_session_maker), name="calibration-schedule"
+        ),
+    ]
     try:
         yield
     finally:
-        recompute.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await recompute
+        for task in tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         await worker.stop()
 
 

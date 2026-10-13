@@ -49,8 +49,8 @@ from fermenttrack.models import (
     Reminder,
     Tasting,
 )
+from fermenttrack.recommender import calibration, gate, grid, jobs, library
 from fermenttrack.recommender import community as C
-from fermenttrack.recommender import gate, grid, jobs, library
 from fermenttrack.recommender import service as S
 from fermenttrack.routers import community as community_routes
 from fermenttrack.schemas import RecommendationCardOut, RecommendationsOut
@@ -742,6 +742,7 @@ async def test_the_app_registers_the_job_kind_and_recomputes_at_startup(
         started.append(factory)
 
     monkeypatch.setattr(C, "recompute_at_startup", recompute)
+    monkeypatch.setattr(calibration, "run_schedule", lambda _: asyncio.sleep(0))  # B11's test
     monkeypatch.setattr(database, "async_session_maker", sessions)
     async with app.router.lifespan_context(app):
         assert jobs._running is not None

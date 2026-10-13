@@ -57,7 +57,8 @@ author excluded), then the mean liking (the mean over those people of each one's
 None until LIKING_MIN_PEOPLE of them gave one); 3 cards at most. A recipe whose card cannot be
 built is logged and left out. The card names the pseudonym, "made n×" and the mean liking
 (counts and a mean only: never a tasting's notes) and carries the trust label "Community — not
-proven" and the gate's safety lines.
+proven" and the gate's safety lines; once the calibration gate passes, the numbers too
+(service.calibrated_json).
 
 **Parent** (`parent`): a community recipe is an Experimental parent like your own batch: live
 forecasts, at most 3 variants (service.own_batch_cards), labelled "community recipe".
@@ -561,13 +562,15 @@ def rank_key(card: service.Card, c: Candidate) -> tuple[float, int, float, str]:
     return -(e if e is not None else 0.0), -c.made, -liking, str(c.id)
 
 
-def card_json(card: service.Card, c: Candidate) -> dict[str, Any]:
+def card_json(card: service.Card, c: Candidate, calibrated: int | None = None) -> dict[str, Any]:
+    """A community card; calibrated: the numbers once the calibration gate passed, added last
+    (service.calibrated_json), so its label follows the community labels."""
     body = service.card_json(card)
     labels = [
         *service.CARD_LABELS, SECTION_LABEL,
         *library.trust_labels(card.recipe, card.temperature.served_c),
     ]  # fmt: skip
-    return body | {
+    out = body | {
         "id": f"community:{c.id}",
         "section": "community",
         "source_kind": "community",
@@ -579,6 +582,9 @@ def card_json(card: service.Card, c: Candidate) -> dict[str, Any]:
             "mean_liking": c.mean_liking,
         },
     }  # fmt: skip
+    if calibrated is None:
+        return out
+    return service.calibrated_json(out, card.evaluation, calibrated)
 
 
 def section(
@@ -588,10 +594,12 @@ def section(
     tastes: Sequence[str],
     temperature_c: float | None,
     batch_g: float = service.DEFAULT_BATCH_G,
+    *,
+    calibrated: int | None = None,
 ) -> dict[str, Any]:
     """The "Community — not proven" section (schemas.RecommendationSectionOut). A candidate
     whose card cannot be built (a corrupt stored forecast, an engine error) is logged and
-    left out: it never fails the request."""
+    left out: it never fails the request. calibrated: as service.card_json."""
     targets = service.parse_targets(aromas, tastes)
     listed = tuple(dict.fromkeys(listed))
     scored = []
@@ -608,7 +616,9 @@ def section(
     scored.sort(key=lambda x: x[0])
     top = scored[: service.CARDS_PER_SECTION]
     message = None if top else NO_MATCH
-    return {"cards": [card_json(card, c) for _, card, c in top], "message": message}
+    return {
+        "cards": [card_json(card, c, calibrated) for _, card, c in top], "message": message
+    }
 
 
 def parent(c: Candidate) -> service.Parent:

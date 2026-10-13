@@ -730,3 +730,35 @@ Each contract lists **owns** (files the phase may create or modify), **must** (a
   - § 11.2 notes;
   - tie-break `Batch.tastings` ordering by `created_at, id`;
   - document the limits of the 3-person minimum (differencing, throwaway accounts).
+
+### B11 — calibration gate (commit: this one)
+- **Gates:**
+  - review round 1: CHANGES REQUIRED (`exclude_if` needs pydantic ≥ 2.12; the public report could reveal one tasting), plus an orchestrator amendment adding an AUC condition to the gate;
+  - review round 2: PASS (within-cell AUC hand-checked; brute-force bootstrap equivalence; simulations);
+  - handoff: see below;
+  - full suite: **1196 passed, 65 xfailed, 0 failed**.
+- **`recommender/calibration.py`:**
+  - **Observations:** tastings ⋈ link `p_series`, with P by `np.interp` inside the axis only (axis strictly increasing; outside is skipped); "noticed" = rating ≥ 1.
+  - **Baseline:** per (type, series), leave one batch out over all tasted batches; falls back to the per-series rate, then 0.5.
+  - **Bootstrap:** batch-level, 2 000 resamples, seeded; the Brier difference with a 90 % CI.
+  - **Pass rule (design § 13.2, amended):** upper bound < 0 **and** within-cell AUC 5th percentile > 0.5 **and** ≥ 30 linked batches. Reasons include `NO_SKILL`.
+  - **Report:** 5 reliability bins.
+- **Storage:** `calibration_reports` (migration 0023), newest 52 kept. The schedule is a lifespan task: recompute at startup if missing or older than 7 days, then weekly, with retries.
+- **API:**
+  - `GET /recommendations/calibration` (public, `public_json`): below 30 batches every score and bin value is null; bins with n < 3 have null values;
+  - `GET /admin/calibration` (full report) and `POST /admin/calibration/recompute`, both admin only.
+- **Display switch:**
+  - while the latest report passed and is no older than 14 days, cards add `targets[].p_peak` and a card `p_peak` (left out if any target isn't modelled), plus `calibrated_on` and the label "calibrated on n batches";
+  - otherwise the response is byte-identical to before;
+  - P at the peak is shown (owner OK); levels, windows and safety lines never change;
+  - the forecast endpoint, deep-search cards and Start batch links are unchanged.
+- **For B12:** show `p_peak` only when `calibrated_on` is present; on the public report, show counts and reason and never treat a null as zero; a 404 means "not yet".
+- **Files outside Owns (justified):**
+  - `models.py` (`CalibrationReport`), `schemas.py` (report schemas; card `p_peak` / `calibrated_on` with `exclude_if`), `main.py` (lifespan schedule), `recommender/community.py` (community cards follow the switch);
+  - `pyproject.toml` (`pydantic>=2.12`, needed by `exclude_if`);
+  - `tests/test_community.py`, `tests/test_recommendation_jobs.py` (lifespan tests patch `run_schedule`).
+- **Public report:** bin counts stay visible below 30 batches, while each bin's mean P and observed rate are hidden.
+- **For B13:**
+  - record in the implementation notes the power cost at small n with several cells (perfect model at n = 30, 3 types: 0.35 → 0.17);
+  - consider a clearer `NO_SKILL` text when no cell has both outcomes;
+  - consider counting `PUBLIC_BIN_MIN` in batches rather than ratings.
