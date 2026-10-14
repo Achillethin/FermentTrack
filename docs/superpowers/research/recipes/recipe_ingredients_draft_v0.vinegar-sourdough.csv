@@ -1,0 +1,34 @@
+recipe_key,ingredient,catalogue_status,role,g_per_kg_median,g_per_kg_lo,g_per_kg_hi,required,source,notes
+home_starter,Starter/levain,existing_no_aroma,starter,90.9,90.9,90.9,core,FT-sourdough-catalogue L140-L145,1:5:5 build normalized to total mix
+home_starter,White wheat flour,existing,base,454.5,454.5,454.5,core,FT-sourdough-catalogue L140-L145,fed flour from t65 mapped to White wheat flour
+home_starter,Water,existing_no_aroma,liquid,454.5,454.5,454.5,core,FT-sourdough-catalogue L140-L145,100 percent hydration fed water
+levain_liquide,Starter/levain,existing_no_aroma,starter,142.9,142.9,142.9,core,FT-sourdough-catalogue L148-L152,1:3:3 build normalized to total mix
+levain_liquide,White wheat flour,existing,base,428.6,428.6,428.6,core,FT-sourdough-catalogue L148-L152,fed flour from t65 mapped to White wheat flour
+levain_liquide,Water,existing_no_aroma,liquid,428.6,428.6,428.6,core,FT-sourdough-catalogue L148-L152,100 percent hydration fed water
+levain_dur,Starter/levain,existing_no_aroma,starter,177.0,177.0,177.0,core,FT-sourdough-catalogue L155-L159,1:3:1.65 build normalized to total mix
+levain_dur,White wheat flour,existing,base,531.0,531.0,531.0,core,FT-sourdough-catalogue L155-L159,fed flour from t65 mapped to White wheat flour
+levain_dur,Water,existing_no_aroma,liquid,292.0,292.0,292.0,core,FT-sourdough-catalogue L155-L159,55 percent hydration fed water
+lievito_madre,Starter/levain,existing_no_aroma,starter,408.2,408.2,408.2,core,FT-sourdough-catalogue L162-L167,1:1:0.45 build normalized to total mix
+lievito_madre,White wheat flour,existing,base,408.2,408.2,408.2,core,FT-sourdough-catalogue L162-L167,fed flour from t45 mapped to White wheat flour
+lievito_madre,Water,existing_no_aroma,liquid,183.7,183.7,183.7,core,FT-sourdough-catalogue L162-L167,45 percent hydration fed water
+san_francisco,Starter/levain,existing_no_aroma,starter,205.1,205.1,205.1,core,FT-sourdough-catalogue L171-L176,1:2.5:1.375 build normalized to total mix
+san_francisco,White wheat flour,existing,base,512.8,512.8,512.8,core,FT-sourdough-catalogue L171-L176,fed flour from t65 mapped to White wheat flour
+san_francisco,Water,existing_no_aroma,liquid,282.1,282.1,282.1,core,FT-sourdough-catalogue L171-L176,55 percent hydration fed water
+rye_sour,Starter/levain,existing_no_aroma,starter,50.0,50.0,50.0,core,FT-sourdough-catalogue L179-L184,1:10:9 build normalized to total mix
+rye_sour,Rye flour,existing,base,500.0,500.0,500.0,core,FT-sourdough-catalogue L179-L184,fed flour from rye_t130 mapped to Rye flour
+rye_sour,Water,existing_no_aroma,liquid,450.0,450.0,450.0,core,FT-sourdough-catalogue L179-L184,90 percent hydration fed water
+type_ii,Starter/levain,existing_no_aroma,starter,32.3,32.3,32.3,core,FT-sourdough-catalogue L187-L192,1:10:20 build normalized to total mix
+type_ii,White wheat flour,existing,base,322.6,322.6,322.6,core,FT-sourdough-catalogue L187-L192,fed flour from t80 mapped to White wheat flour
+type_ii,Water,existing_no_aroma,liquid,645.2,645.2,645.2,core,FT-sourdough-catalogue L187-L192,200 percent hydration fed water
+type_iii,Dried sourdough powder,new,starter,1000.0,1000.0,1000.0,core,FT-sourdough-catalogue L195-L199,catalogue powder entry only; full yeasted dough not specified
+poolish,Instant yeast,new,starter,0.5,0.5,0.5,core,FT-sourdough-catalogue L202-L205,1 g yeast per 1000 g flour default
+poolish,White wheat flour,existing,base,499.8,499.8,499.8,core,FT-sourdough-catalogue L202-L205,fed flour from t65 mapped to White wheat flour
+poolish,Water,existing_no_aroma,liquid,499.8,499.8,499.8,core,FT-sourdough-catalogue L202-L205,100 percent hydration fed water
+biga,Instant yeast,new,starter,2.0,2.0,2.0,core,FT-sourdough-catalogue L208-L211,1 g yeast per 330 g flour default
+biga,White wheat flour,existing,base,665.3,665.3,665.3,core,FT-sourdough-catalogue L208-L211,fed flour from t65 mapped to White wheat flour
+biga,Water,existing_no_aroma,liquid,332.7,332.7,332.7,core,FT-sourdough-catalogue L208-L211,50 percent hydration fed water
+wine_orleans_surface,Red wine,existing,base,521.7,500.0,545.5,core,NCState-vinegar Wine Vinegar; AWRI2022-wine-vinegar C,red wine is diluted from 11-12 percent wine to an 8 percent ABV wine-water phase then used as 75 percent of final mix
+wine_orleans_surface,Water,existing_no_aroma,liquid,228.3,204.5,250.0,core,NCState-vinegar Wine Vinegar; AWRI2022-wine-vinegar C,complementary dilution water in the 75 percent wine-water phase
+wine_orleans_surface,Mother of vinegar (Acetobacter),existing_no_aroma,starter,250.0,250.0,250.0,core,AWRI2022-wine-vinegar C,25 percent culture inoculation volume
+cider_vinegar_surface,Hard cider,existing,base,750.0,750.0,750.0,core,NCState-vinegar Orleans process; PennState-cider-vinegar Steps 2 and 3,fresh fermentable liquid is 75 percent after retaining 25 percent mother
+cider_vinegar_surface,Mother of vinegar (Acetobacter),existing_no_aroma,starter,250.0,250.0,250.0,core,NCState-vinegar Orleans process; AWRI2022-wine-vinegar C,25 percent retained mother or culture inoculum

@@ -4,6 +4,11 @@ Spec: docs/superpowers/specs/2026-09-24-fermentation-prediction-design.md. The m
 is CPU-bound numpy (up to a few seconds on a small instance), so it runs in the
 threadpool, off the event loop; results are cached per input fingerprint in
 fermenttrack.prediction.service.
+
+A batch started from a staged recommendation (its recommendation_links row has a
+temp_schedule) forecasts on that schedule as planned_temperature. Known limitation: the stored
+schedule wins over a later edit of the batch's expected_temperature_c (the plan replaces the
+constant estimate); logged temperature readings and the what-if still apply.
 """
 
 from __future__ import annotations
@@ -19,7 +24,13 @@ from starlette.concurrency import run_in_threadpool
 
 from fermenttrack.auth import get_current_user_id
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch, BatchIngredient, Ingredient, OrganismEnzyme
+from fermenttrack.models import (
+    Batch,
+    BatchIngredient,
+    Ingredient,
+    OrganismEnzyme,
+    RecommendationLink,
+)
 from fermenttrack.prediction import population
 from fermenttrack.prediction.bake import BakeInputs, evidence_for
 from fermenttrack.prediction.bake import forecast as bake_forecast
@@ -208,6 +219,11 @@ async def get_batch_prediction(
         baker=culture.owner_id, starter=culture.id, exclude_batch=batch.id if finished else None,
     )
 
+    # A batch started from a staged recommendation (Start batch) forecasts on its plan; logged
+    # temperature readings still set the past (prediction.service._schedule).
+    link = await db.get(RecommendationLink, batch.id)
+    plan = tuple((float(h), float(c)) for h, c in (link.temp_schedule or ())) if link else ()
+
     inputs = PredictionInputs(
         fermentation_type=batch.culture.type,
         now_h=now_h,
@@ -229,6 +245,7 @@ async def get_batch_prediction(
         ),
         finished=finished,
         population_priors=population_priors,
+        planned_temperature=plan,
     )
     try:
         body = await run_in_threadpool(predict, inputs, temperature_c, horizon_h)

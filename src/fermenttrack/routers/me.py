@@ -3,6 +3,14 @@
 No FermentTrack users table — Culture.owner_id (the Supabase JWT `sub`) is the
 only row that carries the account boundary; everything else hangs off Culture
 via cascading relationships (models.py).
+
+Community recipes (design § 10.3) are the exception: published to the shared library, they
+outlive the account. DELETE /me detaches them (owner_id and source_batch_id set null; the
+pseudonym stays), and an admin's reviews lose their reviewer id (reviewed_by set null). GET
+/export keeps its per-culture shape; your published recipes, every
+status with the reviewer's reason, are exported by GET /me/community-recipes. A batch's tastings
+(design § 11.2) are exported with it (an extra per-batch field the CSV download ignores) and
+deleted with it.
 """
 
 from __future__ import annotations
@@ -19,8 +27,17 @@ from sqlalchemy.orm import selectinload
 
 from fermenttrack.auth import get_current_user_id, is_admin
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch, BatchEvidence, Culture, Measurement
+from fermenttrack.models import (
+    Batch,
+    BatchEvidence,
+    CommunityRecipe,
+    Culture,
+    Measurement,
+    RecommendationJob,
+)
+from fermenttrack.routers.community import recipe_out
 from fermenttrack.schemas import (
+    CommunityRecipeOut,
     CultureExportOut,
     LogBatchOut,
     LogCultureOut,
@@ -36,12 +53,31 @@ async def export_my_data(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> list[Culture]:
+    """Your cultures, their batches and each batch's measurements and tastings (notes
+    included: they are yours). The CSV download (frontend/src/csv.js) flattens the measurements
+    and ignores the tastings."""
+    batches = selectinload(Culture.batches)
     result = await db.execute(
         select(Culture)
         .where(Culture.owner_id == user_id)
-        .options(selectinload(Culture.batches).selectinload(Batch.measurements))
+        .options(batches.selectinload(Batch.measurements), batches.selectinload(Batch.tastings))
     )
     return list(result.scalars().unique().all())
+
+
+@router.get("/community-recipes", response_model=list[CommunityRecipeOut])
+async def my_community_recipes(
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    user_id: str = Depends(get_current_user_id),
+) -> list[CommunityRecipeOut]:
+    """The recipes you published (design § 10.3), every status, newest first: the export of
+    your community recipes (GET /export lists cultures)."""
+    found = await db.execute(
+        select(CommunityRecipe)
+        .where(CommunityRecipe.owner_id == user_id)
+        .order_by(CommunityRecipe.created_at.desc(), CommunityRecipe.id)
+    )
+    return [CommunityRecipeOut.model_validate(recipe_out(row)) for row in found.scalars()]
 
 
 def _like(q: str) -> str:
@@ -179,6 +215,21 @@ async def delete_my_data(
     # its child (FK checked per statement on Postgres): detach the lineage first
     await db.execute(
         update(Culture).where(Culture.owner_id == user_id).values(born_from=None)
+    )
+    # recommender jobs (deep searches) carry the owner id too; one running is dropped
+    await db.execute(sa_delete(RecommendationJob).where(RecommendationJob.owner_id == user_id))
+    # published community recipes stay in the library, detached (design § 10.3): no owner,
+    # no source batch (the FK sets it null on Postgres; SQLite does not enforce it)
+    await db.execute(
+        update(CommunityRecipe)
+        .where(CommunityRecipe.owner_id == user_id)
+        .values(owner_id=None, source_batch_id=None)
+    )
+    # an admin's reviews stay (status, reason, date) without their user id
+    await db.execute(
+        update(CommunityRecipe)
+        .where(CommunityRecipe.reviewed_by == user_id)
+        .values(reviewed_by=None)
     )
     for culture in cultures:
         await db.delete(culture)  # cascades to batches and everything under them

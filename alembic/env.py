@@ -12,7 +12,10 @@ from fermenttrack import models  # noqa: F401  ensures models are registered on 
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep the app's loggers: when migrations run in-process (alembic.command, as the migration
+    # tests do), the default disable_existing_loggers=True would silence every logger already
+    # created, and later log records (and the tests that read them) would be lost.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # database_url is already a sync-capable psycopg URL (postgresql+psycopg://...)
 # or a sqlite:// URL for local/test runs; alembic uses a sync engine.

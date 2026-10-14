@@ -21,7 +21,7 @@ docker compose up -d
 | "What did I do differently?" | Batch comparison with photos + notes |
 | Scattered notes across apps | One place for all ferments |
 | No tools for kombucha/koji/cheese | Purpose-built for non-beer fermentation |
-| "What should I try next?" | FermentGraph-powered experiment suggestions |
+| "What should I try next?" | [Ideas](#ideas--fermentation-recommender): recipes and a fermentation window from a curated, cited library, plus model-guided variants (not validated) |
 | Sensors log to generic Grafana | Fermentation-native sensor hub with domain context |
 | No data standard beyond beer | FermentJSON — open format for all fermentation data |
 
@@ -41,6 +41,110 @@ A mechanistic kinetic model (Monod growth, cardinal temperature/pH/salt models, 
 
 ### 🧠 Knowledge Engine — deferred, research-stage
 Originally scoped as a FermentGraph-powered compound knowledge graph ("similar batches reached target pH by day 7"). An audit (2026-09-17) found the suggestion/analog API this depended on doesn't exist yet and the underlying ranker doesn't beat a trivial baseline — see [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md). Not marketed as a current feature; revisit once FermentGraph's ranking actually works.
+
+## Ideas — fermentation recommender
+
+The **Ideas** page (`#/ideas`) starts from what you have and what you'd like to notice, and returns recipes with a fermentation time. Give any of:
+- **ingredients**, which every recipe must include (salt, water, sugar, flour, tea and starter cultures are always allowed);
+- **1–3 target aromas or tastes**, from the 16 aroma series plus sour, sweet, umami and alcohol;
+- or both.
+
+Results come in up to three sections of at most 3 cards each, one card per parent recipe:
+
+- **Proven:** a curated, cited recipe from the library, kept inside its documented envelope. The library has 20 active recipes over 9 ferment types; 7 of them are sourdough styles.
+- **Experimental:** a library recipe, one of your own batches or a community recipe, changed by up to 3 operators:
+  - add a flavouring at a sourced use level;
+  - swap an ingredient for one with the same role;
+  - move the temperature within the model's range;
+  - add a USDA food, labelled "aroma effect unknown".
+- **Community — not proven:** recipes other users published from their own finished batches, after an admin's review.
+
+**On each card:**
+- a full recipe, scaled to your batch size;
+- a **time window** (taste from / peak / stop by) at a stated temperature, with a slider that re-runs the forecast live;
+- **Start batch**, which creates the culture, the batch, its ingredients and its reminders in one step. Sourdough cards open the levain planner instead.
+
+**Search deeper** queues a background job of up to 20 live forecasts, which takes a few minutes. You can leave the page; the results are kept.
+
+**Labels and limits:**
+- Every card says "Model-guided idea" and "model estimate, not validated". Cards rank by the model's probability that a compound family is noticeable, and the wording is "likely noticeable", never "tastes like".
+- **Scores show as Low / Med / High.** Numbers, labelled "calibrated on *n* batches", appear only while the calibration gate passes. It needs at least 30 tasted batches started from cards, and the model has to beat a per-type baseline on what tasters noticed (Brier score) and tell noticed from not noticed within each type and series (AUC). It runs weekly, and the numbers turn off again if it fails or its last pass is more than 14 days old. The Ideas page shows the gate's state, for example "Not calibrated yet: 12 of 30 tasted batches", with the reason when the gate fails for something other than too few batches (such as "no type and series has both noticed and not-noticed ratings yet"). Moving a card's slider or confirming it drops its numbers and the "calibrated" label, since they belong to the card as served.
+- **Every card carries the safety lines of its type's barrier:**
+  - pH lines for ferments made safe by acidity (lacto, kombucha, kefir, cheese, vinegar);
+  - the bed-temperature line for koji;
+  - "do not reduce the salt" for miso and garum;
+  - none for sourdough, where baking is the barrier.
+- **A recipe that fails a rule checkable from the recipe** (salt %, temperature limits) is never shown, in any mode.
+- **It is never a safety decision:** a predicted pH is not clearance. Measure pH.
+
+**Tasting feedback:**
+- Start batch adds a reminder at the stop-by time to fill in a tasting form: 0–3 per aroma or taste, liking 1–5, "make again" and notes. The form asks first about the targets of the card the batch was started from.
+- Any batch can be tasted.
+- Tastings feed the calibration gate, and the community cards' "made *n*×" and mean liking. A mean liking shows only once 3 people have given one.
+
+**Frontend routes:**
+
+| route | page |
+|---|---|
+| `#/ideas` | inputs, the three sections, Search deeper |
+| `#/batch/<id>/tasting` | the batch page with its tasting form open |
+| `#/admin/community` | the community review queue (admins) |
+
+A finished, successful batch can be published from its Recipe tab. Your published recipes are listed on `#/account`.
+
+**API** (all need a signed-in user, the hosted frontend's anonymous sessions included, unless marked otherwise):
+
+| endpoint | what |
+|---|---|
+| `GET /recipes?type=&status=active`, `GET /recipes/{key}` | the recipe library; **no token needed** |
+| `POST /recommendations` | the cards; `mode` is `proven`, `experimental` or `both` |
+| `POST /recommendations/forecast` | one card's live 64-member forecast (the slider; confirming a screened variant) |
+| `POST /recommendations/deep-search` | queue a search: 202 `{job_id}`; 200 for your finished job of the same request; 409 while one of yours is queued or running |
+| `GET /recommendations/jobs`, `GET /recommendations/jobs/{id}` | your 10 newest searches; one search's progress and cards (yours only) |
+| `GET /recommendations/calibration` | the latest calibration report, aggregates only: scores are hidden below 30 batches, and a reliability bin's values until its ratings come from 3 distinct batches; 404 before the first one |
+| `POST /batches/from-recommendation` | Start batch: 201; 409 with a `planner_link` for sourdough |
+| `POST /batches/{id}/tastings`, `GET /batches/{id}/tastings`, `DELETE /batches/{id}/tastings/{tasting_id}` | a batch's tastings (its owner only) |
+| `POST /community-recipes` | publish a finished, successful, tasted batch; it waits for review |
+| `GET /me/community-recipes` | your published recipes, every status (the export path for them) |
+| `GET /admin/community-recipes?status=pending`, `POST /admin/community-recipes/{id}/approve`, `POST /admin/community-recipes/{id}/reject` | the review queue (admins) |
+| `GET /admin/calibration`, `POST /admin/calibration/recompute` | the full calibration report; recompute now (admins) |
+
+`GET /me/export` includes each batch's tastings.
+
+**Configuration:**
+- `FERMENTTRACK_ADMIN_USER_IDS`: comma-separated Supabase user ids (the JWT `sub`) that may review community recipes and read the full calibration report. The same list gives read-only access to every account's logbook. `GET /me` shows your id and whether you are an admin.
+- `FERMENTTRACK_CANDIDATES_PATH=<file>` (optional): appends each fresh live forecast of an Experimental variant to that file, one JSON object per line, as candidates for the next recommender grid or emulator training set. That covers a confirmed screened card, a search-deeper step, and a variant of your batch or of a community recipe. Records carry no ids. Unset (the default), nothing is written; a write failure is logged and never fails the request.
+
+The job worker, the startup re-forecast of community recipes and the weekly calibration all run inside the API process, which assumes a single process (Render's free plan).
+
+**Browser storage:**
+- The recommender keeps one key in the browser: `ft.deep-search.hidden`, the finished search you hid, so it isn't offered again. The levain planner keeps its own `ft.levain.form.v1` and `ft.levain.pro`.
+- Tasting targets are not stored in the browser. The batch preview (`GET /batches/{id}/preview`) carries `recommendation_targets`, the target keys of the card the batch was started from: `[]` when the card had none, `null` when the batch wasn't started from a card. The tasting form asks about those first.
+- Signing out clears every `ft.*` key on the device. So does starting a session for a different account than the one that left the keys, which `ft.owner` records (`frontend/src/storage.js`: `clearAppKeys`, `claimAppKeys`). A guest who adds an email keeps the same account and keeps their keys.
+
+**Rebuilding the library and the grid:** the library (`src/fermenttrack/recommender/recipes_v1.csv`, `recipe_ingredients_v1.csv`) and the precomputed grid (`recommender_grid_v1.npz` and its manifest) are committed artefacts.
+
+```bash
+python scripts/build_recipes.py                      # rewrite the library from the research drafts and the curation decisions
+python scripts/build_recipes.py --check              # exit 1 if the committed library differs from a fresh build
+python scripts/build_recommender_grid.py --workers 4 # rebuild the grid (188 entries, ~178 kB, ~8.5 min on 4 workers)
+```
+
+`tests/test_recommender_grid.py::test_grid_is_current` fails with that last command when any grid input changes: the profiles, the aroma catalogue and data, the recipe files or the use levels. `test_a_rebuilt_entry_matches_the_committed_one` re-solves one entry per ferment type, to catch engine changes. Commit the rebuilt grid with the change; approved community recipes are re-forecast at the next startup. To add an ingredient, see [`docs/ADDING_AN_INGREDIENT.md`](docs/ADDING_AN_INGREDIENT.md).
+
+**Migrations 0019–0023** add, in order:
+- `recommendation_links` (and `reminders.kind`);
+- `recommendation_jobs`;
+- `community_recipes` and `community_recipe_forecasts`;
+- `tastings` (and `recommendation_links.p_series`);
+- `calibration_reports`.
+
+`alembic upgrade head` applies them.
+
+**Specs:**
+- [design](docs/superpowers/specs/2026-10-07-fermentation-recommender-design.md), whose § 17 holds the implementation notes and measured results;
+- [recipe curation](docs/superpowers/specs/2026-10-07-recipe-curation.md);
+- [adding an ingredient](docs/ADDING_AN_INGREDIENT.md).
 
 ## Target Users
 
@@ -84,6 +188,7 @@ Originally scoped as a FermentGraph-powered compound knowledge graph ("similar b
 - Photo timeline per batch
 - pH / temperature / tasting notes logging
 - Estimated fermentation temperature per batch, and a fermentation forecast (`GET /batches/{id}/prediction`)
+- **Ideas: a fermentation recommender** (Proven / Experimental / Community cards with a time window, tasting feedback; see [below](#ideas--fermentation-recommender))
 - **iSpindel/GravityMon webhook** (live sensor data → batch timeline)
 - **FermentJSON v0.1 export** (kombucha + koji extensions)
 - Compare two batches side-by-side
@@ -135,7 +240,7 @@ Hosted (€5/mo): Cloud instance for non-self-hosters (Nabu Casa model)
 FermentTrack works standalone as a journal. The plan was for FermentGraph to enrich it — this is not built yet (see [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) for the audit):
 
 1. **"What's happening in my ferment?"** — Compound suggestions based on substrate + time + temperature
-2. **"What should I try next?"** — Evidence-ranked experiment suggestions from the knowledge graph
+2. **"What should I try next?"** — Evidence-ranked experiment suggestions from the knowledge graph (FermentTrack now answers a model-guided version of this question without FermentGraph: [Ideas](#ideas--fermentation-recommender))
 3. **"Is this normal?"** — Analog retrieval: "similar batches typically reach pH 3.5 by day 7"
 4. **Confidence scores** — Every suggestion shows provenance and evidence quality
 

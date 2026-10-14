@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import PublishRecipe from "./community/PublishRecipe.jsx";
 import PredictionPanel from "./prediction/PredictionPanel.jsx";
 import TemperatureEstimate from "./prediction/TemperatureEstimate.jsx";
 import PlanCard from "./sourdough/PlanCard.jsx";
+import { getReminders } from "./tastings/api.js";
+import { promptReason, tastingReminder } from "./tastings/tasting.js";
+import { TastingPrompt, TastingsCard } from "./tastings/Tastings.jsx";
 import { Button, Input, Select, TabBar } from "./components/ui.jsx";
 import { API_URL, urgencyColor, humanize, Card, apiError, errText } from "./shared.jsx";
+
+const NO_REMINDER = { due: null, upcoming: null };
 
 function StageControl({ batchId, onAdvanced }) {
   const [busy, setBusy] = useState(false);
@@ -1277,12 +1283,19 @@ function Safety({ safety }) {
   );
 }
 
-export default function BatchView({ batchId }) {
+export default function BatchView({ batchId, focus = null }) {
   const [preview, setPreview] = useState(null);
   const [composition, setComposition] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("forecast");
+  // this batch's open tasting reminder (stop-by): `due` prompts, `upcoming` is only mentioned
+  const [reminders, setReminders] = useState(NO_REMINDER);
+  const reminder = reminders.due;
+  const [toTasting, setToTasting] = useState(0); // bumped to move focus to the tasting form
+  const tastingRef = useRef(null);
+  const promptRef = useRef(null);
+  const advanced = useRef(false); // a stage change reloads the page: prompt for a tasting after it
 
   async function loadPreview(id) {
     if (!id) return;
@@ -1293,7 +1306,13 @@ export default function BatchView({ batchId }) {
     try {
       const res = await fetch(`${API_URL}/batches/${id}/preview`);
       if (!res.ok) throw new Error(res.status === 404 ? "Batch not found" : `API error (${res.status})`);
-      setPreview(await res.json());
+      const loaded = await res.json();
+      setPreview(loaded);
+      if (!loaded.read_only) {
+        getReminders()
+          .then((rs) => setReminders(tastingReminder(rs, loaded.batch.id, Date.now())))
+          .catch(() => setReminders(NO_REMINDER)); // the prompt is a nudge: the form is in the Log tab anyway
+      }
       const comp = await fetch(`${API_URL}/batches/${id}/composition`);
       setComposition(comp.ok ? await comp.json() : null);
     } catch (e) {
@@ -1307,6 +1326,44 @@ export default function BatchView({ batchId }) {
     if (batchId) loadPreview(batchId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // #/batch/<id>/tasting (a reminder's link) and "Fill in the tasting form": the Log tab, the form.
+  // The focus waits for the Log panel to be shown (a hidden panel cannot take it).
+  const handled = useRef(0);
+  const [focusForm, setFocusForm] = useState(false);
+  useEffect(() => {
+    if (focus === "tasting") setToTasting((n) => n + 1);
+  }, [focus]);
+  useEffect(() => {
+    if (!toTasting || toTasting === handled.current || !preview || preview.read_only) return;
+    handled.current = toTasting;
+    setTab("log");
+    setFocusForm(true);
+  }, [toTasting, preview]);
+  useEffect(() => {
+    if (!focusForm || tab !== "log") return;
+    setFocusForm(false);
+    tastingRef.current?.scrollIntoView({ block: "start" });
+    tastingRef.current?.focus({ preventScroll: true });
+  }, [focusForm, tab]);
+
+  // finished: ended (outcome success); publishing also needs a success
+  const finished = preview ? preview.batch.ended_at != null && preview.batch.outcome !== "in_progress" : false;
+  const prompt = preview
+    ? promptReason({ readOnly: preview.read_only, finished, tastingsCount: preview.tastings_count, reminder })
+    : null;
+
+  // Finishing the batch unmounts the stage button: focus moves to the tasting prompt.
+  useEffect(() => {
+    if (!preview || !advanced.current) return;
+    advanced.current = false;
+    if (prompt) requestAnimationFrame(() => promptRef.current?.focus());
+  }, [preview, prompt]);
+
+  function tastingsChanged(count, { saved }) {
+    setPreview((p) => (p ? { ...p, tastings_count: count } : p));
+    if (saved) setReminders(NO_REMINDER); // a tasting closes the stop-by reminder (routers/tastings.py)
+  }
 
   const TABS = [
     { id: "forecast", label: "Forecast" },
@@ -1347,11 +1404,15 @@ export default function BatchView({ batchId }) {
             batch={preview.batch}
             culture={preview.culture}
             daysInStage={preview.days_in_stage}
-            onAdvanced={() => loadPreview(batchId)}
+            onAdvanced={() => {
+              advanced.current = true;
+              loadPreview(batchId);
+            }}
             onTemperatureSaved={() => loadPreview(preview.batch.id)}
           />
           <RepeatBatch batchId={batchId} />
           <Safety safety={preview.safety} />
+          <TastingPrompt ref={promptRef} reason={prompt} reminder={reminder} onOpen={() => setToTasting((n) => n + 1)} />
 
           <div className="sticky top-0 z-20 -mx-4 bg-slate-950/95 px-4 backdrop-blur">
             <TabBar tabs={TABS} selected={tab} onSelect={setTab} idBase="bt" label="Batch sections" />
@@ -1369,6 +1430,17 @@ export default function BatchView({ batchId }) {
           {panel(
             "log",
             <>
+              {!preview.read_only && (
+                <TastingsCard
+                  ref={tastingRef}
+                  batch={preview.batch}
+                  type={preview.culture.type}
+                  reminder={reminder}
+                  upcoming={reminders.upcoming}
+                  targets={preview.recommendation_targets}
+                  onChange={tastingsChanged}
+                />
+              )}
               <LogObservation
                 batchId={batchId}
                 sourdough={preview.culture.type === "sourdough"}
@@ -1391,6 +1463,12 @@ export default function BatchView({ batchId }) {
                 onAdded={() => loadPreview(batchId)}
               />
               <Composition data={composition} />
+              {finished &&
+                preview.batch.outcome === "success" &&
+                !preview.read_only &&
+                preview.culture.type !== "sourdough" && (
+                  <PublishRecipe batchId={preview.batch.id} defaultTitle={preview.culture.name} />
+                )}
             </>
           )}
           {panel("biochemistry", <Biochemistry batchId={preview.batch.id} type={preview.culture.type} />)}

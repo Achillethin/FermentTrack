@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, Interval, JSON, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from fermenttrack.database import Base
 
@@ -88,6 +90,10 @@ class Batch(Base):
     batch_organisms: Mapped[list["BatchOrganism"]] = relationship(
         back_populates="batch", cascade="all, delete-orphan"
     )
+    tastings: Mapped[list[Tasting]] = relationship(
+        back_populates="batch", cascade="all, delete-orphan",
+        order_by="(Tasting.t_h, Tasting.created_at, Tasting.id)",  # as GET /batches/{id}/tastings
+    )
 
 
 class Measurement(Base):
@@ -106,6 +112,16 @@ class Measurement(Base):
     batch: Mapped["Batch"] = relationship(back_populates="measurements")
 
 
+# Reminder.kind. A stage reminder is superseded (marked done) when the batch changes stage
+# (routers/batches.py advance_stage); no other kind is. A safety reminder (the recommender's
+# "log pH by 48 h", design § 7) is closed by the user only (PATCH /reminders/{id}/done). A
+# tasting reminder (the card's stop-by time: "fill in the tasting form", design § 11.2) is
+# closed by the user, or by the batch's next tasting (POST /batches/{id}/tastings).
+STAGE_REMINDER = "stage"
+SAFETY_REMINDER = "safety"
+TASTING_REMINDER = "tasting"
+
+
 class Reminder(Base):
     __tablename__ = "reminders"
 
@@ -118,6 +134,9 @@ class Reminder(Base):
     repeat_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
     urgency: Mapped[str] = mapped_column(Text, nullable=False, default="medium")
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    kind: Mapped[str] = mapped_column(
+        Text, nullable=False, default=STAGE_REMINDER, server_default=STAGE_REMINDER
+    )
 
     batch: Mapped["Batch"] = relationship(back_populates="reminders")
 
@@ -351,3 +370,241 @@ class BatchOrganism(Base):
 
     batch: Mapped["Batch"] = relationship(back_populates="batch_organisms")
     organism: Mapped["Organism"] = relationship()
+
+
+class RecommendationLink(Base):
+    """The recommendation a batch was started from (design § 11.2): what the card predicted,
+    for the tasting feedback and the calibration gate. One per batch; deleted with it (the
+    `Batch.recommendation_link` backref cascades on SQLite too, the FK on Postgres).
+
+    The parent, by source_kind: `recipe_key` (library, variant), `parent_batch_id` (own_batch:
+    your batch, a variant of it) or `community_recipe_id` (community: the card or a variant of
+    it). Both foreign keys are set null when their row goes. Migration 0021 moved the parent
+    batch of earlier own_batch links (recipe_key "batch:<id>") into parent_batch_id.
+
+    temp_schedule: a staged recipe's (start hour, °C) steps. The batch keeps the first stage
+    as expected_temperature_c, and its forecast (routers/prediction.py) runs on the schedule
+    as PredictionInputs.planned_temperature."""
+
+    __tablename__ = "recommendation_links"
+
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("batches.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_kind: Mapped[str] = mapped_column(Text, nullable=False)  # library, variant, ...
+    recipe_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    community_recipe_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "community_recipes.id", ondelete="SET NULL",
+            name="fk_recommendation_links_community_recipe_id",
+        ),
+        nullable=True, index=True,
+    )  # fmt: skip
+    parent_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "batches.id", ondelete="SET NULL", name="fk_recommendation_links_parent_batch_id"
+        ),
+        nullable=True,
+    )
+    operators: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    mode: Mapped[str] = mapped_column(Text, nullable=False)  # proven | experimental | both
+    temperature_c: Mapped[float] = mapped_column(Float, nullable=False)  # the served temperature
+    temp_schedule: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    # taste_from_h, peak_h, stop_by_h, basis, notes
+    window: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    # [{key, kind, e, u}]: E and U at the peak per target
+    targets: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    # {"t_h": [...], "p": {target: [...]}}: P (score.noticeable) per modelled target on the
+    # card's time axis, hours since the batch started: a tasting at a t_h inside the axis is
+    # scored against np.interp(t_h, t_h_axis, p) (design § 13.2); one outside it is skipped,
+    # never extended (service.p_series_json). Null: no modelled target, or written before 0022.
+    p_series: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
+    grid_version: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
+
+    batch: Mapped[Batch] = relationship(
+        foreign_keys=[batch_id],
+        backref=backref("recommendation_link", uselist=False, cascade="all, delete-orphan"),
+    )
+
+
+COMMUNITY_PENDING = "pending"
+COMMUNITY_APPROVED = "approved"
+COMMUNITY_REJECTED = "rejected"
+COMMUNITY_STATUSES = (COMMUNITY_PENDING, COMMUNITY_APPROVED, COMMUNITY_REJECTED)
+_NOT_REJECTED = text("status <> 'rejected'")
+
+
+class CommunityRecipe(Base):
+    """A recipe a user published from one of their finished batches (design § 10.3,
+    recommender.community): its rows as g/kg of the batch's weighed total, the batch's mean
+    logged temperature (else its expected one) and its actual duration. Reviewed by an admin
+    (pending -> approved | rejected). It stays when its author deletes their account: DELETE
+    /me sets owner_id and source_batch_id null (the pseudonym stays); the batch's own deletion
+    sets source_batch_id null (the FK). Anonymous accounts may publish. A batch is published
+    once until rejected (a partial unique index on source_batch_id).
+
+    recipe: [{name, role, g_per_kg, fdc_id, nutrients}]: catalogue names, or a USDA pick
+    (fdc_id, with its nutrients g/100 g so the forecast runs without the database)."""
+
+    __tablename__ = "community_recipes"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected')", name="ck_community_recipes_status"
+        ),
+        Index(
+            "uq_community_recipes_source_batch", "source_batch_id", unique=True,
+            postgresql_where=_NOT_REJECTED, sqlite_where=_NOT_REJECTED,
+        ),
+    )  # fmt: skip
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    owner_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    source_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("batches.id", ondelete="SET NULL", name="fk_community_recipes_source_batch_id"),
+        nullable=True,
+    )
+    pseudonym: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    fermentation_type: Mapped[str] = mapped_column(Text, nullable=False)
+    recipe: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    temperature_c: Mapped[float] = mapped_column(Float, nullable=False)
+    duration_h: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default=COMMUNITY_PENDING)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # the reviewer's
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(Text, nullable=True)  # the admin's user id
+
+    forecasts: Mapped[list[CommunityRecipeForecast]] = relationship(
+        back_populates="recipe", cascade="all, delete-orphan"
+    )
+
+
+class CommunityRecipeForecast(Base):
+    """An approved community recipe's forecast at one temperature, computed by the job queue
+    (recommender.community): the grid's statistics schema (E / U / P per series on the
+    recipe's time axis, milestone crossing times, card labels) as JSON. grid_version: the grid
+    it goes with; a startup with another grid recomputes it."""
+
+    __tablename__ = "community_recipe_forecasts"
+
+    recipe_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("community_recipes.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    temp_c: Mapped[float] = mapped_column(Float, primary_key=True)
+    grid_version: Mapped[str] = mapped_column(Text, nullable=False)
+    stats: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+
+    recipe: Mapped[CommunityRecipe] = relationship(back_populates="forecasts")
+
+
+JOB_QUEUED = "queued"
+JOB_RUNNING = "running"
+JOB_DONE = "done"
+JOB_FAILED = "failed"
+ACTIVE_JOB_STATUSES = (JOB_QUEUED, JOB_RUNNING)
+_ACTIVE_JOB = text("status IN ('queued', 'running')")
+
+
+class RecommendationJob(Base):
+    """A background recommender job (design § 10.2): the FIFO queue (by created_at) that the
+    single in-process worker drains (recommender.jobs). kind: "deep_search" (POST
+    /recommendations/deep-search), or another registered handler's kind (B9: community
+    forecasts). steps: the plan, saved once made, so a restart resumes at `done`; results: the
+    handler's results so far (deep search: ranked {rank, card}); attempts: claims so far (the
+    worker fails a job after 3, the crash-loop guard). At most one queued or running job per
+    owner (a partial unique index); system jobs have no owner. An owner keeps their newest
+    jobs only (Handler.kept); an account's jobs are deleted with it (DELETE /me)."""
+
+    __tablename__ = "recommendation_jobs"
+    __table_args__ = (
+        Index("ix_recommendation_jobs_queue", "status", "created_at"),
+        Index(
+            "uq_recommendation_jobs_one_active", "owner_id", unique=True,
+            postgresql_where=_ACTIVE_JOB, sqlite_where=_ACTIVE_JOB,
+        ),
+    )  # fmt: skip
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    owner_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    request: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    # the request, the grid and the model version (recommender.jobs.fingerprint)
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default=JOB_QUEUED)
+    steps: Mapped[list[Any] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    results: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+
+class Tasting(Base):
+    """A tasting of a batch (design § 11.2; POST /batches/{id}/tastings, routers/tastings.py),
+    on any batch, recommended or not (the calibration baseline needs both, § 13.2). Deleted
+    with its batch (the relationship cascades on SQLite too, the FK on Postgres).
+
+    t_h: hours since the batch started when it was tasted, computed by the server from the
+    request's tasted_at. ratings: {series or taste: 0-3} over recommender.run.SERIES (the 16
+    aroma series and the 4 tastes; 0 not noticed ... 3 strong; a key absent was not rated).
+    liking 1-5 and make_again may be left out; a tasting has ratings or a liking. notes: the
+    user's own free text, at most 1000 characters: never logged, never shown to anyone else
+    (the community cards count tastings and average their liking, nothing more)."""
+
+    __tablename__ = "tastings"
+    __table_args__ = (
+        CheckConstraint("t_h >= 0", name="ck_tastings_t_h"),
+        CheckConstraint("liking IS NULL OR liking BETWEEN 1 AND 5", name="ck_tastings_liking"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("batches.id", ondelete="CASCADE"), nullable=False,
+        index=True,
+    )
+    t_h: Mapped[float] = mapped_column(Float, nullable=False)
+    ratings: Mapped[dict[str, int]] = mapped_column(JSON, nullable=False, default=dict)
+    liking: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    make_again: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+
+    batch: Mapped[Batch] = relationship(back_populates="tastings")
+
+
+class CalibrationReport(Base):
+    """A run of the calibration gate (design § 13.2, recommender.calibration): one row per run,
+    the newest calibration.REPORTS_KEPT kept, so the gate's decisions over time stay on record.
+    report: the report as JSON (calibration.report_json): counts, Brier scores, the bootstrap
+    CI, the decision and the reliability bins. Aggregates only: no user, batch or tasting id,
+    no notes. passed and n_batches repeat the report's, for reading without it."""
+
+    __tablename__ = "calibration_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    computed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, index=True
+    )
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    n_batches: Mapped[int] = mapped_column(Integer, nullable=False)
+    report: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)

@@ -1,0 +1,20 @@
+# Tier T3 use levels (design § 12; docs/ADDING_AN_INGREDIENT.md). share_* = mass share of the whole batch.
+# v1 rows are bootstrapped only from the shares of tier-T2 ingredients in the active library recipes (source: that recipe row).
+# The lacto-ingredients research round (feat/aroma-lacto-ingredients) adds rows in this format, each with an opened source.
+ingredient,fermentation_type,role,share_median,share_lo,share_hi,source,notes
+Milk,cheese,base,0.99347,0.992,0.995,AcademyCheese-lactic Heat milk to coagulation temperature (recipe lactic_fresh_cheese_curd row),bootstrapped from the active library recipe row
+Anchovies,garum,base,0.8,0.7692,0.8333,Jung-koji-fish-sauce-2022 Fig. 1 and Materials (recipe pacific_sand_lance_rice_koji_fish_sauce row),bootstrapped from the active library recipe row
+White rice,garum,base,0.0706,0.0679,0.0735,Jung-koji-fish-sauce-2022 Materials and Fig. 1 (recipe pacific_sand_lance_rice_koji_fish_sauce row),bootstrapped from the active library recipe row
+Milk,kefir,base,0.93075,0.9091,0.9524,Youn2022-kefir Isolation of Yeast Strains From Kefir (recipe milk_kefir_grains_5pct_24h row) | Kim2016-kefir-antimicrobial Kefir preparation (recipe milk_kefir_grains_10pct_extended row),"bootstrapped from 2 active library recipe rows: median of their medians, lowest lo, highest hi"
+White rice,koji,base,0.8813,0.8813,0.8813,Kagawa-miso-manual page 1 and page 5 (recipe rice_koji_steamed_rice row),bootstrapped from the active library recipe row
+Black tea leaves,kombucha,base,0.00395,0.0012,0.0066,Cohen2023-kombucha §2.1 (recipe black_tea_kombucha_1f row) | Dartora2023-kombucha §2.2 and Table 1 (recipe green_dominant_kombucha row),"bootstrapped from 2 active library recipe rows: median of their medians, lowest lo, highest hi"
+Green tea leaves,kombucha,base,0.005,0.0049,0.0051,Dartora2023-kombucha §2.2 and Table 1 (recipe green_dominant_kombucha row),bootstrapped from the active library recipe row
+Cabbage,lacto_ferment,base,0.9789,0.9766,0.9812,NCHFP-sauerkraut ingredient list (recipe sauerkraut_dry_salted row),bootstrapped from the active library recipe row
+Fresh ginger,lacto_ferment,flavoring,0.0078,0.0078,0.0078,Jang2024-kimchi §2.1 (recipe napa_kimchi_room_temp row),bootstrapped from the active library recipe row
+Napa cabbage,lacto_ferment,base,0.7885,0.7735,0.8035,Jang2024-kimchi §2.1; CSU-kimchi salt range (recipe napa_kimchi_room_temp row),bootstrapped from the active library recipe row
+Soybeans,miso,base,0.48245,0.4121,0.5576,Kagawa-miso-manual page 1 (recipe shiro_miso_kagawa_sweet row) | Kagawa-miso-manual page 1 (recipe red_rice_miso_kagawa_long row),"bootstrapped from 2 active library recipe rows: median of their medians, lowest lo, highest hi"
+White rice,miso,base,0.3448,0.2718,0.4166,Kagawa-miso-manual page 1 (recipe shiro_miso_kagawa_sweet row) | Kagawa-miso-manual page 1 (recipe red_rice_miso_kagawa_long row),"bootstrapped from 2 active library recipe rows: median of their medians, lowest lo, highest hi"
+Rye flour,sourdough,base,0.5,0.5,0.5,FT-sourdough-catalogue L179-L184 (recipe rye_sour row),bootstrapped from the active library recipe row
+White wheat flour,sourdough,base,0.44155,0.3226,0.531,FT-sourdough-catalogue L140-L145 (recipe home_starter row) | FT-sourdough-catalogue L148-L152 (recipe levain_liquide row) | FT-sourdough-catalogue L155-L159 (recipe levain_dur row) | FT-sourdough-catalogue L162-L167 (recipe lievito_madre row) | FT-sourdough-catalogue L171-L176 (recipe san_francisco row) | FT-sourdough-catalogue L187-L192 (recipe type_ii row),"bootstrapped from 6 active library recipe rows: median of their medians, lowest lo, highest hi"
+Hard cider,vinegar,base,0.75,0.75,0.75,NCState-vinegar Orleans process; PennState-cider-vinegar Steps 2 and 3 (recipe cider_vinegar_surface row),bootstrapped from the active library recipe row
+Red wine,vinegar,base,0.5217,0.5,0.5455,NCState-vinegar Wine Vinegar; AWRI2022-wine-vinegar C (recipe wine_orleans_surface row),bootstrapped from the active library recipe row

@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 
 # ── Culture ──────────────────────────────────────────────────────────────
@@ -58,6 +67,7 @@ class BatchExportOut(BaseModel):
     outcome: str
     ended_at: datetime | None
     measurements: list["MeasurementOut"] = []
+    tastings: list[TastingOut] = []  # the CSV export (frontend/src/csv.js) ignores them
 
 
 class CultureExportOut(CultureOut):
@@ -146,6 +156,9 @@ class ReminderOut(BaseModel):
     repeat_interval: timedelta | None
     urgency: str
     completed_at: datetime | None
+    # stage: closed by a stage change; safety: the pH check; tasting: the card's stop-by
+    # prompt to fill in the tasting form (models.Reminder.kind)
+    kind: str = "stage"
 
 
 class ReminderSnooze(BaseModel):
@@ -330,6 +343,10 @@ class BatchPreview(BaseModel):
     timeline: list[TimelineEvent]
     safety: SafetyReportOut
     read_only: bool = False  # an admin viewing someone else's batch: no edits
+    tastings_count: int = 0  # 0: offer the tasting form (at stop-by, on finishing)
+    # The target keys of the card the batch was started from (its recommendation link's), which
+    # the tasting form rates first; None: not started from a card.
+    recommendation_targets: list[str] | None = None
 
 
 # ── Biochemistry ─────────────────────────────────────────────────────────
@@ -740,3 +757,659 @@ class AdminCultureOut(CultureOut):
 BatchCreate.model_rebuild()
 BatchUpdate.model_rebuild()
 PredictionOut.model_rebuild()
+
+
+# ── Recipe library (GET /recipes, recommender R0) ────────────────────────────
+
+
+class RecipeSpanOut(BaseModel):
+    median: float
+    lo: float
+    hi: float
+
+
+class RecipeIngredientOut(BaseModel):
+    name: str
+    catalogue_status: str
+    role: str
+    g_per_kg: RecipeSpanOut | None  # None: the source gives no mass (draft recipes only)
+    required: Literal["core", "optional"]
+    label: str | None
+    source: str
+    notes: str
+
+
+class RecipeEnvelopeOut(BaseModel):
+    temp_c: RecipeSpanOut | None
+    duration_h: RecipeSpanOut | None  # None: the sourdough planner sets the timing
+    salt_pct: RecipeSpanOut | None
+    sugar_g_per_kg: RecipeSpanOut | None
+    temp_schedule: list[tuple[float, float]]  # (start hour, °C) steps; empty: constant
+    basis: Literal["sourced", "widened_single_value"]
+
+
+class RecipeOut(BaseModel):
+    key: str
+    name: str
+    fermentation_type: str
+    style_region: str
+    status: Literal["active", "draft"]
+    provenance: str
+    sources: list[str]
+    envelope: RecipeEnvelopeOut
+    model_scope: list[str]
+    labels: list[str]  # trust labels (Q25, Q26); ingredient labels sit on the ingredients
+    aerobic: bool
+    method: str
+    stages: str
+    safety_targets: str
+    reported_aromas: list[str]
+    notes: str
+    handoff: Literal["planner"] | None
+    planner_style: str | None
+    ingredients: list[RecipeIngredientOut]
+
+
+# ── Recommendations (POST /recommendations, recommender R1) ──────────────────
+# Shapes of fermenttrack.recommender.service's plain dicts. Scores are Low / Med / High until
+# the calibration gate (design § 13.2); the live forecast also returns E and U.
+
+Level = Literal["Low", "Med", "High"]
+TargetKind = Literal["aroma", "taste"]
+BatchGrams = Annotated[float, Field(gt=0.0, le=200_000.0)]
+
+
+def _check_targets(aromas: list[str], tastes: list[str]) -> None:
+    from fermenttrack.recommender.service import parse_targets
+
+    parse_targets(aromas, tastes)  # ValueError -> 422
+
+
+def _check_usda(ids: list[int]) -> None:
+    from fermenttrack.recommender.operators import usda_food
+
+    unknown = [i for i in ids if usda_food(i) is None]
+    if unknown:
+        raise ValueError(f"unknown USDA food id(s): {unknown}")
+
+
+OperatorKind = Literal["add", "swap", "temperature", "usda"]
+
+
+class OperatorIn(BaseModel):
+    """An Experimental operator as a card's chip sends it back (extra chip fields such as
+    `key`, `share` or `label` are ignored: the server recomputes the variant)."""
+
+    op: OperatorKind
+    ingredient: Annotated[str, Field(max_length=200)] | None = None  # add, swap, usda by name
+    replaces: Annotated[str, Field(max_length=200)] | None = None  # swap
+    to_c: ExpectedTemperatureC | None = None  # temperature
+    fdc_id: int | None = None  # usda: a USDA food
+
+    @model_validator(mode="after")
+    def _valid(self) -> OperatorIn:
+        need = {
+            "add": ("ingredient",), "swap": ("ingredient", "replaces"), "temperature": ("to_c",)
+        }  # fmt: skip
+        missing = [f for f in need.get(self.op, ()) if getattr(self, f) is None]
+        if self.op == "usda" and self.fdc_id is None and self.ingredient is None:
+            missing.append("fdc_id or ingredient")
+        if missing:
+            raise ValueError(f"a {self.op} operator needs {', '.join(missing)}")
+        return self
+
+
+Operators = Annotated[list[OperatorIn], Field(max_length=3)]
+
+
+def _check_parent(
+    recipe_key: str | None,
+    parent_batch_id: uuid.UUID | None,
+    operators: list[OperatorIn],
+    community_recipe_id: uuid.UUID | None = None,
+) -> None:
+    if sum(x is not None for x in (recipe_key, parent_batch_id, community_recipe_id)) != 1:
+        raise ValueError("give one of recipe_key, parent_batch_id or community_recipe_id")
+    if parent_batch_id is not None and not operators:
+        raise ValueError("a variant of your batch needs at least one operator")
+
+
+class RecommendationRequest(BaseModel):
+    """Design § 5.1. Ingredients are catalogue names; the non-staple ones must all be in the
+    recipe (Proven) or the variant (Experimental), and staples (salt, water, sugar, flour, tea,
+    starter cultures) never exclude a recipe (§ 5.2, Q3). parent_batch_id: one of your batches
+    as an Experimental parent (Q16); community_recipe_id: an approved community recipe as one
+    (§ 10.3); one parent at most. usda_fdc_ids: USDA foods operator (v) may add."""
+
+    ingredients: Annotated[list[str], Field(max_length=20)] = []
+    aromas: list[str] = []
+    tastes: list[str] = []
+    mode: Literal["proven", "experimental", "both"] = "proven"
+    temperature_c: ExpectedTemperatureC | None = None  # the user's kitchen; null: each recipe's
+    batch_g: BatchGrams = 1000.0
+    parent_batch_id: uuid.UUID | None = None
+    community_recipe_id: uuid.UUID | None = None
+    usda_fdc_ids: Annotated[list[int], Field(max_length=5)] = []
+
+    @model_validator(mode="after")
+    def _valid(self) -> RecommendationRequest:
+        _check_targets(self.aromas, self.tastes)
+        parent = self.parent_batch_id or self.community_recipe_id
+        if not (self.ingredients or self.aromas or self.tastes or parent):
+            raise ValueError("give at least one ingredient, aroma or taste")
+        if self.parent_batch_id and self.community_recipe_id:
+            raise ValueError("give parent_batch_id or community_recipe_id, not both")
+        if self.mode == "proven" and (parent or self.usda_fdc_ids):
+            raise ValueError(
+                "parent_batch_id, community_recipe_id and usda_fdc_ids need mode experimental "
+                "or both"
+            )
+        _check_usda(self.usda_fdc_ids)
+        return self
+
+
+class RecommendationTargetOut(BaseModel):
+    key: str
+    kind: TargetKind
+    low_resolution: bool  # a series of 2 compounds or fewer (Q7)
+
+
+class CompoundRefOut(BaseModel):
+    key: str
+    name: str
+    tier: str  # evidence tier: calibrated | reported | plausible | engine
+
+
+def _unset(v: Any) -> bool:
+    return v is None
+
+
+class CardTargetOut(BaseModel):
+    key: str
+    kind: TargetKind
+    level: Level | None  # None: not modelled for this ferment
+    modelled: bool
+    low_resolution: bool
+    top_compound: CompoundRefOut | None
+    # P (noticeable) at the peak, 2 decimals: only while the calibration gate passes (design
+    # § 13.2); absent otherwise (never null), so the JSON before the gate is unchanged
+    p_peak: float | None = Field(default=None, exclude_if=_unset)
+
+
+class CardIngredientOut(BaseModel):
+    name: str
+    role: str
+    grams: float
+    required: Literal["core", "optional"]
+    in_catalogue: bool  # False: not bookable yet, Start batch skips it
+    label: str | None
+    fdc_id: int | None = None  # an operator (v) USDA food: Start batch books it from the USDA list
+
+
+class CardRecipeOut(BaseModel):
+    batch_g: float
+    ingredients: list[CardIngredientOut]
+    salt_pct: float | None  # % w/w of the ingredient rows
+    sugar_pct: float | None
+    starters: list[str]
+    temperature_c: float
+    temp_schedule: list[tuple[float, float]]  # (start hour, °C); empty: constant
+    stages: str
+    aerobic: bool
+
+
+class TemperatureSpanOut(BaseModel):
+    lo: float
+    hi: float
+
+
+class SliderOut(BaseModel):
+    min_c: float
+    max_c: float
+
+
+class CardTemperatureOut(BaseModel):
+    served_c: float  # the fermentation temperature: shown, booked, in a planner link
+    recipe_c: float
+    documented_c: TemperatureSpanOut
+    model_c: float  # the temperature the model used: a card's nearest grid temperature, the
+    # live forecast's nearest profile temperature
+    slider: SliderOut | None  # the documented span within the safety limits; None: no slider
+    source_only: bool  # Q26: served outside the model's range, the window is the source's
+
+
+class CardWindowOut(BaseModel):
+    taste_from_h: float
+    peak_h: float
+    stop_by_h: float
+    basis: Literal["model", "source", "planner"]
+    notes: list[str]
+
+
+class CardTrustOut(BaseModel):
+    provenance: str
+    sources: list[str]
+    profile_confidence: str
+    envelope_basis: str
+    labels: list[str]
+
+
+class OperatorChipOut(BaseModel):
+    """An Experimental card's operator chip (design § 11.1), e.g. {"op": "add", "ingredient":
+    "Fresh ginger", "share": 0.0078}, {"op": "temperature", "from_c": 20, "to_c": 24},
+    {"op": "usda", "fdc_id": 169941, "label": "aroma effect unknown"}. Send it back as is."""
+
+    op: OperatorKind
+    key: str
+    ingredient: str | None
+    replaces: str | None
+    share: float | None  # mass share of the whole batch (add, usda)
+    from_c: float | None
+    to_c: float | None
+    fdc_id: int | None
+    label: str | None
+
+
+class CardParentOut(BaseModel):
+    kind: Literal["library", "own_batch", "community"]
+    recipe_key: str | None
+    batch_id: str | None
+    community_recipe_id: str | None = None
+    name: str
+    label: str  # the recipe's name, "your batch #n" or "community recipe “…” by …"
+
+
+class CommunityCardOut(BaseModel):
+    """A community card's author and use (design § 10.3)."""
+
+    id: uuid.UUID
+    title: str
+    pseudonym: str
+    made: int  # distinct other people who started a batch from it (Start batch) and tasted it
+    # (at least one tasting), author excluded
+    # the mean over those people of each one's mean liking; None until 3 of them gave a liking
+    mean_liking: float | None
+
+
+class RecommendationCardOut(BaseModel):
+    id: str
+    section: Literal["proven", "experimental", "community"]
+    source_kind: Literal["library", "variant", "own_batch", "community"]
+    recipe_key: str | None  # the library recipe (a variant's parent); None: your batch, community
+    name: str
+    fermentation_type: str
+    style_region: str
+    parent: CardParentOut | None = None  # Experimental: what the variant departs from
+    operators: list[OperatorChipOut] = []
+    screened: bool = False  # Experimental: combined additively until a live forecast confirms
+    interaction_detected: bool | None = None  # known after the confirmation (the forecast)
+    recipe: CardRecipeOut
+    temperature: CardTemperatureOut
+    window: CardWindowOut | None
+    level: Level | None  # the targets' mean; None without targets
+    targets: list[CardTargetOut]
+    to_buy: list[str]  # core ingredients beyond the staples and the user's list
+    not_modelled: list[str]  # ingredients without aroma data
+    trust: CardTrustOut
+    safety_lines: list[str]  # mandatory (design § 7)
+    handoff: Literal["planner"] | None
+    planner_link: str | None  # "#/levain?p=…", the planner's share link
+    notes: list[str]
+    community: CommunityCardOut | None = None  # a community card's author and "made n×"
+    # While the calibration gate passes (design § 13.2) only, absent otherwise: the targets'
+    # mean P at the peak (2 decimals; only when every target is modelled) and the batch count
+    # behind "calibrated on n batches"
+    p_peak: float | None = Field(default=None, exclude_if=_unset)
+    calibrated_on: int | None = Field(default=None, exclude_if=_unset)
+
+
+class RecommendationSectionOut(BaseModel):
+    cards: list[RecommendationCardOut]
+    message: str | None  # why the section is empty
+
+
+class GatedOutOut(BaseModel):
+    recipe_key: str
+    reasons: list[str]
+
+
+class RecommendationDebugOut(BaseModel):
+    gated_out: list[GatedOutOut]  # the gate's reasons: debug only, never shown
+
+
+class RecommendationsOut(BaseModel):
+    mode: Literal["proven", "experimental", "both"]
+    grid_version: str
+    targets: list[RecommendationTargetOut]
+    proven: RecommendationSectionOut | None  # None in mode experimental
+    experimental: RecommendationSectionOut | None  # None in mode proven
+    notes: list[str]
+    debug: RecommendationDebugOut
+    # "Community — not proven" (design § 10.3): mode proven or both; None in mode experimental
+    community: RecommendationSectionOut | None = None
+
+
+class RecommendationForecastIn(BaseModel):
+    """One card's live forecast: a library recipe (recipe_key) or an approved community recipe
+    (community_recipe_id), or a variant of either or of one of your batches (parent_batch_id)
+    with its operators, at a slider temperature."""
+
+    recipe_key: str | None = None
+    parent_batch_id: uuid.UUID | None = None
+    community_recipe_id: uuid.UUID | None = None
+    operators: Operators = []
+    aromas: list[str] = []
+    tastes: list[str] = []
+    temperature_c: ExpectedTemperatureC | None = None  # the slider; null: the recipe's
+    batch_g: BatchGrams = 1000.0  # scales a sourdough planner link
+
+    @model_validator(mode="after")
+    def _valid(self) -> RecommendationForecastIn:
+        _check_targets(self.aromas, self.tastes)
+        _check_parent(
+            self.recipe_key, self.parent_batch_id, self.operators, self.community_recipe_id
+        )
+        return self
+
+
+class ForecastTargetOut(CardTargetOut):
+    e_peak: float
+    u_peak: float
+
+
+class ForecastBandOut(BaseModel):
+    key: str
+    kind: TargetKind
+    t_h: list[float]
+    e: list[float]  # central
+    u: list[float]  # optimistic (P90)
+
+
+class RecommendationForecastOut(BaseModel):
+    recipe_key: str | None  # None: a variant of your batch, a community recipe
+    source_kind: Literal["library", "variant", "own_batch", "community"] = "library"
+    operators: list[OperatorChipOut] = []
+    screened: bool = False  # the variant's card was screened (design § 8.5)
+    screened_e_peak: float | None = None  # its screened E(peak) at this temperature
+    interaction_detected: bool | None = None  # confirmed E(peak) < 0.8 × screened
+    members: int | None
+    temperature: CardTemperatureOut | None
+    window: CardWindowOut | None
+    level: Level | None
+    e_peak: float | None
+    u_peak: float | None
+    targets: list[ForecastTargetOut]
+    bands: list[ForecastBandOut]
+    safety_lines: list[str]
+    handoff: Literal["planner"] | None
+    planner_link: str | None
+    notes: list[str]
+
+
+class FromRecommendationIn(BaseModel):
+    """Start batch (design § 11.2): the card is recomputed on the server from these: a library
+    recipe (recipe_key) or an approved community recipe (community_recipe_id), or a variant of
+    either or of one of your batches (parent_batch_id) with its operators."""
+
+    recipe_key: str | None = None
+    parent_batch_id: uuid.UUID | None = None
+    community_recipe_id: uuid.UUID | None = None
+    operators: Operators = []
+    aromas: list[str] = []
+    tastes: list[str] = []
+    temperature_c: ExpectedTemperatureC | None = None
+    batch_g: BatchGrams = 1000.0
+    mode: Literal["proven", "experimental", "both"] = "proven"
+    culture_id: uuid.UUID | None = None  # an owned culture of the recipe's type; null: a new one
+    culture_name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+
+    @model_validator(mode="after")
+    def _valid(self) -> FromRecommendationIn:
+        _check_targets(self.aromas, self.tastes)
+        _check_parent(
+            self.recipe_key, self.parent_batch_id, self.operators, self.community_recipe_id
+        )
+        return self
+
+
+class RecommendationLinkOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    batch_id: uuid.UUID
+    source_kind: str
+    recipe_key: str | None
+    community_recipe_id: uuid.UUID | None
+    parent_batch_id: uuid.UUID | None = None
+    operators: list[Any]
+    mode: str
+    temperature_c: float
+    temp_schedule: list[list[float]] | None
+    window: dict[str, Any]
+    targets: list[dict[str, Any]]
+    grid_version: str
+    created_at: datetime
+
+
+class FromRecommendationOut(BaseModel):
+    batch: BatchOut
+    culture: CultureOut
+    link: RecommendationLinkOut
+    reminders: list[ReminderOut]
+    skipped_ingredients: list[str]  # recipe rows not in the catalogue yet: not booked
+
+
+JobStatus = Literal["queued", "running", "done", "failed"]
+
+
+class DeepSearchOut(BaseModel):
+    """POST /recommendations/deep-search: the job to poll (GET /recommendations/jobs/{job_id}).
+    202 for a new job; 200 for your finished job of the same request (its results are kept)."""
+
+    job_id: uuid.UUID
+    status: JobStatus
+
+
+class RecommendationJobOut(BaseModel):
+    """A deep search (design § 10.2): up to 20 live forecasts, run in the background. Partial
+    results come in as each forecast finishes; cards are confirmed (never "screened") and
+    ranked like the Experimental section (§ 5.4)."""
+
+    job_id: uuid.UUID
+    status: JobStatus
+    done: int  # forecasts run so far
+    total: int  # forecasts planned; 0 until the job starts
+    eta_s: int | None  # seconds left (queue included), from the mean time per forecast so far;
+    # None once finished
+    results: list[RecommendationCardOut]
+    error: str | None  # why it failed (status failed); its partial results are kept
+    request: dict[str, Any]  # the POST /recommendations/deep-search body
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+# ── Community recipes (design § 10.3, recommender.community) ─────────────────
+
+# C0 control characters, tab, line feed and carriage return aside.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _no_control_chars(v: str) -> str:
+    """Free text without control characters: Postgres refuses a NUL, and its error would carry
+    the text into the logs."""
+    if _CONTROL_CHARS.search(v):
+        raise ValueError("control characters are not allowed (tabs and line breaks are)")
+    return v
+
+
+NoControlChars = AfterValidator(_no_control_chars)
+
+CommunityStatus = Literal["pending", "approved", "rejected"]
+# A pen name, never checked against a real one: letters, digits, spaces and . _ ' -, starting
+# with a letter or digit; no @ or / (so not an e-mail address or a link).
+Pseudonym = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=2, max_length=40, pattern=r"^\w[\w .'-]*$"),
+]
+
+
+class CommunityPublishIn(BaseModel):
+    """POST /community-recipes: publish one of your finished batches as a community recipe."""
+
+    batch_id: uuid.UUID
+    title: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120), NoControlChars
+    ]
+    pseudonym: Pseudonym
+
+
+class CommunityIngredientOut(BaseModel):
+    name: str
+    role: str
+    g_per_kg: float  # of the batch's weighed total
+    fdc_id: int | None  # a USDA pick
+    label: str | None  # "USDA food: aroma effect unknown"
+
+
+class CommunityRecipeOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    pseudonym: str
+    fermentation_type: str
+    ingredients: list[CommunityIngredientOut]
+    temperature_c: float  # the batch's mean logged temperature, else its expected one
+    duration_h: float  # the batch's actual duration
+    status: CommunityStatus
+    reason: str | None  # the reviewer's
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
+class CommunityPublishOut(CommunityRecipeOut):
+    notice: str  # "Your recipe stays in the library if you delete your account; …"
+
+
+class CommunityForecastJobOut(BaseModel):
+    """A community recipe's newest forecast job (recommender.community), for its reviewer."""
+
+    id: uuid.UUID
+    status: str  # queued | running | done | failed
+    error: str | None
+    done: int
+    total: int
+    finished_at: datetime | None
+
+
+class AdminCommunityRecipeOut(CommunityRecipeOut):
+    owner_id: str | None  # None once its author deleted their account
+    source_batch_id: uuid.UUID | None
+    reviewed_by: str | None
+    forecast_job: CommunityForecastJobOut | None = None  # None: never queued
+
+
+class CommunityReviewIn(BaseModel):
+    """An admin's decision; a rejection needs its reason."""
+
+    reason: (
+        Annotated[str, StringConstraints(strip_whitespace=True, max_length=500), NoControlChars]
+        | None
+    ) = None
+
+
+# ── Tastings (design § 11.2, routers/tastings.py) ───────────────────────────
+
+Rating = Annotated[int, Field(strict=True, ge=0, le=3)]  # 0 not noticed, 1 faint ... 3 strong
+Liking = Annotated[int, Field(strict=True, ge=1, le=5)]
+TastingNotes = Annotated[
+    str, StringConstraints(strip_whitespace=True, max_length=1000), NoControlChars
+]
+
+
+class TastingIn(BaseModel):
+    """POST /batches/{id}/tastings. tasted_at: when it was tasted (default: now; without a zone,
+    UTC); the server stores it as t_h, the hours since the batch started. ratings: 0-3 per aroma
+    series or taste (recommender.run.SERIES: the 16 series and sour, sweet, umami, alcohol); a
+    series left out is not rated. Give ratings, a liking, or both."""
+
+    tasted_at: datetime | None = None
+    ratings: dict[str, Rating] = {}
+    liking: Liking | None = None
+    make_again: bool | None = None
+    notes: TastingNotes | None = None  # your own; never shown to anyone else
+
+    @field_validator("ratings")
+    @classmethod
+    def _known_series(cls, v: dict[str, int]) -> dict[str, int]:
+        from fermenttrack.recommender.run import SERIES
+
+        unknown = sorted(set(v) - set(SERIES))
+        if unknown:
+            raise ValueError(f"unknown series or taste {unknown}; one of {', '.join(SERIES)}")
+        return {s: v[s] for s in SERIES if s in v}
+
+    @field_validator("notes")
+    @classmethod
+    def _blank_is_none(cls, v: str | None) -> str | None:
+        return v or None
+
+    @model_validator(mode="after")
+    def _something_rated(self) -> TastingIn:
+        if not self.ratings and self.liking is None:
+            raise ValueError("give at least one rating or a liking")
+        return self
+
+
+class TastingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    batch_id: uuid.UUID
+    t_h: float  # hours since the batch started
+    ratings: dict[str, int]
+    liking: int | None
+    make_again: bool | None
+    notes: str | None
+    created_at: datetime
+
+
+# ── Calibration gate (design § 13.2, recommender.calibration) ───────────────
+
+
+class CalibrationBinOut(BaseModel):
+    """A reliability bin: the ratings whose P is in [lo, hi) ([lo, hi] for the last)."""
+
+    lo: float
+    hi: float
+    n: int
+    batches: int | None = None  # the distinct batches its ratings come from (None: not counted)
+    mean_p: float | None  # None when empty
+    observed: float | None  # the share noticed (rating ≥ 1)
+
+
+class CalibrationReportOut(BaseModel):
+    """The latest run of the calibration gate (recommender.calibration). Aggregates only: no
+    user, batch or tasting appears in it. n_tastings: the tastings scored; n_observations:
+    their scored ratings (a target rated at a time inside the card's time axis); n_batches: the
+    linked batches they come from (the gate needs 30). diff: Brier_model − Brier_baseline;
+    ci_low / ci_high: its 90 % batch-bootstrap CI; auc: the AUC of P against noticed, over
+    pairs of ratings of the same type and series; auc_low: its bootstrap 5th percentile (both
+    bootstrap values are None below 30 batches). passed: ci_high < 0 and auc_low > 0.5, and
+    then cards show numbers ("calibrated on n_batches batches"). reason: why it did not pass.
+    GET /recommendations/calibration (any signed-in user) hides every score and bin value below
+    30 batches, and a bin's values while its ratings come from fewer than 3 batches (null);
+    admins get the full report (GET /admin/calibration)."""
+
+    computed_at: datetime
+    n_tastings: int
+    n_observations: int
+    n_batches: int
+    brier_model: float | None
+    brier_baseline: float | None
+    diff: float | None
+    ci_low: float | None
+    ci_high: float | None
+    auc: float | None
+    auc_low: float | None
+    passed: bool
+    reason: str | None
+    bins: list[CalibrationBinOut]
