@@ -515,6 +515,37 @@ class Card:
     notes: tuple[str, ...]
     variant: Variant | None = None  # Experimental: the parent and its operators
     screened: bool = False  # Experimental: combined additively from single-operator entries
+    coverage: float = 0.0  # the share of the recipe's non-staple mass the user has (v2 § 3.2)
+    foreign: int = 0  # (v) foods taken into a type they aren't tagged for (v2 § 3.2)
+
+
+def coverage(recipe: Recipe, have: Iterable[str]) -> float:
+    """The share of the recipe's non-staple mass the user has (v2 § 3.2); 0 without any."""
+    owned = set(have)
+    rows = [
+        (i.name, i.g_per_kg.median) for i in recipe.ingredients
+        if i.g_per_kg is not None and i.name not in library.STAPLES
+    ]  # fmt: skip
+    total = math.fsum(g for _, g in rows)
+    return math.fsum(g for n, g in rows if n in owned) / total if total > 0 else 0.0
+
+
+def foreign(ops: Iterable[Operator], ferment_type: str) -> int:
+    """Operator (v) catalogue foods brought into a type their catalogue row isn't tagged for
+    (v2 § 3.2): garlic into a kombucha. A user's own USDA pick (fdc_id) is intended, not
+    foreign."""
+    return sum(
+        1 for op in ops
+        if op.kind == "usda" and op.fdc_id is None
+        and ferment_type not in library.CATALOGUE.get(op.ingredient or "", ("", ()))[1]
+    )  # fmt: skip
+
+
+def uses_pantry(names: Iterable[str], have: Iterable[str]) -> bool:
+    """A recipe with these rows uses something the user has; True when the user listed no
+    non-staple ingredient at all (a targets-only request)."""
+    listed = set(must_include(have))
+    return not listed or bool(listed & set(names))
 
 
 def to_buy(recipe: Recipe, listed: Iterable[str]) -> tuple[str, ...]:
@@ -554,6 +585,7 @@ def build_card(
         model_c=stats.temp_c, evaluation=ev, safety_lines=result.safety_lines, batch_g=batch_g,
         to_buy=to_buy(recipe, listed), not_modelled=stats.not_modelled,
         notes=(*temp.notes, *model_note(stats.temp_c, temp, PRECOMPUTED), *ev.notes),
+        coverage=coverage(recipe, listed),
     )  # fmt: skip
     return card, result
 
@@ -570,13 +602,14 @@ def model_note(model_c: float, temp: Temperature, nearest: str) -> tuple[str, ..
     return (f"aroma, taste and timings computed at {model_c:g} °C, {nearest}",)
 
 
-def rank_key(card: Card) -> tuple[float, int, int, int, str]:
-    """§ 5.4 Proven: E(peak) when there are targets, the fewest to buy, provenance, profile
-    confidence; the key last, for a stable order."""
+def rank_key(card: Card) -> tuple[float, float, int, int, int, str]:
+    """§ 5.4 Proven: E(peak) when there are targets, the most of the pantry (v2 § 3.2), the
+    fewest to buy, provenance, profile confidence; the key last, for a stable order."""
     r = card.recipe
     e = card.evaluation.e
     return (
         -(e if e is not None else 0.0),
+        -card.coverage,
         len(card.to_buy),
         PROVENANCE_RANK.get(r.provenance, len(PROVENANCE_RANK)),
         CONFIDENCE_RANK.get(PROFILES[r.fermentation_type].confidence, len(CONFIDENCE_RANK)),
@@ -589,14 +622,19 @@ def proven_cards(
     targets: Sequence[Target],
     temperature_c: float | None,
     batch_g: float = DEFAULT_BATCH_G,
+    pantry: Sequence[str] = (),
 ) -> tuple[list[Card], list[tuple[str, tuple[str, ...]]]]:
-    """(the ranked cards, at most 3; the gated-out recipes with the gate's reasons)."""
+    """(the ranked cards, at most 3; the gated-out recipes with the gate's reasons).
+    ingredients: must-include (the starred ones, v2 V7); pantry: what else the user has. A
+    recipe must use something from either, when any is listed."""
+    have = (*ingredients, *pantry)
     cards: list[Card] = []
     refused: list[tuple[str, tuple[str, ...]]] = []
     for recipe in library.active():
-        if not contains(recipe, ingredients):
+        names = {i.name for i in recipe.ingredients}
+        if not contains(recipe, ingredients) or not uses_pantry(names, have):
             continue
-        card, result = build_card(recipe, targets, temperature_c, batch_g, ingredients)
+        card, result = build_card(recipe, targets, temperature_c, batch_g, have)
         if card is None:
             refused.append((recipe.key, result.reasons))
         else:
@@ -913,20 +951,29 @@ def variant_card(
         recipe=v.recipe, temperature=temp, schedule=card_schedule(v.recipe, temp, requested),
         model_c=stats.temp_c, evaluation=ev, safety_lines=result.safety_lines, batch_g=batch_g,
         to_buy=to_buy(v.recipe, listed), not_modelled=not_modelled(v.recipe),
-        notes=tuple(notes), variant=v, screened=screened,
+        notes=tuple(notes), variant=v, screened=screened, coverage=coverage(v.recipe, listed),
+        foreign=foreign(v.operators, v.parent.recipe.fermentation_type),
     )  # fmt: skip
     return card, result
 
 
-def experimental_rank_key(card: Card) -> tuple[float, int, int, int, int, str]:
-    """§ 5.4 Experimental: U(peak) − penalty with targets, then the fewest to buy, provenance,
-    profile confidence; then the fewest operators and the card id, for a stable order."""
+def experimental_rank_key(
+    card: Card,
+) -> tuple[int, float, float, float, int, int, int, int, str]:
+    """§ 5.4 Experimental, with v2 § 3.2: the fewest foods taken into a type they aren't
+    tagged for, U(peak) − penalty with targets, then E(peak) (U saturates near 1 once 10 % of
+    members find a target characteristic), the most of the pantry, the fewest to buy,
+    provenance, profile confidence; then the fewest operators and the card id, for a stable
+    order."""
     v = card.variant
     assert v is not None
     ev = card.evaluation
     r = v.parent.recipe
     return (
+        card.foreign,
         -(ev.u - ev.penalty if ev.u is not None else 0.0),
+        -(ev.e if ev.e is not None else 0.0),
+        -card.coverage,
         len(card.to_buy),
         PROVENANCE_RANK.get(r.provenance, len(PROVENANCE_RANK)),
         CONFIDENCE_RANK.get(PROFILES[r.fermentation_type].confidence, len(CONFIDENCE_RANK)),
@@ -947,6 +994,22 @@ def parent_combinations(
     if any(all(op.ingredient != n for op in ops) for n in missing):
         return []
     return [c for c in operators.combinations(ops) if covers(parent.recipe, c, must)]
+
+
+def pantry_combinations(
+    parent: Parent,
+    listed: Sequence[str],
+    pantry: Sequence[str],
+    temperature_c: float | None,
+    usda_ids: Sequence[int],
+) -> list[tuple[Operator, ...]]:
+    """parent_combinations whose variant uses something the user has (v2 § 3.2)."""
+    names = {i.name for i in parent.recipe.ingredients}
+    have = (*listed, *pantry)
+    return [
+        c for c in parent_combinations(parent, listed, temperature_c, usda_ids)
+        if uses_pantry(_names_after(names, c), have)
+    ]  # fmt: skip
 
 
 EXACT_PER_PARENT = 4  # combinations per parent scored exactly after the vectorised pre-ranking
@@ -1088,9 +1151,12 @@ def best_variant(
                 break
         return min(scored, key=experimental_rank_key) if scored else None
 
-    def cheap(combo: tuple[Operator, ...]) -> tuple[int, int, str]:
+    def cheap(combo: tuple[Operator, ...]) -> tuple[int, float, int, int, str]:
         v = make_variant(parent, combo)
-        return len(to_buy(v.recipe, listed)), len(combo), v.id
+        return (
+            foreign(combo, parent.recipe.fermentation_type), -coverage(v.recipe, listed),
+            len(to_buy(v.recipe, listed)), len(combo), v.id,
+        )  # fmt: skip
 
     for combo in sorted(combos, key=cheap):
         card, _ = variant_card(
@@ -1107,16 +1173,20 @@ def experimental_cards(
     temperature_c: float | None,
     batch_g: float = DEFAULT_BATCH_G,
     usda_ids: Sequence[int] = (),
+    pantry: Sequence[str] = (),
 ) -> list[Card]:
-    """The best variant of each active library recipe, ranked (§ 5.4); at most 3."""
+    """The best variant of each active library recipe, ranked (§ 5.4); at most 3. listed:
+    must-include; pantry: what else the user has (v2 § 3.2). A variant must use something
+    from either, when any is listed."""
+    have = (*listed, *pantry)
     cards = []
     for recipe in library.active():
         parent = Parent(recipe, "library", recipe.name)
-        combos = parent_combinations(parent, listed, temperature_c, usda_ids)
+        combos = pantry_combinations(parent, listed, pantry, temperature_c, usda_ids)
         if not combos:
             continue
         reference = library_reference(recipe, temperature_c)
-        card = best_variant(parent, combos, targets, temperature_c, batch_g, listed, reference)
+        card = best_variant(parent, combos, targets, temperature_c, batch_g, have, reference)
         if card is not None:
             cards.append(card)
     cards.sort(key=experimental_rank_key)
@@ -1645,6 +1715,7 @@ def recommend(
     own: Parent | None = None,
     *,
     calibrated: int | None = None,
+    pantry: Sequence[str] = (),
 ) -> dict[str, Any]:
     """POST /recommendations (design § 5), shaped like schemas.RecommendationsOut: the Proven
     section (mode proven or both) and the Experimental one (experimental or both). own: the
@@ -1658,19 +1729,21 @@ def recommend(
     proven = None
     refused: list[tuple[str, tuple[str, ...]]] = []
     if mode in ("proven", "both"):
-        cards, refused = proven_cards(listed, targets, temperature_c, batch_g)
+        cards, refused = proven_cards(listed, targets, temperature_c, batch_g, pantry)
         message = None
         if not cards:
             message = (
                 "No proven recipe passes the safety checks here."
-                if refused or not required
+                if refused or not must_include((*required, *pantry))
                 else f"No proven recipe contains all of: {', '.join(required)}."
+                if required
+                else f"No proven recipe uses any of: {', '.join(must_include(pantry))}."
             )
         proven = {"cards": [card_json(c, calibrated) for c in cards], "message": message}
     experimental = None
     if mode in ("experimental", "both"):
         considered, cards = experimental_section(
-            listed, targets, temperature_c, batch_g, usda_fdc_ids, own
+            listed, targets, temperature_c, batch_g, usda_fdc_ids, own, pantry
         )
         message = None
         if not cards:
@@ -1701,11 +1774,12 @@ def experimental_section(
     batch_g: float,
     usda_ids: Sequence[int],
     own: Parent | None,
+    pantry: Sequence[str] = (),
 ) -> tuple[bool, list[Card]]:
     """(any combination held the must-include ingredients, the section's cards): the own
     batch's best variant first, then the library parents' best ones (§ 5.4), 3 in all, one
     per parent."""
-    cards = experimental_cards(listed, targets, temperature_c, batch_g, usda_ids)
+    cards = experimental_cards(listed, targets, temperature_c, batch_g, usda_ids, pantry)
     considered = bool(cards) or any(
         parent_combinations(Parent(r, "library", r.name), listed, temperature_c, usda_ids)
         for r in library.active()

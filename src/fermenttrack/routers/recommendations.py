@@ -197,7 +197,7 @@ async def recommend(
         body = await run_in_threadpool(
             service.recommend, payload.ingredients, payload.aromas, payload.tastes,
             payload.mode, payload.temperature_c, payload.batch_g, payload.usda_fdc_ids, own,
-            calibrated=calibrated,
+            calibrated=calibrated, pantry=payload.pantry,
         )  # fmt: skip
         if payload.mode in ("proven", "both"):
             candidates = await approved_candidates(db, payload.ingredients)

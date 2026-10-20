@@ -882,6 +882,9 @@ class RecommendationRequest(BaseModel):
     (§ 10.3); one parent at most. usda_fdc_ids: USDA foods operator (v) may add."""
 
     ingredients: Annotated[list[str], Field(max_length=20)] = []
+    # v2 § 3.2: what else the user has. It never excludes a recipe on its own, but when any
+    # ingredient is listed a recipe must use one; it ranks by the share the user has.
+    pantry: Annotated[list[str], Field(max_length=30)] = []
     aromas: list[str] = []
     tastes: list[str] = []
     mode: Literal["proven", "experimental", "both"] = "proven"
@@ -895,7 +898,7 @@ class RecommendationRequest(BaseModel):
     def _valid(self) -> RecommendationRequest:
         _check_targets(self.aromas, self.tastes)
         parent = self.parent_batch_id or self.community_recipe_id
-        if not (self.ingredients or self.aromas or self.tastes or parent):
+        if not (self.ingredients or self.pantry or self.aromas or self.tastes or parent):
             raise ValueError("give at least one ingredient, aroma or taste")
         if self.parent_batch_id and self.community_recipe_id:
             raise ValueError("give parent_batch_id or community_recipe_id, not both")

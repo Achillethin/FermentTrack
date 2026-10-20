@@ -491,6 +491,11 @@ class Query:
     temperature_c: float | None
     batch_g: float
     usda_ids: tuple[int, ...]
+    pantry: tuple[str, ...] = ()  # what else the user has (v2 § 3.2)
+
+    @property
+    def have(self) -> tuple[str, ...]:
+        return (*self.listed, *self.pantry)
 
 
 def query(request: Mapping[str, Any]) -> Query:
@@ -500,6 +505,7 @@ def query(request: Mapping[str, Any]) -> Query:
         temperature_c=request.get("temperature_c"),
         batch_g=float(request.get("batch_g") or service.DEFAULT_BATCH_G),
         usda_ids=tuple(dict.fromkeys(request.get("usda_fdc_ids") or ())),
+        pantry=tuple(dict.fromkeys(request.get("pantry") or ())),
     )
 
 
@@ -542,9 +548,13 @@ def _ordered(
         rank = service.prerank(parent, combos, q.targets, q.temperature_c, reference)
         return [combos[i] for i in rank]
 
-    def cheap(combo: tuple[Operator, ...]) -> tuple[int, int, str]:
+    def cheap(combo: tuple[Operator, ...]) -> tuple[int, float, int, int, str]:
         v = service.make_variant(parent, combo)
-        return len(service.to_buy(v.recipe, q.listed)), len(combo), v.id
+        return (
+            service.foreign(combo, parent.recipe.fermentation_type),
+            -service.coverage(v.recipe, q.have), len(service.to_buy(v.recipe, q.have)),
+            len(combo), v.id,
+        )  # fmt: skip
 
     return sorted(combos, key=cheap)
 
@@ -573,7 +583,7 @@ def _scan(
         if not (need_exact or need_screened or held):
             continue
         card, _ = service.variant_card(
-            v, q.targets, q.temperature_c, q.batch_g, q.listed, reference
+            v, q.targets, q.temperature_c, q.batch_g, q.have, reference
         )
         if card is None:
             continue
@@ -634,7 +644,9 @@ def plan_deep_search(request: Mapping[str, Any]) -> list[dict[str, Any]]:
         if recipe.handoff == "planner":
             continue
         parent = service.Parent(recipe, "library", recipe.name)
-        combos = service.parent_combinations(parent, q.listed, q.temperature_c, q.usda_ids)
+        combos = service.pantry_combinations(
+            parent, q.listed, q.pantry, q.temperature_c, q.usda_ids
+        )
         if not combos:
             continue
         reference = service.library_reference(recipe, q.temperature_c)
@@ -680,7 +692,7 @@ def run_deep_search_step(request: Mapping[str, Any], step: Mapping[str, Any]) ->
     members = service.FORECAST_MEMBERS
     v, stats, fp, fresh, reference = service.live_variant(v, temp, members, q.temperature_c)
     card, _ = service.variant_card(
-        v, q.targets, q.temperature_c, q.batch_g, q.listed, reference, stats=stats
+        v, q.targets, q.temperature_c, q.batch_g, q.have, reference, stats=stats
     )
     if card is None:
         return None

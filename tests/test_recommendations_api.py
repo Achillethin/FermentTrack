@@ -441,6 +441,20 @@ async def test_listed_staples_never_exclude_a_recipe(
     assert {c["recipe_key"] for c in body["proven"]["cards"]} == expected
 
 
+async def test_a_pantry_alone_is_a_request_and_never_excludes_on_its_own(
+    client: AsyncClient,
+) -> None:
+    """v2 § 3.2: what the user has ranks recipes; only the starred ingredients must be in."""
+    payload = {"pantry": ["Cabbage", "Carrot", "Garlic"], "mode": "both"}
+    body = (await client.post("/recommendations", json=payload)).json()
+    assert "sauerkraut_dry_salted" in {c["recipe_key"] for c in body["proven"]["cards"]}
+    assert body["experimental"]["cards"][0]["fermentation_type"] == "lacto_ferment"
+    starred = {"ingredients": ["Carrot"], "pantry": ["Cabbage"]}
+    body = (await client.post("/recommendations", json=starred)).json()
+    assert body["proven"]["cards"] == []  # no library recipe holds carrot
+    assert body["proven"]["message"] == "No proven recipe contains all of: Carrot."
+
+
 def test_a_sourdough_card_hands_off_to_the_planner() -> None:
     card, _ = S.build_card(_recipe("rye_sour"), (), 26.0)
     assert card is not None
