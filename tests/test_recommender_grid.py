@@ -53,6 +53,7 @@ def test_grid_is_current() -> None:
         "bake_model_version": bake.MODEL_VERSION,
         "derived_version": derived.DERIVED_VERSION,
         "tau": score.TAU,
+        "character": {"top_k": score.TOP_K, "taste_clear": score.TASTE_CLEAR},
         "schema": grid.SCHEMA,
     }
     stale = [k for k, v in current.items() if manifest.get(k) != v]
@@ -262,9 +263,27 @@ def test_statistics_are_consistent() -> None:
             # 10 % of the weight lies above U, and no more than 1 - U above it, so
             # E <= U + 0.1 (1 - U). A skewed ensemble does put E above U (by up to 0.083).
             assert np.all(U >= E - 0.1 * (1.0 - U) - eps), (e.recipe_key, e.temp_c, s)
-            # per member |σ(L/τ) - 1[L > 0]| <= 1/2 (at L = 0), so |E - P| <= 1/2; the grid's
-            # largest is 0.156 (empirical: members within about τ of L = 0)
-            assert np.all(np.abs(E - P) <= 0.5 + eps), (e.recipe_key, e.temp_c, s)
+            # E scores the character margin m <= L (v2 § 3.1), so per member σ(m/τ) <= σ(L/τ)
+            # <= 1[L > 0] + 1/2 and E <= P + 1/2. E may sit far below P: a noticeable series
+            # outside the batch's strongest is not characteristic.
+            assert np.all(E - P <= 0.5 + eps), (e.recipe_key, e.temp_c, s)
+
+
+def test_e_and_u_score_character_and_p_stays_noticeable() -> None:
+    """Recommender v2 § 3.1: E and U rank on the character margin, P on L itself."""
+    t = np.array([1.0, 2.0])
+    one = np.ones((1, 2))
+    values = {  # one member: four noticeable aroma series and a sour taste at 3x threshold
+        "aroma:sulfurous": 3.0 * one, "aroma:green": 2.5 * one, "aroma:pungent": 2.0 * one,
+        "aroma:fruity": 0.6 * one, "taste:sour": np.log10(3.0) * one,
+    }  # fmt: skip
+    stats, _ = run.series_statistics(t, values, np.array([1.0]), t)
+    E, P = stats[0], stats[2]
+    j = {s: run.SERIES.index(s) for s in ("sulfurous", "fruity", "sour")}
+    assert P[j["fruity"]].tolist() == [1.0, 1.0]  # noticeable...
+    assert np.all(E[j["fruity"]] < 0.01)  # ...but trails pungent by 1.4: not characteristic
+    assert np.all(E[j["sulfurous"]] > 0.99)
+    assert P[j["sour"]].tolist() == [1.0, 1.0] and np.all(E[j["sour"]] < 0.2)  # below 10x
 
 
 # ── interpolation ───────────────────────────────────────────────────────

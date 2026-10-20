@@ -24,6 +24,11 @@ CHARACTER_P = 0.5  # a parent series this likely noticeable at d_med is part of 
 LOW_MED = 0.33  # Low / Med / High until the calibration gate (design § 5.4)
 MED_HIGH = 0.67
 OFF_NOTES = frozenset({"solvent", "sulfurous", "fishy", "cheesy", "phenolic"})
+# Recommender v2 § 3.1: a target is "characteristic", not merely noticeable.
+# ponytail: k and the 10x-threshold taste line are fixed estimates; the golden set and the
+# tastings are what would move them.
+TOP_K = 3  # an aroma series is characteristic when it is among the batch's 3 strongest
+TASTE_CLEAR = 1.0  # log10 units: a taste is clear at 10x its detection threshold
 
 
 def soft(L: ArrayLike, tau: float = TAU) -> FloatArray:
@@ -51,6 +56,28 @@ def optimistic(L: ArrayLike, w: ArrayLike) -> FloatArray:
     """U = the weighted P90 of σ(Lₙ/τ), in the engine's weighted-quantile convention."""
     s = soft(L)
     return np.asarray(weighted_quantiles(s, _weights(w, s), (OPTIMISTIC_Q,))[0], dtype=np.float64)
+
+
+def character_margins(L: Mapping[str, ArrayLike], k: int = TOP_K) -> dict[str, FloatArray]:
+    """Per aroma series, min(L, L − the k-th strongest of the other series): inside the
+    member's k strongest it is the lead over the first series outside, outside it is the gap
+    to the k-th, and it is capped by L so a series below threshold never counts. Positive =
+    noticeable and among the k strongest, member by member and time by time. Feed it to
+    central/optimistic in place of L."""
+    keys = list(L)
+    stack = np.stack([np.asarray(L[s], dtype=np.float64) for s in keys])
+    n = len(keys)
+    if n <= k:
+        return {s: stack[i] for i, s in enumerate(keys)}
+    part = np.partition(stack, (n - 1 - k, n - k), axis=0)
+    kth, first_out = part[n - k], part[n - 1 - k]
+    margins = np.minimum(stack, stack - np.where(stack >= kth, first_out, kth))
+    return {s: margins[i] for i, s in enumerate(keys)}
+
+
+def clear_taste(L: ArrayLike) -> FloatArray:
+    """A taste's margin over the clear line (TASTE_CLEAR above detection)."""
+    return np.asarray(L, dtype=np.float64) - TASTE_CLEAR
 
 
 def noticeable(L: ArrayLike, w: ArrayLike) -> FloatArray:

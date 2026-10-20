@@ -166,3 +166,53 @@ def test_low_med_high_thresholds(e: float, label: str) -> None:
 def test_low_med_high_rejects_a_non_finite_score(e: float) -> None:
     with pytest.raises(ValueError):
         S.low_med_high(e)
+
+
+# ── character (recommender v2 § 3.1) ────────────────────────────────────
+
+
+def test_character_constants() -> None:
+    assert (S.TOP_K, S.TASTE_CLEAR) == (3, 1.0)
+
+
+def test_the_margin_is_the_lead_over_the_first_outside_or_the_gap_to_the_kth() -> None:
+    L = {"a": [[3.0]], "b": [[2.0]], "c": [[1.0]], "d": [[0.5]]}  # one member, one time
+    m = S.character_margins(L)
+    # a, b, c lead d (the first outside the top 3); d trails c (the 3rd) by 0.5
+    assert {k: float(v[0, 0]) for k, v in m.items()} == {"a": 2.5, "b": 1.5, "c": 0.5, "d": -0.5}
+
+
+def test_a_series_below_threshold_is_never_characteristic() -> None:
+    L = {"a": [[-0.5]], "b": [[-1.0]], "c": [[-2.0]], "d": [[-3.0]]}  # nothing noticeable
+    m = S.character_margins(L)
+    assert float(m["a"][0, 0]) == -0.5  # leads d by 2.5, but L < 0 caps it
+    assert S.central(m["a"], [1.0]) < 0.5
+
+
+def test_with_k_series_or_fewer_every_noticeable_one_is_characteristic() -> None:
+    L = {"a": [[2.0, -1.0]], "b": [[0.3, 0.2]]}
+    m = S.character_margins(L)
+    assert m["a"].tolist() == [[2.0, -1.0]] and m["b"].tolist() == [[0.3, 0.2]]
+
+
+def test_margins_are_per_member_and_per_time() -> None:
+    # member 0: a leads; member 1: a drops to 4th. Two times each.
+    L = {
+        "a": [[3.0, 3.0], [0.1, 3.0]],
+        "b": [[2.0, 2.0], [2.0, 2.0]],
+        "c": [[1.0, 1.0], [1.0, 1.0]],
+        "d": [[0.5, 0.5], [0.5, 0.5]],
+    }
+    m = S.character_margins(L)
+    assert m["a"].tolist() == [[2.5, 2.5], [-0.4, 2.5]]
+
+
+def test_a_noticeable_but_minor_series_scores_low_where_noticeable_scores_high() -> None:
+    L = {"a": [[3.0]], "b": [[2.5]], "c": [[2.0]], "d": [[0.6]]}  # d is 10^0.6 x threshold
+    w = [1.0]
+    assert S.noticeable(L["d"], w) == 1.0
+    assert S.central(S.character_margins(L)["d"], w) < 0.01
+
+
+def test_a_taste_is_clear_at_ten_times_its_threshold() -> None:
+    assert S.clear_taste([[1.0, 2.0, 0.0]]).tolist() == [[0.0, 1.0, -1.0]]

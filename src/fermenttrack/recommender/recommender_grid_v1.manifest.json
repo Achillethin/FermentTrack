@@ -1,8 +1,8 @@
 {
   "grid": "recommender_grid_v1.npz",
-  "grid_sha256": "98f67794adfa08ab2f3f6db30bcf7bbd70e12affc59cc1a4e9d3b4a22eb22ec9",
-  "grid_bytes": 177559,
-  "schema": 2,
+  "grid_sha256": "401e5382859f1675f0fd376cf3bec24cfd2005740cf40d745918944bfe21a73b",
+  "grid_bytes": 243283,
+  "schema": 3,
   "model_version": "kinetic-v1",
   "bake_model_version": "sourdough-v1",
   "derived_version": "sensory-v2",
@@ -15,6 +15,10 @@
     "recommender/ingredient_use_levels_v1.csv": "efde1da7d15a589002896360836c39f71d8856d90331e69bba31fec338639060"
   },
   "tau": 0.25,
+  "character": {
+    "top_k": 3,
+    "taste_clear": 1.0
+  },
   "time_grid": {
     "log_spaced": 24,
     "from_h": 1.0,
@@ -839,39 +843,39 @@
     "numpy": "2.5.3",
     "scipy": "1.18.1"
   },
-  "build_date": "2026-10-08T22:22:09+00:00",
-  "build_seconds": 509.5,
+  "build_date": "2026-10-20T13:41:55+00:00",
+  "build_seconds": 144.4,
   "workers": 4,
   "slowest": [
     [
-      "red_rice_miso_kagawa_long",
-      "swap:White rice>Pearl barley",
-      15.0,
-      34.1
-    ],
-    [
-      "red_rice_miso_kagawa_long",
-      "swap:White rice>Pearl barley",
-      27.5,
-      31.9
-    ],
-    [
-      "type_ii",
+      "home_starter",
       "swap:White wheat flour>Whole wheat flour",
       30.0,
-      30.0
+      5.4
     ],
     [
-      "red_rice_miso_kagawa_long",
-      "swap:White rice>Pearl barley",
-      30.0,
-      29.5
+      "home_starter",
+      "swap:White wheat flour>Whole wheat flour",
+      24.0,
+      5.4
     ],
     [
-      "red_rice_miso_kagawa_long",
-      "swap:Soybeans>Pearl barley",
+      "levain_liquide",
+      null,
       30.0,
-      26.7
+      5.3
+    ],
+    [
+      "levain_liquide",
+      "swap:White wheat flour>Whole wheat flour",
+      22.0,
+      5.2
+    ],
+    [
+      "levain_liquide",
+      "swap:White wheat flour>Whole wheat flour",
+      30.0,
+      5.1
     ]
   ]
 }

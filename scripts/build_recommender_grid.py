@@ -389,6 +389,7 @@ def manifest(
         "derived_version": derived.DERIVED_VERSION,
         "inputs": grid.input_hashes(),
         "tau": score.TAU,
+        "character": {"top_k": score.TOP_K, "taste_clear": score.TASTE_CLEAR},
         "time_grid": {
             "log_spaced": N_LOG_TIMES,
             "from_h": FIRST_H,
