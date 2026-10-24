@@ -11,4 +11,7 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - run: curl --fail --silent --show-error "${{ vars.FERMENTTRACK_API_URL }}/health"
+      # The repository variable may end in "/": "//health" is a 404.
+      - env:
+          API_URL: ${{ vars.FERMENTTRACK_API_URL }}
+        run: curl --fail --silent --show-error --max-time 120 --retry 2 "${API_URL%/}/health"
