@@ -32,8 +32,8 @@ dill_cucumber_pickles_brined,Water,existing_no_aroma,liquid,489.3,489.3,489.3,co
 dill_cucumber_pickles_brined,Salt,existing_no_aroma,additive,36.7,36.7,36.7,core,NCHFP-dill-pickles ingredient list; Morton-salt serving size,1/2 cup converted as 8 Tbsp,
 dill_cucumber_pickles_brined,Vinegar,new,additive,15.3,15.3,15.3,core,NCHFP-dill-pickles ingredient list,1/4 cup converted as water-density liquid,
 dill_cucumber_pickles_brined,Dill,existing,flavoring,,,,core,NCHFP-dill-pickles ingredient list,source gives 2 Tbsp seed or 4-5 heads; mass not available,
-napa_kimchi_room_temp,Napa cabbage,existing,base,788.5,773.5,803.5,core,Jang2024-kimchi §2.1; CSU-kimchi salt range,salted cabbage share minus final salt range,
-napa_kimchi_room_temp,Salt,existing_no_aroma,additive,35,20,50,core,CSU-kimchi How is kimchi made,final salt concentration 2-5%,
+napa_kimchi_room_temp,Napa cabbage,existing,base,798.5,773.5,803.5,core,Jang2024-kimchi §2.1; CSU-kimchi salt range,salted cabbage share minus final salt range,
+napa_kimchi_room_temp,Salt,existing_no_aroma,additive,25,20,50,core,CSU-kimchi How is kimchi made; Patra2016-kimchi; Foods2025-kimchi § 2.2.4,final salt concentration 2-5%,
 napa_kimchi_room_temp,Chilies,existing_no_aroma,flavoring,29.4,29.4,29.4,core,Jang2024-kimchi §2.1,source ingredient is red pepper powder,dried powder booked as fresh chili: dry matter understated several-fold
 napa_kimchi_room_temp,Radish,existing_no_aroma,base,29.4,29.4,29.4,core,Jang2024-kimchi §2.1,source ingredient is radish,
 napa_kimchi_room_temp,Fresh ginger,existing,flavoring,7.8,7.8,7.8,core,Jang2024-kimchi §2.1,source ingredient is ginger,

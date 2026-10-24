@@ -66,6 +66,22 @@ class TasteSpec:
 
 
 @dataclass(frozen=True)
+class CarriedFlora:
+    """Microbes some recipe rows carry in, in log10 CFU per g of those rows, split over the
+    profile's organisms (shares summing to 1). Added to the inoculum in proportion to the
+    rows' mass share of the batch (prediction.service._spec)."""
+
+    rows: frozenset[str]
+    log_cfu_g: float
+    split: dict[str, float]
+    # the rows also move the matrix pH: this much per unit mass share, at most MAX_PH0_SHIFT
+    ph0_per_share: float = 0.0
+
+
+MAX_PH0_SHIFT = 0.6
+
+
+@dataclass(frozen=True)
 class FermentProfile:
     type: str
     temp_c: float  # typical fermentation temperature (the default when none is given)
@@ -90,6 +106,7 @@ class FermentProfile:
     enzyme_access: float = 1.0
     x_max_override: dict[str, Prior] = field(default_factory=dict)
     h0_factor: float = 1.0  # < 1 when an active, back-slopped starter shortens the lag
+    carried_flora: CarriedFlora | None = None  # e.g. kimchi seasoning's lactic bacteria
     sugar_default: str = "hexoses"  # where sugars without a USDA breakdown are booked
     # Solid ferments are often logged by dry weight; below this water share the grains and
     # beans are assumed soaked and cooked (water added up to it).
@@ -405,11 +422,25 @@ PROFILES: dict[str, FermentProfile] = {
                 "water": 900.0, "hexoses": 31.0, "sucrose": 1.0, "protein": 12.7, "salt": 20.0,
             },  # fmt: skip
             # Natural microbiota on vegetables (no starter): 1e4-1e6 LAB/g at the start of
-            # commercial sauerkraut (Plengvidhya et al. 2007).
+            # commercial sauerkraut (Plengvidhya et al. 2007); 1e3.0-1e3.6 on raw shredded
+            # cabbage (Johanningsmeier et al. 2007 Table 2).
             inoculum={
                 "Leuconostoc mesenteroides": _t(3.0, 4.2, 5.5),
                 "Lactobacillus plantarum": _t(2.5, 3.6, 5.0),
             },
+            # Kimchi seasoning brings most of kimchi's lactic flora: brined napa cabbage had no
+            # detectable Leuconostoc and 1e3.1 Lactobacillus; an hour after mixing in ~8 % of
+            # red pepper powder, garlic, ginger, green onion and fish sauce the kimchi had
+            # 1e5.5 Leuconostoc and 1e5.6 Lactobacillus (Foods 2025, 14:2826, Tables 1, 4):
+            # ~1e7 LAB per g of seasoning, split 0.42 / 0.58. It also lowers the starting pH:
+            # fresh kimchi 5.57 (that study, ~8 % seasoning) and 5.93 (Kim et al. 2020 Foods
+            # 9:1075) against ~6.2 for cabbage, ~-0.45 at 8 %. ponytail: one load and one pH
+            # slope for every seasoning row; per-ingredient values would refine both.
+            carried_flora=CarriedFlora(
+                frozenset({"Chilies", "Garlic", "Fresh ginger", "Onion"}), 7.0,
+                {"Leuconostoc mesenteroides": 0.42, "Lactobacillus plantarum": 0.58},
+                ph0_per_share=-5.6,
+            ),
             milestones=(
                 _PH_46,
                 _ph_below(4.0, "tangy, typical sauerkraut/kimchi"),
@@ -418,6 +449,8 @@ PROFILES: dict[str, FermentProfile] = {
             sources=(
                 "Plengvidhya et al. 2007 AEM 73:7697",
                 "Hong et al. 2016 J Food Sci 81:C2623",
+                "Johanningsmeier et al. 2007 J Food Sci 72:M166",
+                "Foods 2025, 14:2826 (napa cabbage kimchi at 4 and 15 °C)",
             ),
         ),
         FermentProfile(

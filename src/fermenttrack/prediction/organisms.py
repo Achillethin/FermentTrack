@@ -329,13 +329,19 @@ ORGANISM_KINETICS: dict[str, OrganismKinetics] = {
             ph_max=_t(8.0, 8.5, 9.0),
             mic_lactic_mm=_r(15.0, 30.0, 60.0),
             mic_acetic_mm=_r(40.0, 80.0, 150.0),
-            aw_min=_t(0.95, 0.962, 0.975),  # ~6 % (4-8 %) NaCl max, est.
+            # Measured growth rates fall only ~10-20 % from 1.75 to 3.25-4.75 % NaCl at
+            # 10.5-24.5 °C (Wang et al. 2013 PLoS ONE 8:e64995 Tables 2, 4, data of Zurera-
+            # Cosano et al. 2005); the gamma line through them ends near 0.935 (~10 % NaCl).
+            aw_min=_t(0.92, 0.935, 0.95),
             ethanol_max=_r(50.0, 80.0, 120.0),
             x_max=_t(8.3, 8.8, 9.3),
             h0=_r(2.0, 4.0, 8.0),  # lag 12-24 h in raw cabbage at 18-22 °C
             k_death=_r(0.002, 0.006, 0.02),
             cell_mass_g=COCCUS_CELL_G,
-            sources=("Dols et al. 1997 AEM 63:2159", "McDonald et al. 1990 AEM 56:2120"),
+            sources=(
+                "Dols et al. 1997 AEM 63:2159", "McDonald et al. 1990 AEM 56:2120",
+                "Wang et al. 2013 PLoS ONE 8:e64995",
+            ),
         ),
         OrganismKinetics(
             name="Lactobacillus sanfranciscensis",

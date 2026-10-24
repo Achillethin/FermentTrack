@@ -14,7 +14,7 @@ import math
 import threading
 from collections import OrderedDict
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from itertools import pairwise
 from typing import Any
 
@@ -40,6 +40,7 @@ from fermenttrack.prediction.priors import FloatArray, Prior
 from fermenttrack.prediction.profiles import (
     ADDED_MOLD_INOCULUM,
     ADDED_ORGANISM_INOCULUM,
+    MAX_PH0_SHIFT,
     FermentProfile,
     Milestone,
     profile_for,
@@ -206,10 +207,12 @@ class _Initial:
     notes: list[str] = field(default_factory=list)
     # recipe nutrients the ferment does not change, for the nutrition label
     carried: derived.Carried = field(default_factory=lambda: derived.UNKNOWN)
+    flora_fraction: float = 0.0  # mass share of the profile's carried_flora rows
 
 
 def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _Initial:
-    total = water = salt = starter = mapped = 0.0
+    total = water = salt = starter = mapped = flora = 0.0
+    flora_rows = profile.carried_flora.rows if profile.carried_flora else frozenset()
     pools: dict[str, float] = {}
     unmapped: list[str] = []
     unquantified: list[str] = []
@@ -231,6 +234,8 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
         n = item.per_100g
         if item.role == "starter":
             starter += grams
+        if item.name in flora_rows:
+            flora += grams
         if item.name == "Salt" or n.get("sodium", 0.0) >= 30.0:
             salt += grams
             carried["sodium"] += n.get("sodium", 39.3) * grams / 100.0  # NaCl is 39.3 % Na
@@ -360,6 +365,7 @@ def _initial_state(profile: FermentProfile, recipe: tuple[RecipeIn, ...]) -> _In
             warnings=warnings,
             notes=notes,
             carried=init_carried,
+            flora_fraction=flora / total,
         )
         if init.salt_wps > 26.4:
             warnings.append(
@@ -598,6 +604,7 @@ def _spec(
     shift = 0.0
     if init.starter_logged and profile.starter_fraction and init.starter_fraction:
         shift = max(-1.5, min(1.0, math.log10(init.starter_fraction / profile.starter_fraction)))
+    flora = profile.carried_flora
     for p in modelled:
         assert p.kin is not None
         base = profile.inoculum.get(p.kin.name)
@@ -605,7 +612,15 @@ def _spec(
             base = ADDED_MOLD_INOCULUM if p.kin.is_mold else ADDED_ORGANISM_INOCULUM
         elif shift and not p.kin.is_mold:
             base = _shift(base, shift)
+        if flora and init.flora_fraction > 0 and p.kin.name in flora.split:
+            # cells the seasoning carries in, added to the vegetables' own (log10 CFU/g)
+            carried = init.flora_fraction * flora.split[p.kin.name] * 10.0**flora.log_cfu_g
+            base = _shift(base, math.log10(1.0 + carried / 10.0**base.median))
         inoculum.append(base)
+    if flora and flora.ph0_per_share and init.flora_fraction > 0:  # an acidic seasoning
+        delta = flora.ph0_per_share * init.flora_fraction
+        shift_ph = max(-MAX_PH0_SHIFT, min(MAX_PH0_SHIFT, delta))
+        profile = replace(profile, ph0=_shift(profile.ph0, shift_ph))
     spec = ModelSpec(
         profile=profile,
         organisms=[p.kin for p in modelled if p.kin is not None],
@@ -1236,6 +1251,13 @@ def _forecast(
                 f"Starter: none logged, so a typical {round(profile.starter_fraction * 100)} % "
                 "starter was assumed (its acids and microbes are carried over)."
             )
+    if profile.carried_flora and init.flora_fraction > 0:
+        rows = ", ".join(sorted(profile.carried_flora.rows)).lower()
+        assumptions.append(
+            f"Seasoning ({rows}): {round(init.flora_fraction * 100, 1)} % of the batch; it "
+            "carries most of the lactic bacteria, so the ferment starts sooner than plain "
+            "vegetables would."
+        )
     if init.salt_wps:
         assumptions.append(
             f"Salt: {init.salt_wps:.1f} % in the water phase (drives water activity)."

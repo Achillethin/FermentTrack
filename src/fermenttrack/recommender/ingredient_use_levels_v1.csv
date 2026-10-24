@@ -11,7 +11,7 @@ Black tea leaves,kombucha,base,0.00395,0.0012,0.0066,Cohen2023-kombucha §2.1 (r
 Green tea leaves,kombucha,base,0.005,0.0049,0.0051,Dartora2023-kombucha §2.2 and Table 1 (recipe green_dominant_kombucha row),bootstrapped from the active library recipe row
 Cabbage,lacto_ferment,base,0.9789,0.9766,0.9812,NCHFP-sauerkraut ingredient list (recipe sauerkraut_dry_salted row),bootstrapped from the active library recipe row
 Fresh ginger,lacto_ferment,flavoring,0.0078,0.0078,0.0078,Jang2024-kimchi §2.1 (recipe napa_kimchi_room_temp row),bootstrapped from the active library recipe row
-Napa cabbage,lacto_ferment,base,0.7885,0.7735,0.8035,Jang2024-kimchi §2.1; CSU-kimchi salt range (recipe napa_kimchi_room_temp row),bootstrapped from the active library recipe row
+Napa cabbage,lacto_ferment,base,0.7985,0.7735,0.8035,Jang2024-kimchi §2.1; CSU-kimchi salt range (recipe napa_kimchi_room_temp row),bootstrapped from the active library recipe row
 Soybeans,miso,base,0.48245,0.4121,0.5576,Kagawa-miso-manual page 1 (recipe shiro_miso_kagawa_sweet row) | Kagawa-miso-manual page 1 (recipe red_rice_miso_kagawa_long row),"bootstrapped from 2 active library recipe rows: median of their medians, lowest lo, highest hi"
 White rice,miso,base,0.3448,0.2718,0.4166,Kagawa-miso-manual page 1 (recipe shiro_miso_kagawa_sweet row) | Kagawa-miso-manual page 1 (recipe red_rice_miso_kagawa_long row),"bootstrapped from 2 active library recipe rows: median of their medians, lowest lo, highest hi"
 Rye flour,sourdough,base,0.5,0.5,0.5,FT-sourdough-catalogue L179-L184 (recipe rye_sour row),bootstrapped from the active library recipe row

@@ -82,41 +82,43 @@ PINNED_SCHEDULE = (
     [0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0],
     18.0, "measured", 2, 0,
 )  # fmt: skip
-# pH p50 at grid points 20, 40, 80, 160; pH p05 at 160; lactic acid p50 at 40, 80, 160
+# pH p50 at grid points 20, 40, 80, 160; pH p05 at 160; lactic acid p50 at 40, 80, 160.
+# Re-pinned 2026-10-24 for an intended model change (Leuconostoc's measured salt tolerance,
+# organisms.py aw_min, recommender v2 release 2); fingerprints and schedules did not move.
 PINNED_FORECASTS: dict[str, dict[str, Any]] = {
     "prior": {
         "members": 160, "ess": 160.0,
-        "ph_p50": [5.063, 4.169, 3.848, 3.727], "ph_p05_end": 3.46,
-        "lactic_p50": [8.276, 12.597, 15.242],
-        "milestones": {"ph_below_4_6": 109.81, "ph_below_4_0": 225.1, "sugars_90pct_used": None,
-                       "taste_tangy": 73.5, "taste_sour": 186.9},
+        "ph_p50": [4.871, 4.17, 3.855, 3.727], "ph_p05_end": 3.466,
+        "lactic_p50": [8.243, 12.462, 15.16],
+        "milestones": {"ph_below_4_6": 102.37, "ph_below_4_0": 229.6, "sugars_90pct_used": None,
+                       "taste_tangy": 60.9, "taste_sour": 178.5},
         "temperature": {"forecast_c": 20.0, "source": "expected", "type_default_c": 20.0,
                         "range_c": [16.0, 24.0], "readings": 0},
         "assumption": "Temperature: your estimate of 20 °C from now on.",
     },
     "what_if_25": {
         "members": 128, "ess": 128.0,
-        "ph_p50": [4.363, 3.895, 3.72, 3.641], "ph_p05_end": 3.394,
-        "lactic_p50": [11.651, 15.421, 17.173],
-        "milestones": {"ph_below_4_6": 70.8, "ph_below_4_0": 135.43, "sugars_90pct_used": None,
-                       "taste_tangy": 52.5, "taste_sour": 111.3},
+        "ph_p50": [4.32, 3.9, 3.713, 3.643], "ph_p05_end": 3.401,
+        "lactic_p50": [11.364, 15.393, 17.137],
+        "milestones": {"ph_below_4_6": 64.19, "ph_below_4_0": 132.66, "sugars_90pct_used": None,
+                       "taste_tangy": 48.3, "taste_sour": 107.1},
         "temperature": {"forecast_c": 25.0, "source": "override", "type_default_c": 20.0,
                         "range_c": [16.0, 24.0], "readings": 0},
         "assumption": "Temperature: what-if: 25 °C from now on (not saved).",
     },
     "calibrated": {
         "members": 400, "ess": 15.0,
-        "ph_p50": [4.414, 4.062, 3.824, 3.675], "ph_p05_end": 3.451,
-        "lactic_p50": [8.423, 12.358, 14.259],
-        "milestones": {"ph_below_4_6": 68.29, "ph_below_4_0": 185.01, "sugars_90pct_used": None,
-                       "taste_tangy": 56.7, "taste_sour": 186.9},
+        "ph_p50": [4.526, 4.156, 3.837, 3.691], "ph_p05_end": 3.355,
+        "lactic_p50": [7.236, 9.808, 12.154],
+        "milestones": {"ph_below_4_6": 57.32, "ph_below_4_0": 216.05, "sugars_90pct_used": None,
+                       "taste_tangy": 47.1, "taste_sour": 237.3},
         "temperature": {"forecast_c": 18.0, "source": "measured", "type_default_c": 20.0,
                         "range_c": [16.0, 24.0], "readings": 2},
         "assumption": "Temperature: 18 °C from now on (your last reading; no estimate set); "
                       "your 2 logged temperature reading(s) for the past.",
     },
 }  # fmt: skip
-PINNED_MEMBER_VALUES = {"members": 160, "times": 161, "ph_mean_at_120h": 4.552903}
+PINNED_MEMBER_VALUES = {"members": 160, "times": 161, "ph_mean_at_120h": 4.486661}
 
 
 @pytest.fixture(autouse=True)

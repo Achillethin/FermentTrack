@@ -59,8 +59,8 @@ def test_salt_rules_at_their_boundaries(salt_g: float, rule: str | None) -> None
 
 def test_salt_is_percent_of_the_total_of_the_ingredient_rows() -> None:
     kimchi = _library("napa_kimchi_room_temp")
-    assert G.salt_pct(kimchi) == pytest.approx(3.5, abs=0.005)  # optional rows included
-    assert G.salt_pct(kimchi, with_optional=False) == pytest.approx(3.58, abs=0.005)
+    assert G.salt_pct(kimchi) == pytest.approx(2.5, abs=0.005)  # optional rows included
+    assert G.salt_pct(kimchi, with_optional=False) == pytest.approx(2.56, abs=0.005)
     assert G.check(kimchi, []).ok
 
 

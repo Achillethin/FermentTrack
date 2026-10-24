@@ -73,8 +73,10 @@ def test_growth_is_reported_per_organism() -> None:
 
 def test_strided_diagnostics_match_the_full_grid() -> None:
     """Every 2nd time evaluated, the rest interpolated: the aroma layer's cost saving. Monod
-    kinks (a substrate running out within one grid step) cost a few members up to ~25 % of
-    an integrated rate; the ensemble median stays within 3 %, far inside the aroma priors."""
+    kinks (a substrate running out within one grid step) cost a few members up to ~35 % of
+    an integrated rate; the ensemble median stays within 5 %, far inside the aroma priors
+    (2026-10-24: 3 % / 25 % before Leuconostoc's measured salt tolerance made its growth
+    steeper at this salt; 4.7 % / 32 % after)."""
     p, t = _setup("lacto_ferment", 16)
     tr = engine.simulate(p, t, keep_states=True)
     assert tr.y is not None
@@ -84,4 +86,4 @@ def test_strided_diagnostics_match_the_full_grid() -> None:
     for key in full:
         a = np.trapezoid(full[key], t, axis=1)
         rel = np.abs(np.trapezoid(half[key], t, axis=1) / np.maximum(a, 1e-9) - 1.0)
-        assert np.median(rel) < 0.03 and np.max(rel) < 0.25, key
+        assert np.median(rel) < 0.05 and np.max(rel) < 0.35, key

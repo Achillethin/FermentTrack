@@ -55,6 +55,7 @@ LEVAIN_PEAK = "levain_peak"  # sourdough (bake) entries only
 # fermenttrack package; an absent file hashes as None.
 INPUTS = (
     "prediction/profiles.py",
+    "prediction/organisms.py",
     "prediction/aroma_compounds_v1.csv",
     "prediction/aroma_data.py",
     "recommender/recipes_v1.csv",

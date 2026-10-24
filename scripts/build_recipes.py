@@ -87,6 +87,25 @@ RECIPE_EDITS: dict[str, Row] = {
     "cider_vinegar_surface": {"temp_c_median": "21.1", "temp_c_lo": "15.6", "temp_c_hi": "26.7"},
     # § 3 (Q27): the 20 °C koji pretreatment (24-72 h, midpoint 48 h), then the 18 °C main stage
     "pacific_sand_lance_rice_koji_fish_sauce": {"temp_schedule": "0:20;48:18"},
+    # § 3, revised 2026-10-24 (recommender v2 release 2): the salt median is the typical 2.5 %
+    # (Patra 2016 "final salt level is calculated at 2.5%"; Foods 2025 measured 2.3 %), not the
+    # midpoint of CSU's 2-5 % range, which stays the envelope.
+    "napa_kimchi_room_temp": {
+        "salt_pct_median": "2.5",
+        "sources": "Jang2024-kimchi;CSU-kimchi;NCSU-kimchi;NIST-conversions;Patra2016-kimchi;"
+        "Foods2025-kimchi",
+    },
+}
+
+# Row-level revisions, (recipe, ingredient) -> columns, each citing its curation section.
+INGREDIENT_EDITS: dict[tuple[str, str], Row] = {
+    # § 3 kimchi, revised 2026-10-24: 25 g/kg salt at the 2.5 % median; the cabbage keeps the
+    # remainder (lo and hi unchanged: they follow CSU's 2-5 %)
+    ("napa_kimchi_room_temp", "Salt"): {
+        "g_per_kg_median": "25",
+        "source": "CSU-kimchi How is kimchi made; Patra2016-kimchi; Foods2025-kimchi § 2.2.4",
+    },
+    ("napa_kimchi_room_temp", "Napa cabbage"): {"g_per_kg_median": "798.5"},
 }
 
 CURATION_NOTES: dict[str, str] = {
@@ -255,6 +274,7 @@ def build() -> tuple[list[Row], list[Row]]:
         if (r["recipe_key"], r["ingredient"]) in OPTIONAL:
             r["required"] = "optional"
         r["label"] = LABELS.get((r["recipe_key"], r["ingredient"]), r["label"])
+        r.update(INGREDIENT_EDITS.get((r["recipe_key"], r["ingredient"]), {}))
     for key in KOJI_SPLIT:
         _split_koji(ingredients, key)
 

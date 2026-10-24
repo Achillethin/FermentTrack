@@ -408,8 +408,8 @@ async def test_a_proven_card(client: AsyncClient) -> None:
     assert card["id"] == f"library:{KIMCHI}" and card["section"] == "proven"
     assert card["recipe"]["batch_g"] == 2000
     grams = {i["name"]: i["grams"] for i in card["recipe"]["ingredients"]}
-    assert grams["Napa cabbage"] == pytest.approx(2 * 788.5)
-    assert card["recipe"]["salt_pct"] == pytest.approx(3.5, abs=0.01)
+    assert grams["Napa cabbage"] == pytest.approx(2 * 798.5)
+    assert card["recipe"]["salt_pct"] == pytest.approx(2.5, abs=0.01)
     assert card["temperature"]["served_c"] == 20 and card["temperature"]["slider"] == {
         "min_c": 17, "max_c": 23,
     }  # fmt: skip
@@ -585,7 +585,7 @@ async def test_start_batch_books_the_card(
         )
     ).all()
     booked = {n: (q, r) for n, q, r in rows}
-    assert booked["Napa cabbage"] == (pytest.approx(394.2, abs=0.05), "base")
+    assert booked["Napa cabbage"] == (pytest.approx(399.25, abs=0.06), "base")
     assert booked["Water"][1] == "base"  # liquid is booked as base, the batch vocabulary
     assert set(booked) == {
         i.name for i in _recipe(KIMCHI).ingredients if i.name in library.CATALOGUE_NAMES
