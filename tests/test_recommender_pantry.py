@@ -68,13 +68,13 @@ def test_more_of_the_pantry_ranks_first_without_targets() -> None:
     assert _keys(cards)[:2] == ["sauerkraut_dry_salted", "napa_kimchi_room_temp"]
 
 
-def test_experimental_ties_on_upside_break_on_the_central_score() -> None:
+def test_experimental_ties_on_upside_break_on_the_share() -> None:
     targets = service.parse_targets(["fruity"], [])
     cards = service.experimental_cards([], targets, None)
     keys = [service.experimental_rank_key(c) for c in cards]
     assert keys == sorted(keys)
     for a, b in zip(cards, cards[1:], strict=False):
         ea, eb = a.evaluation, b.evaluation
-        assert ea.u is not None and eb.u is not None and ea.e is not None and eb.e is not None
+        assert ea.u is not None and eb.u is not None and ea.c is not None and eb.c is not None
         if ea.u - ea.penalty == eb.u - eb.penalty:
-            assert ea.e >= eb.e
+            assert ea.c >= eb.c  # v2 § 3.1: the targets' share of the aroma

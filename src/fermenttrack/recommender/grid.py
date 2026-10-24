@@ -9,7 +9,9 @@ manifest's hash on load.
 
 Per series s (16 aroma series, 4 tastes) and member n, L = the engine's log10 summed odour
 activity (`aroma:<s>`) or log10 taste activity ratio (`taste:<s>`), and with τ = score.TAU:
-- E = Σ wₙ σ(Lₙ/τ); U = the weighted P90 of σ(Lₙ/τ); P = Σ wₙ 1[Lₙ > 0] (recommender.score).
+- E, U = Σ wₙ σ(mₙ/τ) and its weighted P90, of the character margin m (score.character_margins
+  for aroma, score.clear_taste for tastes); P = Σ wₙ 1[Lₙ > 0]; C = the expected share of the
+  perceived aroma (score.character_share; a taste's C is its E), the ranking magnitude.
 
 A series the engine does not produce for a recipe is absent from the entry, never zero.
 Statistics are stored as float16 (design § 8.2).
@@ -28,7 +30,7 @@ import json
 import math
 from bisect import bisect_left
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import cache
 from pathlib import Path
 from types import MappingProxyType
@@ -43,9 +45,10 @@ PACKAGE = HERE.parent  # src/fermenttrack
 GRID_NPZ = HERE / "recommender_grid_v1.npz"
 MANIFEST_JSON = HERE / "recommender_grid_v1.manifest.json"
 REBUILD = "python scripts/build_recommender_grid.py --workers 4"
-SCHEMA = 3  # 2: operator entries (B7); 3: E and U score character (recommender v2 § 3.1)
+# 2: operator entries (B7); 3: E and U score character (recommender v2 § 3.1); 4: C, the share
+SCHEMA = 4
 MAX_BYTES = 5 * 1024 * 1024  # design § 8.2: over budget, the npz becomes a release asset
-STATISTICS = ("E", "U", "P")
+STATISTICS = ("E", "U", "P", "C")
 SAFETY_MILESTONE = "ph_below_4_6"  # stored wherever the profile has ph_safety_line
 LEVAIN_PEAK = "levain_peak"  # sourdough (bake) entries only
 # Design § 8.3: a change to any of these makes the grid stale. Paths are relative to the
@@ -112,6 +115,8 @@ class Entry:
     not_modelled: tuple[str, ...]  # ingredients without aroma data
     skipped: tuple[str, ...]  # recipe rows not run: not a catalogue ingredient (`new`) or no mass
     operator: str | None = None  # the grid operator applied (operators.Operator.key); None: none
+    # series -> (L,) expected character share (schema 4); empty on a forecast stored before it
+    c: Mapping[str, FloatArray] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True)
@@ -275,6 +280,7 @@ class Grid:
             not_modelled=tuple(meta["not_modelled"]),
             skipped=tuple(meta["skipped"]),
             operator=meta["operator"],
+            c=by_stat[3],
         )  # fmt: skip
         self._entries[i] = row
         return row
@@ -327,6 +333,14 @@ class Grid:
         return out
 
 
+def share(entry: Entry) -> Mapping[str, FloatArray]:
+    """The entry's C, or its E for a series without one (a community forecast stored before
+    schema 4: E then ranks it, as it did)."""
+    if all(s in entry.c for s in entry.e):
+        return entry.c
+    return MappingProxyType({s: entry.c.get(s, v) for s, v in entry.e.items()})
+
+
 def mix(recipe_key: str, lo: Entry, hi: Entry, t: float) -> Entry:
     """Two entries on the same time axis, linear in temperature at t (lo.temp_c < t <
     hi.temp_c): the series and milestones both have; metadata from the nearer one."""
@@ -349,7 +363,7 @@ def mix(recipe_key: str, lo: Entry, hi: Entry, t: float) -> Entry:
         p=blend(lo.p, hi.p), milestones=MappingProxyType(milestones),
         members=min(lo.members, hi.members), schedule=near.schedule,
         top_compound=near.top_compound, not_modelled=near.not_modelled, skipped=near.skipped,
-        operator=near.operator,
+        operator=near.operator, c=blend(share(lo), share(hi)),
     )  # fmt: skip
 
 

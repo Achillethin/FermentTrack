@@ -1,7 +1,7 @@
 """Build the recommender's precomputed grid (design § 8.4): every active library recipe at its
 grid temperatures, and every single grid operator applied to it (recommender.operators; (v) is
 user-specific and live only), through the forecast engine with no readings, summarised per
-series as E / U / P over time, plus milestone crossing times and card metadata. Writes
+series as E / U / P / C over time, plus milestone crossing times and card metadata. Writes
 src/fermenttrack/recommender/recommender_grid_v1.npz and its manifest; recommender/grid.py
 reads them and tests/test_recommender_grid.py checks they are current.
 
@@ -261,7 +261,7 @@ def assemble(
     n, n_ms = len(good), max(len(r["milestones"]) for r in good)
     t_h = np.full((n, MAX_TIMES), np.nan)
     n_t = np.zeros(n, dtype=np.int16)
-    stats = np.full((n, 3, len(SERIES), MAX_TIMES), np.nan, dtype=np.float16)
+    stats = np.full((n, len(grid.STATISTICS), len(SERIES), MAX_TIMES), np.nan, dtype=np.float16)
     present = np.zeros((n, len(SERIES)), dtype=bool)
     milestones = np.full((n, n_ms, 4), np.nan, dtype=np.float32)
     entries = []

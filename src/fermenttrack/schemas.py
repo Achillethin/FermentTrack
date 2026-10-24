@@ -934,6 +934,11 @@ class CardTargetOut(BaseModel):
     modelled: bool
     low_resolution: bool
     top_compound: CompoundRefOut | None
+    # recommender v2 § 3.1: an aroma's expected share of the batch's perceived aroma at the
+    # peak, as a band (>= 30 % / 15 % / 5 % / less); None for a taste or a series the engine
+    # does not produce here. Words, not a number, before the calibration gate (§ 13.2)
+    share: Literal["dominant", "large", "smaller", "trace"] | None = None
+    noticeable: bool = True  # P(noticeable) at the peak >= 0.5; False: "unlikely noticeable"
     # P (noticeable) at the peak, 2 decimals: only while the calibration gate passes (design
     # § 13.2); absent otherwise (never null), so the JSON before the gate is unchanged
     p_peak: float | None = Field(default=None, exclude_if=_unset)

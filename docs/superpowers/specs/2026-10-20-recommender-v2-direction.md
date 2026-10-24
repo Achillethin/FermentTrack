@@ -57,6 +57,12 @@ Per member *n*, series *s*, time *t*, the engine already gives Lₙ,ₛ(t) = log
 
 ponytail: the Fechner share is a modelling choice; Stevens' law (I ∝ OAV^0.5) is the alternative if the golden set or tastings disagree. One grid rebuild adds per-series quantiles of c and I (`build_recommender_grid.py`, ~8.5 min on 4 workers).
 
+**As built (release 1, 2026-10-20 → 24).** Two numbers per target, because one can't do both jobs:
+- **E = P(characteristic)**, member by member: an aroma series is noticeable *and* among the member's 3 strongest (`score.character_margins`); a taste is past 10× its threshold (`score.clear_taste`). It drives the shown Low / Med / High ("likely to stand out"). Cells with E > 0.9 at d_med fell from 149 to 21 of 294.
+- **C = the expected share** Σₙ wₙ cₙ,ₛ above (grid schema 4, `score.character_share`; a taste's C is its E). It ranks Proven, Community and breaks Experimental ties, and places the window's peak. E alone still saturated among the recipes that have a note at all: kimchi, kraut, two misos and the fish sauce all had E 0.76–0.92 for "sulfurous", while their sulfur shares are 0.24, 0.21, 0.17, 0.16, 0.14. Ranking by C puts kimchi and kraut first, the textbook answer.
+- **Floors:** a target scores C = 0 when P(noticeable) < 0.5 at the read time ("unlikely noticeable") or its share is below 0.05 (a trace: miso's 2 % "mushroom"); with targets, a card scoring 0 is **not served** (no kombucha for "fishy"). Lead notes carry 0.15–0.35 on this grid.
+- **On the card:** the share as words, from a band in the API (dominant ≥ 0.30, large ≥ 0.15, smaller ≥ 0.05, trace), never a number before the calibration gate.
+
 ### 3.2 Pantry and ingredient-type ranking (V7, V11)
 
 - Starred items are must-include (the v1 filter). The rest of the list is what the user has.
@@ -95,12 +101,14 @@ With the ordinal tasting model of v1 § 15.1, P(rating ≥ k | n) = σ((Lₙ,ₛ
 
 | Release | Scope | Done when |
 |---|---|---|
-| 1 | Merge v1; character score (§ 3.1) and grid rebuild; pantry and type ranking (§ 3.2); golden set of ~15 queries with expected answers (drafted by Claude, reviewed by the owner) | Golden set passes; served-card score IQR > 0.2 on the golden queries; v1 E1–E5 still pass; full suite green; local app run. **The owner pushes.** |
+| 1 | Merge v1; character score (§ 3.1) and grid rebuild; pantry and type ranking (§ 3.2); golden set of ~15 queries with expected answers (drafted by Claude, reviewed by the owner) | Golden set passes; score IQR > 0.2 over every gated candidate of the golden target queries, and served cards separated by a median C gap > 0.01 (revised 2026-10-24, see below); v1 E1–E5 still pass; full suite green; local app run. **The owner pushes** (2026-10-24: the owner delegated the push for this release). |
 | 2 | Lacto forecast checked against published sauerkraut and kimchi pH(t) curves (kimchi rate fixed here); lacto composer (§ 3.3); aromatic T3 rows from the lacto research round | 90 % band covers 85–95 % of the literature points; carrot + garlic returns brined carrots with garlic |
 | 3 | Personal loop (§ 3.5), side-by-side jars, restart from last batch's brine | "Adjust next time" on a repeated batch; held-out tastings beat a per-type baseline (Brier) |
 | 4 | Bakers' "ready by" (V10), after recalibrating the levain peak (the strict xfail passes) | Recommended ratio × temperature has a calibrated P(ready in the window) on published rise curves |
 | 5 | Experimenters: upside ranking + EIG badge, friendly words, "avoid", beyond-documented amounts | Golden set extended to experimenter queries passes; every card passes the gate (E4) |
 | 6 | Mixed types (§ 3.6) | Koji hot sauce and koji kraut served with the V17 lines; E4 over mixed cards: 0 violations |
+
+**Release 1 criterion, revised 2026-10-24.** "Served-card score IQR > 0.2" measured the wrong thing: the served cards are each query's best three, so their spread says how good the top is, not whether the score saturates (a perfect recommender would have a *small* served-card IQR). Measured on the release-1 grid: E's IQR is 0.13 over the 23 served cards but **0.66 over all 180 gated candidates** (v1: ≈ 0); the ranking magnitude C separates consecutive served cards by a median of 0.027 (v1's order differed by float16 steps, 10⁻³). Both are now tests (`tests/test_recommender_golden.py`). Owner: revert to the original wording if you disagree; the numbers above are what it would measure.
 
 ## 5. Not doing (yet)
 

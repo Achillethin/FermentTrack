@@ -4,10 +4,10 @@ For a combination K of single operators on a parent p, per series s and time t:
 
     logit Ê_s^K(t) = logit E_s^p(t) + Σ_{k∈K} [logit E_s^{p+k}(t) − logit E_s^p(t)]
 
-with every logit clipped to ±CLIP. U is screened the same way, and so is P (the window's
-off-note rule and the off-note penalty read it). A series absent from an entry (the engine does
-not produce it there) counts as 0, logit −CLIP, when another entry has it; absent everywhere,
-it stays absent.
+with every logit clipped to ±CLIP. U is screened the same way, and so are P (the window's
+off-note rule and the off-note penalty read it) and C, the character share (a fraction). A
+series absent from an entry (the engine does not produce it there) counts as 0, logit −CLIP,
+when another entry has it; absent everywhere, it stays absent.
 
 The caller chooses where each term is read (recommender.service): the parent term at the
 variant's temperature, each operator's pair (p + k, p) at one temperature where the grid has
@@ -34,10 +34,10 @@ from fermenttrack.prediction.priors import FloatArray
 from fermenttrack.recommender import grid
 
 CLIP = 6.0  # logit units (design § 8.5)
-STATS = ("e", "u", "p")
+STATS = ("e", "u", "p", "c")
 _P_MIN = 0.5 * (1.0 + np.tanh(-0.5 * CLIP))  # σ(−CLIP): probabilities are floored here
 
-# stat ("e", "u", "p") -> series -> values; a series absent from the entry is absent here
+# stat ("e", "u", "p", "c") -> series -> values; a series absent from the entry is absent here
 Logits = Mapping[str, Mapping[str, FloatArray]]
 
 
@@ -53,11 +53,11 @@ def expit(x: ArrayLike) -> FloatArray:
 
 
 def logits(entry: grid.Entry, series: Iterable[str]) -> Logits:
-    """The entry's E, U and P as logits, for the series it has among `series`."""
+    """The entry's E, U, P and C as logits, for the series it has among `series`."""
     keys = list(series)
+    by = {"e": entry.e, "u": entry.u, "p": entry.p, "c": grid.share(entry)}
     return MappingProxyType({
-        k: MappingProxyType({s: logit(getattr(entry, k)[s]) for s in keys if s in entry.e})
-        for k in STATS
+        k: MappingProxyType({s: logit(by[k][s]) for s in keys if s in entry.e}) for k in STATS
     })  # fmt: skip
 
 
@@ -115,7 +115,7 @@ def assemble(
     skipped = dict.fromkeys(n for e in entries for n in e.skipped)
     return grid.Entry(
         recipe_key=parent.recipe_key, temp_c=parent.temp_c, t_h=parent.t_h, e=stats[0],
-        u=stats[1], p=stats[2], milestones=_milestones(entries),
+        u=stats[1], p=stats[2], c=stats[3], milestones=_milestones(entries),
         members=min(e.members for e in entries), schedule=parent.schedule,
         top_compound=MappingProxyType(top), not_modelled=tuple(names), skipped=tuple(skipped),
     )  # fmt: skip

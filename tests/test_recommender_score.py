@@ -216,3 +216,30 @@ def test_a_noticeable_but_minor_series_scores_low_where_noticeable_scores_high()
 
 def test_a_taste_is_clear_at_ten_times_its_threshold() -> None:
     assert S.clear_taste([[1.0, 2.0, 0.0]]).tolist() == [[0.0, 1.0, -1.0]]
+
+
+# ── v2 § 3.1: the share of the perceived aroma (the ranking magnitude) ──
+
+
+def test_shares_split_the_perceived_aroma_and_ignore_what_is_below_threshold() -> None:
+    L = {"a": [[3.0, -1.0]], "b": [[1.0, -2.0]], "c": [[-0.5, -0.1]]}  # time 2: nothing noticed
+    c = S.character_share(L)
+    assert c["a"].tolist() == [[0.75, 0.0]] and c["b"].tolist() == [[0.25, 0.0]]
+    assert c["c"].tolist() == [[0.0, 0.0]]
+
+
+def test_a_dominant_note_outranks_one_of_many_equally_strong_where_e_ties() -> None:
+    """The release-1 sulfurous case in miniature: both batches have 'a' among their top 3 (E
+    ties near 1), but in the first it is most of the aroma."""
+    simple = {"a": [[3.0]], "b": [[1.0]], "c": [[1.0]]}
+    rich = {"a": [[3.0]], "b": [[3.0]], "c": [[3.0]], "d": [[2.9]], "e": [[2.9]]}
+    w = [1.0]
+    e_simple = S.central(S.character_margins(simple)["a"], w)
+    e_rich = S.central(S.character_margins(rich)["a"], w)
+    assert e_simple > 0.99 and e_rich > 0.5  # both "characteristic"
+    assert S.mean(S.character_share(simple)["a"], w) == pytest.approx(0.6)
+    assert S.mean(S.character_share(rich)["a"], w) == pytest.approx(3.0 / 14.8)
+
+
+def test_the_expected_share_is_weighted_by_member() -> None:
+    assert float(S.mean([0.2, 0.6], [3.0, 1.0])) == pytest.approx(0.3)

@@ -415,6 +415,7 @@ def entry_json(entry: grid.Entry) -> dict[str, Any]:
         "temp_c": float(entry.temp_c),
         "t_h": [_num(x) for x in entry.t_h],
         "e": series(entry.e), "u": series(entry.u), "p": series(entry.p),
+        "c": series(grid.share(entry)),
         "milestones": {
             k: [_num(m.p10), _num(m.p50), _num(m.p90), _num(m.reached)]
             for k, m in sorted(entry.milestones.items())
@@ -437,7 +438,7 @@ def entry_from_json(recipe_key: str, doc: Mapping[str, Any]) -> grid.Entry:
     return grid.Entry(
         recipe_key=recipe_key, temp_c=float(doc["temp_c"]),
         t_h=np.asarray(doc["t_h"], dtype=np.float64), e=series(doc["e"]), u=series(doc["u"]),
-        p=series(doc["p"]),
+        p=series(doc["p"]), c=series(doc.get("c", {})),
         milestones=MappingProxyType({
             k: grid.MilestoneTimes(*(time(x) for x in v)) for k, v in doc["milestones"].items()
         }),
@@ -569,11 +570,11 @@ def community_card(
 
 
 def rank_key(card: service.Card, c: Candidate) -> tuple[float, int, float, str]:
-    """§ 5.4 Community: E(peak), "made n×", the mean liking (0 when none is rated), then the id
-    for a stable order."""
-    e = card.evaluation.e
+    """§ 5.4 Community: the targets' share of the aroma at the peak (C, as Proven: v2 § 3.1),
+    "made n×", the mean liking (0 when none is rated), then the id for a stable order."""
+    share = card.evaluation.c
     liking = c.mean_liking if c.mean_liking is not None else 0.0
-    return -(e if e is not None else 0.0), -c.made, -liking, str(c.id)
+    return -(share if share is not None else 0.0), -c.made, -liking, str(c.id)
 
 
 def card_json(card: service.Card, c: Candidate, calibrated: int | None = None) -> dict[str, Any]:

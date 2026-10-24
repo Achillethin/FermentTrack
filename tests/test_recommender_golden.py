@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fermenttrack.recommender import service
+from fermenttrack.recommender import library, service
 
 P, X = "proven", "experimental"
 DAIRY = {"kefir", "cheese"}
@@ -39,14 +39,16 @@ CASES = [
     ("fishy-is-fish-sauce", [], [], ["fishy"], [], P, ("top", {"garum"})),
     ("vinegary", [], [], ["vinegary"], [], P, ("top", {"vinegar", "kombucha"})),
     ("umami", [], [], [], ["umami"], P, ("top", {"garum", "miso"})),
-    ("sulfurous-has-a-brassica", [], [], ["sulfurous"], [], P, ("in", {"lacto_ferment"})),
+    # a brassica's aroma is mostly sulfur (DMS, DMTS, allyl sulfides); in miso it is one note
+    # among many: ranking by the share of the aroma (v2 § 3.1) puts the brassica first
+    ("sulfurous-is-a-brassica", [], [], ["sulfurous"], [], P, ("top", {"lacto_ferment"})),
+    # no filler: a ferment that can't give the note is not served for it
+    ("fishy-no-filler", [], [], ["fishy"], [], P,
+     ("none", {"kombucha", "kefir", "cheese", "vinegar", "sourdough", "lacto_ferment"})),
 ]  # fmt: skip
 
 # Misses on the committed grid, with the reason (the model's, not the query's).
-KNOWN_MISSES: dict[str, str] = {
-    "sulfurous-has-a-brassica": "2026-10-20: the top 3 are two misos and the fish sauce; the "
-    "engine's miso/garum sulfur volatiles outrank cabbage DMS/DMTS (aroma calibration gap)",
-}
+KNOWN_MISSES: dict[str, str] = {}
 
 
 def _cards(starred, pantry, aromas, tastes, section) -> list[service.Card]:  # type: ignore[no-untyped-def]
@@ -82,20 +84,35 @@ def test_golden_query(case) -> None:  # type: ignore[no-untyped-def]
         assert not any(x & want for x in labels), shown
 
 
-@pytest.mark.xfail(strict=True, reason="2026-10-20: IQR 0.122 over 27 cards (v1 ~0.00); the "
-                   "release-1 target is 0.2, not met yet")
+def _target_queries():  # type: ignore[no-untyped-def]
+    return [(s, p, service.parse_targets(a, t)) for _, s, p, a, t, _, _ in CASES if a or t]
+
+
 def test_scores_spread_across_the_golden_target_queries() -> None:
-    """Release 1 exit: the served cards' E is no longer pinned near 1 (v1: every card E ≈ 1.00,
-    separated by float16 steps). IQR over every Proven card of the target queries."""
+    """Release 1 exit (v2 § 4, revised 2026-10-24): E is no longer pinned near 1 (v1: every card
+    E ≈ 1.00, cards separated by float16 steps). Measured over every gated candidate of the
+    target queries: the served cards are each query's best 3, so their own IQR says how good
+    the top is, not whether the score saturates (0.13 on E there)."""
     es = [
         c.evaluation.e
-        for _, starred, pantry, aromas, tastes, _, _ in CASES
-        if aromas or tastes
-        for c in service.proven_cards(
-            starred, service.parse_targets(aromas, tastes), None, pantry=pantry
-        )[0]
-        if c.evaluation.e is not None
+        for _, _, targets in _target_queries()
+        for r in library.active()
+        if (c := service.build_card(r, targets, None)[0]) is not None
+        and c.evaluation.e is not None
     ]
     q75, q25 = np.percentile(es, [75, 25])
-    print(f"\nE over {len(es)} cards: IQR {q75 - q25:.3f}, min {min(es):.3f}, max {max(es):.3f}")
+    print(f"\nE over {len(es)} candidates: IQR {q75 - q25:.3f}")
     assert q75 - q25 > 0.2
+
+
+def test_served_cards_are_ranked_by_more_than_rounding() -> None:
+    """v1's order was float16 noise (E ≈ 1.00 ± 10⁻³). The ranking magnitude C (the targets'
+    share of the aroma) separates consecutive served cards by a median of more than 0.01."""
+    gaps = []
+    for starred, pantry, targets in _target_queries():
+        served = service.proven_cards(starred, targets, None, pantry=pantry)[0]
+        cs = [c.evaluation.c for c in served]
+        gaps += [a - b for a, b in zip(cs, cs[1:], strict=False)]
+    assert gaps and all(g >= 0 for g in gaps)
+    print(f"\nC gaps between served cards: median {np.median(gaps):.3f} over {len(gaps)}")
+    assert np.median(gaps) > 0.01

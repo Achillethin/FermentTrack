@@ -75,6 +75,27 @@ def character_margins(L: Mapping[str, ArrayLike], k: int = TOP_K) -> dict[str, F
     return {s: margins[i] for i, s in enumerate(keys)}
 
 
+def character_share(L: Mapping[str, ArrayLike]) -> dict[str, FloatArray]:
+    """Recommender v2 § 3.1: per aroma series, its share of the member's perceived aroma,
+    Iₛ / Σₛ′ Iₛ′ with the Fechner intensity I = max(0, L); 0 where nothing is above threshold.
+    The ranking magnitude: P(characteristic) (character_margins) saturates near 1 for every
+    recipe that has the note at all, the share still tells a kimchi whose aroma is mostly
+    sulfurous from a miso where sulfur is one note among many.
+    ponytail: Fechner; Stevens' power law (I ∝ OAV^0.5) is the alternative if tastings
+    disagree."""
+    keys = list(L)
+    intensity = np.maximum(0.0, np.stack([np.asarray(L[s], dtype=np.float64) for s in keys]))
+    total = intensity.sum(axis=0)
+    shares = np.divide(intensity, total, out=np.zeros_like(intensity), where=total > 0)
+    return {s: shares[i] for i, s in enumerate(keys)}
+
+
+def mean(values: ArrayLike, w: ArrayLike) -> FloatArray:
+    """Σ wₙ vₙ (the expected share)."""
+    v = np.asarray(values, dtype=np.float64)
+    return np.tensordot(_weights(w, v), v, axes=1)
+
+
 def clear_taste(L: ArrayLike) -> FloatArray:
     """A taste's margin over the clear line (TASTE_CLEAR above detection)."""
     return np.asarray(L, dtype=np.float64) - TASTE_CLEAR

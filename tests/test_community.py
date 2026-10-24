@@ -89,7 +89,8 @@ class FakeLive:
 
         entry = dataclasses.replace(
             src, recipe_key=recipe.key, temp_c=model_c, t_h=np.asarray(t_dst, dtype=float),
-            e=on(src.e, k), u=on(src.u, k), p=on(src.p), members=members,
+            e=on(src.e, k), u=on(src.u, k), p=on(src.p), c=on(grid.share(src), k),
+            members=members,
         )  # fmt: skip
         names = "|".join(sorted(i.name for i in recipe.ingredients))
         return entry, f"fake:{names}:{model_c}:{k}", True

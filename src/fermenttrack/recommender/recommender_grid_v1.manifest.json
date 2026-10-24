@@ -1,8 +1,8 @@
 {
   "grid": "recommender_grid_v1.npz",
-  "grid_sha256": "401e5382859f1675f0fd376cf3bec24cfd2005740cf40d745918944bfe21a73b",
-  "grid_bytes": 243283,
-  "schema": 3,
+  "grid_sha256": "902b809842cd0a7f0566f572378475165ffd68ff0738c85ae81b706dc9b7b67b",
+  "grid_bytes": 327570,
+  "schema": 4,
   "model_version": "kinetic-v1",
   "bake_model_version": "sourdough-v1",
   "derived_version": "sensory-v2",
@@ -843,39 +843,39 @@
     "numpy": "2.5.3",
     "scipy": "1.18.1"
   },
-  "build_date": "2026-10-20T13:41:55+00:00",
-  "build_seconds": 144.4,
-  "workers": 4,
+  "build_date": "2026-10-24T12:15:15+00:00",
+  "build_seconds": 63.2,
+  "workers": 6,
   "slowest": [
     [
       "home_starter",
       "swap:White wheat flour>Whole wheat flour",
       30.0,
-      5.4
-    ],
-    [
-      "home_starter",
-      "swap:White wheat flour>Whole wheat flour",
-      24.0,
-      5.4
+      3.6
     ],
     [
       "levain_liquide",
       null,
       30.0,
-      5.3
+      3.5
     ],
     [
-      "levain_liquide",
+      "levain_dur",
       "swap:White wheat flour>Whole wheat flour",
-      22.0,
-      5.2
+      26.0,
+      3.5
     ],
     [
-      "levain_liquide",
+      "rye_sour",
+      null,
+      28.0,
+      3.5
+    ],
+    [
+      "levain_dur",
       "swap:White wheat flour>Whole wheat flour",
       30.0,
-      5.1
+      3.4
     ]
   ]
 }

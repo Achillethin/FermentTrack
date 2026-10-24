@@ -279,7 +279,7 @@ def live_statistics(recipe: Recipe, model_c: float, members: int | None) -> grid
     t, values, w = engine.member_values(inputs, rg.end_h, members=members)
     stats, present = run.series_statistics(t, values, w, t_dst)
     kept = [(j, s) for j, s in enumerate(run.SERIES) if present[j]]
-    e, u, p = (MappingProxyType({s: stats[k, j] for j, s in kept}) for k in range(3))
+    e, u, p, share = (MappingProxyType({s: stats[k, j] for j, s in kept}) for k in range(4))
     milestones = {
         m.key: grid.MilestoneTimes(*run.summarise_times(c, w))
         for m in run.milestones_for(PROFILES[recipe.fermentation_type])
@@ -287,7 +287,7 @@ def live_statistics(recipe: Recipe, model_c: float, members: int | None) -> grid
     }
     labels = grid.interp_temp(recipe.key, model_c)
     return grid.Entry(
-        recipe_key=recipe.key, temp_c=model_c, t_h=t_dst, e=e, u=u, p=p,
+        recipe_key=recipe.key, temp_c=model_c, t_h=t_dst, e=e, u=u, p=p, c=share,
         milestones=MappingProxyType(milestones), members=len(w),
         schedule=inputs.planned_temperature, top_compound=labels.top_compound,
         not_modelled=labels.not_modelled, skipped=labels.skipped,
@@ -317,13 +317,32 @@ def model_temperature(recipe: Recipe, served_c: float) -> float:
 # ── evaluation: window and scores at one temperature ────────────────────
 
 
+NOTICEABLE_FLOOR = 0.5  # v2 § 3.1: a target less likely noticeable than this scores 0
+# ...and so does one below this share of the aroma (a trace: miso's 2 % "mushroom"); lead notes
+# carry 0.15-0.35 on the 2026-10-24 grid. ponytail: a fixed estimate, tastings would move it.
+MIN_SHARE = 0.05
+UNLIKELY = "unlikely noticeable"
+# The share as words on a card (no numbers before the calibration gate, design § 13.2).
+SHARE_BANDS = ((0.30, "dominant"), (0.15, "large"), (MIN_SHARE, "smaller"), (0.0, "trace"))
+
+
+def share_band(share: float) -> str:
+    return next(band for floor, band in SHARE_BANDS if share >= floor)
+
+
 @dataclass(frozen=True)
 class TargetScore:
     target: Target
     modelled: bool
-    e: float  # E at the peak (0 when not modelled)
+    e: float  # E at the peak (0 when not modelled): P(characteristic), the shown level
     u: float
     top_compound: tuple[str, str] | None  # (compound key, evidence tier)
+    # v2 § 3.1, the ranking magnitude at the peak: an aroma's expected share of the perceived
+    # aroma, a taste's E; 0 when not modelled, less likely noticeable than NOTICEABLE_FLOOR or
+    # below MIN_SHARE
+    c: float = 0.0
+    noticeable: bool = True  # P(noticeable) at the peak >= NOTICEABLE_FLOOR
+    share: float = 0.0  # the expected share at the peak, before the floors (shown on the card)
 
     @property
     def level(self) -> Level | None:
@@ -341,6 +360,7 @@ class Evaluation:
     notes: tuple[str, ...]
     penalty: float = 0.0  # Experimental: the parent-relative off-note penalty at the peak
     rising: tuple[str, ...] = ()  # the off-notes behind it (more likely noticeable than the parent)
+    c: float | None = None  # the target-averaged C at the peak (v2 § 3.1): the ranking magnitude
     # P (noticeable) per modelled target on the statistics' time axis t_h: Start batch stores it
     # in the link, so the calibration gate can read P at a tasting's time (design § 13.2)
     t_h: FloatArray | None = field(default=None, compare=False, repr=False)
@@ -392,17 +412,26 @@ def _at(t: FloatArray, v: FloatArray, x: float) -> float:
 
 def _scores(
     stats: grid.Entry, targets: Sequence[Target], peak_h: float
-) -> tuple[tuple[TargetScore, ...], float | None, float | None]:
+) -> tuple[tuple[TargetScore, ...], float | None, float | None, float | None]:
     out = []
+    share = grid.share(stats)
     for tg in targets:
         modelled = tg.key in stats.e
         e = _at(stats.t_h, stats.e[tg.key], peak_h) if modelled else 0.0
         u = _at(stats.t_h, stats.u[tg.key], peak_h) if modelled else 0.0
         top = stats.top_compound.get(tg.key) if modelled else None
-        out.append(TargetScore(tg, modelled, e, u, top))
+        likely = modelled and _at(stats.t_h, stats.p[tg.key], peak_h) >= NOTICEABLE_FLOOR
+        raw = _at(stats.t_h, share[tg.key], peak_h) if modelled else 0.0
+        c = raw if likely and raw >= MIN_SHARE else 0.0
+        out.append(TargetScore(tg, modelled, e, u, top, c, likely, raw))
     if not out:
-        return (), None, None
-    return tuple(out), float(np.mean([s.e for s in out])), float(np.mean([s.u for s in out]))
+        return (), None, None, None
+    return (
+        tuple(out),
+        float(np.mean([s.e for s in out])),
+        float(np.mean([s.u for s in out])),
+        float(np.mean([s.c for s in out])),
+    )
 
 
 def source_note(recipe: Recipe, temp: Temperature, model_c: float) -> str:
@@ -468,7 +497,9 @@ def evaluate(
         if basis.duration_h is None:
             raise RecommendationError(f"{recipe.key} has no documented duration")
         zeros = np.zeros_like(t)
-        e = score.target_average({k: stats.e.get(k, zeros) for k in keys}, keys) if keys else None
+        share = grid.share(stats)
+        # v2 § 3.1: the window peaks where the targets' share of the aroma does
+        e = score.target_average({k: share.get(k, zeros) for k in keys}, keys) if keys else None
         off = {o: stats.p[o] for o in offs if o in stats.p}
         safety = stats.milestones.get(grid.SAFETY_MILESTONE)
         m_user = stats.milestones.get(_main_milestone(recipe))
@@ -484,7 +515,8 @@ def evaluate(
             ))  # fmt: skip
         basis_kind = "source" if temp.source_only else "model"
         peak = win.peak_h
-    scores, e_peak, u_peak = _scores(stats, targets, peak)
+    scores, e_peak, u_peak, c_peak = _scores(stats, targets, peak)
+    notes += [f"{s.target.key}: {UNLIKELY}" for s in scores if s.modelled and not s.noticeable]
     penalty = 0.0
     rising: tuple[str, ...] = ()
     if mode == "experimental" and reference is not None:
@@ -493,7 +525,7 @@ def evaluate(
         penalty = score.off_note_penalty(var_p, par_p, keys, chars)
         rising = tuple(o for o in sorted(var_p) if var_p[o] > par_p.get(o, 0.0))
     return Evaluation(
-        win, basis_kind, peak, scores, e_peak, u_peak, tuple(notes), penalty, rising,
+        win, basis_kind, peak, scores, e_peak, u_peak, tuple(notes), penalty, rising, c_peak,
         t_h=t, p={k: stats.p[k] for k in keys if k in stats.p},
     )
 
@@ -603,18 +635,32 @@ def model_note(model_c: float, temp: Temperature, nearest: str) -> tuple[str, ..
 
 
 def rank_key(card: Card) -> tuple[float, float, int, int, int, str]:
-    """§ 5.4 Proven: E(peak) when there are targets, the most of the pantry (v2 § 3.2), the
-    fewest to buy, provenance, profile confidence; the key last, for a stable order."""
+    """§ 5.4 Proven: with targets, the targets' share of the aroma at the peak (C, v2 § 3.1;
+    E, P(characteristic), saturates near 1 for every recipe that has the note at all); then
+    the most of the pantry (v2 § 3.2), the fewest to buy, provenance, profile confidence; the
+    key last, for a stable order."""
     r = card.recipe
-    e = card.evaluation.e
+    c = card.evaluation.c
     return (
-        -(e if e is not None else 0.0),
+        -(c if c is not None else 0.0),
         -card.coverage,
         len(card.to_buy),
         PROVENANCE_RANK.get(r.provenance, len(PROVENANCE_RANK)),
         CONFIDENCE_RANK.get(PROFILES[r.fermentation_type].confidence, len(CONFIDENCE_RANK)),
         r.key,
     )
+
+
+def _target_phrase(targets: Sequence[Target]) -> str:
+    keys = [t.key for t in targets]
+    return keys[0] if len(keys) == 1 else f"{', '.join(keys[:-1])} or {keys[-1]}"
+
+
+def matches(card: Card, targets: Sequence[Target]) -> bool:
+    """With targets, a card is served only when some target is modelled, likely noticeable and
+    more than a trace (C > 0, v2 § 3.1): a recipe that can't give the note is not a
+    recommendation for it, so fewer cards beat filler (a kombucha for "fishy")."""
+    return not targets or (card.evaluation.c or 0.0) > 0.0
 
 
 def proven_cards(
@@ -637,7 +683,7 @@ def proven_cards(
         card, result = build_card(recipe, targets, temperature_c, batch_g, have)
         if card is None:
             refused.append((recipe.key, result.reasons))
-        else:
+        elif matches(card, targets):
             cards.append(card)
     cards.sort(key=rank_key)  # one card per parent: each library recipe is its own parent
     return cards[:CARDS_PER_SECTION], refused
@@ -961,8 +1007,9 @@ def experimental_rank_key(
     card: Card,
 ) -> tuple[int, float, float, float, int, int, int, int, str]:
     """§ 5.4 Experimental, with v2 § 3.2: the fewest foods taken into a type they aren't
-    tagged for, U(peak) − penalty with targets, then E(peak) (U saturates near 1 once 10 % of
-    members find a target characteristic), the most of the pantry, the fewest to buy,
+    tagged for, U(peak) − penalty with targets, then C(peak), the targets' share of the aroma
+    (U saturates near 1 once 10 % of members find a target characteristic), the most of the
+    pantry, the fewest to buy,
     provenance, profile confidence; then the fewest operators and the card id, for a stable
     order."""
     v = card.variant
@@ -972,7 +1019,7 @@ def experimental_rank_key(
     return (
         card.foreign,
         -(ev.u - ev.penalty if ev.u is not None else 0.0),
-        -(ev.e if ev.e is not None else 0.0),
+        -(ev.c if ev.c is not None else 0.0),
         -card.coverage,
         len(card.to_buy),
         PROVENANCE_RANK.get(r.provenance, len(PROVENANCE_RANK)),
@@ -1057,7 +1104,7 @@ def prerank(
             )
             entries.append(entry)
             diffs.append(diff)
-        stack = np.zeros((len(ops) + 1, 3, len(series), len(t)))  # the last row: no operator
+        stack = np.zeros((len(ops) + 1, len(screen.STATS), len(series), len(t)))  # last: no op
         for j, d in enumerate(diffs):
             for k, stat in enumerate(screen.STATS):
                 for s_i, s in enumerate(series):
@@ -1187,7 +1234,7 @@ def experimental_cards(
             continue
         reference = library_reference(recipe, temperature_c)
         card = best_variant(parent, combos, targets, temperature_c, batch_g, have, reference)
-        if card is not None:
+        if card is not None and matches(card, targets):
             cards.append(card)
     cards.sort(key=experimental_rank_key)
     return cards[:CARDS_PER_SECTION]
@@ -1388,7 +1435,7 @@ def live_variant_statistics(
     t, values, w = engine.member_values(inputs, end_h, members=members)
     stats, present = run.series_statistics(t, values, w, t_dst)
     kept = [(j, s) for j, s in enumerate(run.SERIES) if present[j]]
-    e, u, p = (MappingProxyType({s: stats[k, j] for j, s in kept}) for k in range(3))
+    e, u, p, share = (MappingProxyType({s: stats[k, j] for j, s in kept}) for k in range(4))
     milestones = {
         m.key: grid.MilestoneTimes(*run.summarise_times(c, w))
         for m in run.milestones_for(PROFILES[recipe.fermentation_type])
@@ -1396,7 +1443,7 @@ def live_variant_statistics(
     }
     top = run.top_compounds(recipe.fermentation_type, t, values, w, t_dst, stats)
     entry = grid.Entry(
-        recipe_key=recipe.key, temp_c=model_c, t_h=t_dst, e=e, u=u, p=p,
+        recipe_key=recipe.key, temp_c=model_c, t_h=t_dst, e=e, u=u, p=p, c=share,
         milestones=MappingProxyType(milestones), members=len(w),
         schedule=inputs.planned_temperature,
         top_compound=MappingProxyType({s: (c, tier) for s, (c, tier) in top.items()}),
@@ -1525,6 +1572,9 @@ def _target_json(s: TargetScore) -> dict[str, Any]:
         "modelled": s.modelled,
         "low_resolution": s.target.key in LOW_RESOLUTION,
         "top_compound": _compound(s.top_compound),
+        # v2 § 3.1: the aroma's share of the batch's perceived aroma at the peak, as a band
+        "share": share_band(s.share) if s.target.kind == "aroma" and s.modelled else None,
+        "noticeable": s.noticeable,
     }
 
 
@@ -1731,7 +1781,9 @@ def recommend(
     if mode in ("proven", "both"):
         cards, refused = proven_cards(listed, targets, temperature_c, batch_g, pantry)
         message = None
-        if not cards:
+        if not cards and targets and proven_cards(listed, (), temperature_c, batch_g, pantry)[0]:
+            message = f"No proven recipe gives {_target_phrase(targets)} as more than a trace."
+        elif not cards:
             message = (
                 "No proven recipe passes the safety checks here."
                 if refused or not must_include((*required, *pantry))
@@ -1751,6 +1803,9 @@ def recommend(
                 f"No variant can include all of: {', '.join(required)}."
                 if required and not considered
                 else "No experimental idea passes the safety checks here."
+                if not targets
+                else "No experimental idea passes the safety checks and gives "
+                f"{_target_phrase(targets)} as more than a trace."
             )
         experimental = {"cards": [card_json(c, calibrated) for c in cards], "message": message}
     return {

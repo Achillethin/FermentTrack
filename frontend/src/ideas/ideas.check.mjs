@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  aromaShareText,
   aromaTempText,
   AROMAS,
   basisText,
@@ -55,7 +56,7 @@ assert.deepEqual(targetBody(toggleTarget(t, "umami", "taste")), { aromas: ["frui
 
 // Wording (flavour spec § 7): never a number, never "tastes like".
 const phrases = ["High", "Med", "Low"].map((level) => levelPhrase({ level, modelled: true }));
-assert.deepEqual(phrases, ["likely noticeable", "may be noticeable", "unlikely to be noticeable"]);
+assert.deepEqual(phrases, ["likely to stand out", "may stand out", "unlikely to stand out"]);
 assert.equal(levelPhrase({ level: null, modelled: false }), "not modelled for this ferment");
 for (const p of phrases) assert.doesNotMatch(p, /\d|tastes? like|smells? like/);
 assert.equal(tierText("reported"), "reported in this ferment");
@@ -232,7 +233,7 @@ assert.deepEqual(moved.trust.labels, ["Model-guided idea"]);
 assert.ok(!("calibrated_on" in moved) && !("p_peak" in moved));
 assert.ok(moved.targets.every((x) => !("p_peak" in x)));
 assert.equal(calibratedText(moved), null);
-assert.deepEqual(targetLine(moved.targets[0], moved), { number: null, level: "High", text: "likely noticeable" });
+assert.deepEqual(targetLine(moved.targets[0], moved), { number: null, level: "High", text: "likely to stand out" });
 assert.doesNotMatch(levelsLegend(moved), /calibrated/i);
 assert.deepEqual(calibrated.trust.labels, ["Model-guided idea", "calibrated on 34 batches"]); // as served: unchanged
 const confirmedCalibrated = withForecast(
@@ -276,8 +277,8 @@ const calCard = {
 const numbered = targetLine(calCard.targets[1], calCard);
 assert.deepEqual(numbered, { number: "41 %", level: null, text: "chance of being noticeable at the peak" });
 assert.doesNotMatch(`${numbered.number} ${numbered.text}`, /High|Med|Low|likely|tastes? like/);
-assert.deepEqual(targetLine({ key: "sour", modelled: true, level: "High" }, {}), { number: null, level: "High", text: "likely noticeable" });
-assert.deepEqual(targetLine({ key: "sour", modelled: true, level: "Low", p_peak: 0.41 }, {}), { number: null, level: "Low", text: "unlikely to be noticeable" }); // not calibrated: no number
+assert.deepEqual(targetLine({ key: "sour", modelled: true, level: "High" }, {}), { number: null, level: "High", text: "likely to stand out" });
+assert.deepEqual(targetLine({ key: "sour", modelled: true, level: "Low", p_peak: 0.41 }, {}), { number: null, level: "Low", text: "unlikely to stand out" }); // not calibrated: no number
 assert.deepEqual(targetLine({ key: "umami", modelled: false, level: null }, calCard), { number: null, level: null, text: "not modelled for this ferment" });
 assert.equal(
   levelsLegend(calCard),
@@ -288,7 +289,7 @@ const mixed = { ...calCard, targets: [...calCard.targets, { key: "umami", modell
 assert.match(levelsLegend(mixed), /^Calibrated on 34 batches: numbers .* Low \/ Med \/ High where there is no number\. /);
 assert.equal(
   levelsLegend({ targets: [{ key: "sour", modelled: true, level: "High" }] }),
-  "Low / Med / High: how likely each target is to be noticeable at the peak. A model estimate of compounds above their detection threshold, not of how it will taste to you."
+  "Low / Med / High: how likely each target is to stand out at the peak. A model estimate of compounds above their detection threshold, not of how it will taste to you."
 );
 
 // The calibration gate's status line: counts and decision only, never a score (nulls never 0).
@@ -375,3 +376,14 @@ const batches = [
 assert.deepEqual(finishedParents(batches).map((b) => b.id), ["3", "1", "5"]);
 
 console.log("ideas.js ok");
+
+// v2 § 3.1: the share of the aroma, in words only (no digits before calibration).
+assert.equal(aromaShareText({ key: "sulfurous", modelled: true, share: "dominant" }), "dominates the aroma");
+assert.equal(aromaShareText({ key: "sulfurous", modelled: true, share: "large" }), "a large part of the aroma");
+assert.equal(aromaShareText({ key: "floral", modelled: true, share: "smaller" }), "a smaller part of the aroma");
+assert.equal(aromaShareText({ key: "mushroom", modelled: true, share: "trace" }), "only a trace in the aroma");
+assert.equal(aromaShareText({ key: "sour", modelled: true, share: null }), null); // a taste
+assert.equal(aromaShareText({ key: "x", modelled: true, share: 0.3 }), null); // never a raw number
+assert.equal(aromaShareText({ key: "fishy", modelled: false, share: null }), null);
+assert.equal(aromaShareText({ key: "fishy", modelled: true, share: "large", noticeable: false }), null);
+for (const x of ["trace", "smaller", "large", "dominant"]) assert.doesNotMatch(aromaShareText({ modelled: true, share: x }), /\d/);

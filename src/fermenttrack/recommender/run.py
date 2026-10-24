@@ -22,7 +22,8 @@ How a recipe runs:
 Statistics, per series s (16 aroma series, 4 tastes) and member n: L = `aroma:<s>` (log10
 summed odour activity) or `taste:<s>` (log10 activity ratio); E, U = score.central and
 score.optimistic of the character margin (score.character_margins / clear_taste,
-recommender v2 § 3.1), P = score.noticeable of L. A series the engine does not produce is
+recommender v2 § 3.1), P = score.noticeable of L, C = the expected character share
+(score.character_share; a taste's C is its E). A series the engine does not produce is
 absent.
 """
 
@@ -209,24 +210,30 @@ def engine_key(series: str) -> str:
 def series_statistics(
     t_src: FloatArray, values: Mapping[str, FloatArray], w: FloatArray, t_dst: FloatArray
 ) -> tuple[FloatArray, NDArray[np.bool_]]:
-    """(3, len(SERIES), len(t_dst)) E, U, P (NaN for an absent series) and the presence.
+    """(4, len(SERIES), len(t_dst)) E, U, P, C (NaN for an absent series) and the presence.
     E and U score character (recommender v2 § 3.1): an aroma series' margin among the
     member's strongest present series, a taste's margin over its clear line. P stays
-    P(L > 0), the noticeable probability the calibration gate scores."""
-    out = np.full((3, len(SERIES), len(t_dst)), np.nan)
+    P(L > 0), the noticeable probability the calibration gate scores. C, the ranking
+    magnitude: an aroma series' expected share of the perceived aroma (score.character_share),
+    a taste's E (a taste does not share with aroma)."""
+    out = np.full((4, len(SERIES), len(t_dst)), np.nan)
     present = np.zeros(len(SERIES), dtype=bool)
     L = {
         s: at_times(t_src, values[engine_key(s)], t_dst)
         for s in SERIES
         if engine_key(s) in values
     }
-    margin = score.character_margins({s: v for s, v in L.items() if s in AROMA_SERIES})
+    aroma = {s: v for s, v in L.items() if s in AROMA_SERIES}
+    margin = score.character_margins(aroma)
     margin.update({s: score.clear_taste(v) for s, v in L.items() if s in derived.TASTES})
+    share = score.character_share(aroma) if aroma else {}
     for j, s in enumerate(SERIES):
         if s not in L:
             continue
         m = margin[s]
-        out[:, j] = score.central(m, w), score.optimistic(m, w), score.noticeable(L[s], w)
+        e = score.central(m, w)
+        c = score.mean(share[s], w) if s in share else e
+        out[:, j] = e, score.optimistic(m, w), score.noticeable(L[s], w), c
         present[j] = True
     return out, present
 

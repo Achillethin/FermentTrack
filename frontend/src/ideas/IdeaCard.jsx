@@ -16,6 +16,7 @@ import {
   madeText,
   plannerHref,
   scheduleText,
+  aromaShareText,
   targetLine,
   tierText,
   windowRows,
@@ -474,6 +475,7 @@ export default function IdeaCard({ card, query, onUseAsParent }) {
                     )}
                     <span className="text-slate-300">{line.text}</span>
                   </span>
+                  {aromaShareText(t) && <span className="block text-xs text-slate-300">{aromaShareText(t)}</span>}
                   {t.top_compound && (
                     <span className="block text-xs text-slate-400">
                       Led by {t.top_compound.name} ({tierText(t.top_compound.tier)})

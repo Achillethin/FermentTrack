@@ -341,15 +341,17 @@ def test_a_target_the_ferment_does_not_produce_is_not_modelled() -> None:
 
 
 def test_ranking_without_targets_follows_the_tie_keys() -> None:
-    """§ 5.4: nothing to buy first; then institutional before peer-reviewed; then the key."""
+    """§ 5.4 with v2 § 3.2: the most of the pantry first (koji is all rice; the sweet shiro miso
+    has more rice per kg than the long red one); then nothing to buy, provenance, the key."""
     cards, _ = S.proven_cards(["White rice"], (), None)
     assert [c.recipe.key for c in cards] == [
-        KOJI, "red_rice_miso_kagawa_long", "shiro_miso_kagawa_sweet",
+        KOJI, "shiro_miso_kagawa_sweet", "red_rice_miso_kagawa_long",
     ]  # fmt: skip
+    assert [c.coverage for c in cards] == sorted((c.coverage for c in cards), reverse=True)
     assert [c.to_buy for c in cards] == [(), ("Soybeans",), ("Soybeans",)]
 
 
-def test_ranking_with_targets_is_by_e_at_the_peak() -> None:
+def test_ranking_with_targets_is_by_the_share_at_the_peak() -> None:
     targets = S.parse_targets(["fruity"], ["sour"])
     cards = [
         c for r in library.active() if (c := S.build_card(r, targets, None)[0]) is not None
@@ -357,8 +359,8 @@ def test_ranking_with_targets_is_by_e_at_the_peak() -> None:
     best, _ = S.proven_cards([], targets, None)
     ranked = sorted(cards, key=S.rank_key)
     assert [c.recipe.key for c in best] == [c.recipe.key for c in ranked[:3]]
-    es = [c.evaluation.e or 0.0 for c in ranked]
-    assert es == sorted(es, reverse=True)
+    cs = [c.evaluation.c or 0.0 for c in ranked]  # v2 § 3.1: C, not the saturating E
+    assert cs == sorted(cs, reverse=True)
 
 
 def test_the_planner_link_is_the_planner_s_share_format() -> None:
@@ -414,7 +416,10 @@ async def test_a_proven_card(client: AsyncClient) -> None:
     assert card["safety_lines"] == [gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE]
     assert card["level"] in {"Low", "Med", "High"}
     for t in card["targets"]:  # Low / Med / High, never a number, before the calibration gate
-        assert set(t) == {"key", "kind", "level", "modelled", "low_resolution", "top_compound"}
+        assert set(t) == {
+            "key", "kind", "level", "modelled", "low_resolution", "top_compound", "share",
+            "noticeable",
+        }  # fmt: skip
     assert card["targets"][0]["top_compound"]["tier"] in {"calibrated", "reported", "plausible"}
     assert card["trust"]["labels"][:2] == ["Model-guided idea", "model estimate, not validated"]
     assert card["trust"]["provenance"] == "peer_reviewed" and card["trust"]["sources"]
@@ -893,7 +898,7 @@ def test_variants_rank_by_u_minus_the_penalty_one_per_parent() -> None:
     assert len({c.variant.parent.recipe.key for c in cards if c.variant}) == len(cards)
     for card, key in zip(cards, keys, strict=True):
         ev = card.evaluation
-        assert ev.u is not None and -key[0] == pytest.approx(ev.u - ev.penalty)
+        assert ev.u is not None and -key[1] == pytest.approx(ev.u - ev.penalty)
         assert card.variant is not None and 1 <= len(card.variant.operators) <= 3
 
 

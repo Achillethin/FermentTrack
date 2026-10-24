@@ -23,11 +23,26 @@ export const targetBody = (targets) => ({
   tastes: targets.filter((t) => t.kind === "taste").map((t) => t.key),
 });
 
-// Flavour spec § 7 wording: "likely noticeable", never "tastes like". No numbers before
-// the calibration gate (design § 13.2).
-const LEVEL_PHRASE = { High: "likely noticeable", Med: "may be noticeable", Low: "unlikely to be noticeable" };
+// Flavour spec § 7 wording: never "tastes like", no numbers before the calibration gate
+// (design § 13.2). Since recommender v2 § 3.1 the level is the chance that the target stands
+// out (among the batch's leading notes; a taste past its "clearly" line), not mere noticing.
+const LEVEL_PHRASE = { High: "likely to stand out", Med: "may stand out", Low: "unlikely to stand out" };
 export const levelPhrase = (target) =>
   target.modelled && target.level ? LEVEL_PHRASE[target.level] : "not modelled for this ferment";
+
+// v2 § 3.1: how much of the batch's perceived aroma the target carries at the peak, a band
+// from the API (no numbers before calibration). null for a taste, a series the engine does
+// not produce here, or one unlikely noticeable at all.
+const SHARE_WORDS = {
+  dominant: "dominates the aroma",
+  large: "a large part of the aroma",
+  smaller: "a smaller part of the aroma",
+  trace: "only a trace in the aroma",
+};
+export function aromaShareText(target) {
+  if (!target.modelled || target.noticeable === false) return null;
+  return SHARE_WORDS[target.share] ?? null;
+}
 
 const TIER_TEXT = {
   calibrated: "calibrated evidence",
@@ -227,7 +242,7 @@ export function targetLine(target, card) {
 // The legend under a card's targets.
 export function levelsLegend(card) {
   const scope = "A model estimate of compounds above their detection threshold, not of how it will taste to you.";
-  const levels = "Low / Med / High: how likely each target is to be noticeable at the peak.";
+  const levels = "Low / Med / High: how likely each target is to stand out at the peak.";
   const numbered = (card.targets ?? []).filter((t) => pText(t, card) != null).length;
   if (!numbered) return `${levels} ${scope}`;
   const c = calibratedText(card);
