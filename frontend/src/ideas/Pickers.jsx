@@ -9,6 +9,7 @@ import {
   finishedParents,
   LOW_RESOLUTION,
   MAX_INGREDIENTS,
+  MAX_STARRED,
   MAX_TARGETS,
   MAX_USDA,
   MODES,
@@ -32,7 +33,7 @@ function LowResBadge() {
 }
 
 // Must-include ingredients from the catalogue (GET /ingredients): type to filter, pick to add.
-export function IngredientPicker({ value, onChange }) {
+export function IngredientPicker({ value, onChange, starred = [], onStarredChange = () => {} }) {
   const [names, setNames] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [reload, setReload] = useState(0);
@@ -72,13 +73,28 @@ export function IngredientPicker({ value, onChange }) {
         Ingredients you have <span className="font-normal text-slate-400">· optional</span>
       </label>
       <p id={`${id}-hint`} className="mb-2 text-xs text-slate-400">
-        Every idea contains all of them, except staples (salt, water, sugar, flour, tea, starter cultures), which never
-        narrow the search.
+        Ideas use what you have, the most of it first. Star up to {MAX_STARRED} that every idea must contain. Staples
+        (salt, water, sugar, flour, tea, starter cultures) never narrow the search.
       </p>
       {value.length > 0 && (
         <ul aria-label="Chosen ingredients" className="mb-2 flex flex-wrap gap-2">
           {value.map((name) => (
-            <li key={name}>
+            <li key={name} className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-pressed={starred.includes(name)}
+                aria-label={`Must use ${name}`}
+                title={starred.includes(name) ? "Every idea contains it" : "Make every idea contain it"}
+                disabled={!starred.includes(name) && starred.length >= MAX_STARRED}
+                onClick={() =>
+                  onStarredChange(
+                    starred.includes(name) ? starred.filter((n) => n !== name) : [...starred, name]
+                  )
+                }
+                className="min-h-[44px] min-w-[44px] rounded-full text-lg text-amber-300 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:opacity-30"
+              >
+                <span aria-hidden="true">{starred.includes(name) ? "★" : "☆"}</span>
+              </button>
               <button
                 type="button"
                 onClick={() => {

@@ -306,9 +306,21 @@ export function mergeDeep(sectionCards, results) {
 }
 
 const sorted = (xs) => [...(xs ?? [])].map(String).sort();
+// Owner decision V7 (recommender v2 § 3.2): the list is what you have; starred items, up to
+// MAX_STARRED, are must-use. Starred -> `ingredients` (every idea contains them), the rest ->
+// `pantry` (an idea uses some of them, the most first).
+export const MAX_STARRED = 2;
+export function pantryBody(names, starred) {
+  return {
+    ingredients: names.filter((n) => starred.includes(n)),
+    pantry: names.filter((n) => !starred.includes(n)),
+  };
+}
+
 const searchKey = (q) =>
   JSON.stringify([
     sorted(q.ingredients),
+    sorted(q.pantry),
     sorted(q.aromas),
     sorted(q.tastes),
     q.temperature_c ?? null,
@@ -326,7 +338,7 @@ export function searchSummary(q) {
   if (!q) return "";
   const aims = [...(q.aromas ?? []), ...(q.tastes ?? [])];
   return [
-    (q.ingredients ?? []).join(", "),
+    [...(q.ingredients ?? []).map((n) => `${n} ★`), ...(q.pantry ?? [])].join(", "),
     aims.length ? `aiming for ${aims.join(", ")}` : "",
     q.usda_fdc_ids?.length ? `${q.usda_fdc_ids.length} USDA food${q.usda_fdc_ids.length === 1 ? "" : "s"}` : "",
     q.temperature_c != null ? `at ${formatC(q.temperature_c)}` : "",

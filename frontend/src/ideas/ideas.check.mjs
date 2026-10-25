@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   aromaShareText,
+  MAX_STARRED,
   aromaTempText,
   AROMAS,
   basisText,
@@ -26,6 +27,7 @@ import {
   MODES,
   plannerHref,
   pText,
+  pantryBody,
   sameSearch,
   scheduleText,
   searchSummary,
@@ -362,7 +364,7 @@ assert.ok(!sameSearch(q1, { ...q1, aromas: [] }));
 assert.ok(!sameSearch(q1, null));
 assert.ok(!sameSearch(q1, { ...q1, mode: "experimental", parent_batch_id: "b1" })); // results with a parent
 assert.ok(!sameSearch(q1, { ...q1, mode: "experimental", community_recipe_id: "c1" }));
-assert.equal(searchSummary({ ...q1, temperature_c: 21, usda_fdc_ids: [1] }), "Cabbage, Carrot · aiming for fruity, sour · 1 USDA food · at 21 °C");
+assert.equal(searchSummary({ ...q1, temperature_c: 21, usda_fdc_ids: [1] }), "Cabbage ★, Carrot ★ · aiming for fruity, sour · 1 USDA food · at 21 °C");
 assert.equal(searchSummary({ aromas: ["fruity"] }), "aiming for fruity");
 
 // Your finished batches as parents: not sourdough, not running, newest first.
@@ -394,3 +396,10 @@ assert.deepEqual(
     parent: { kind: "composed", composed: { bases: ["Carrot"], aromatics: ["Garlic"] } } }),
   { composed: { bases: ["Carrot"], aromatics: ["Garlic"] } }
 );
+
+// V7: the list is what you have; starred items are must-use.
+assert.deepEqual(pantryBody(["Carrot", "Garlic", "Onion"], ["Garlic"]), { ingredients: ["Garlic"], pantry: ["Carrot", "Onion"] });
+assert.deepEqual(pantryBody(["Cabbage"], []), { ingredients: [], pantry: ["Cabbage"] });
+assert.equal(MAX_STARRED, 2);
+assert.ok(!sameSearch({ ingredients: [], pantry: ["Carrot"] }, { ingredients: [], pantry: ["Garlic"] }));
+assert.equal(searchSummary({ ingredients: ["Garlic"], pantry: ["Carrot"] }), "Garlic ★, Carrot");

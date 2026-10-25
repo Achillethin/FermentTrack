@@ -7,7 +7,7 @@ import { getCalibration, postRecommendations } from "./api.js";
 import { DeepSearchPanel, useDeepSearch } from "./DeepSearch.jsx";
 import { isActive } from "./deep.js";
 import IdeaCard from "./IdeaCard.jsx";
-import { calibrationText, groupByParent, mergeDeep, sameSearch, targetBody } from "./ideas.js";
+import { calibrationText, groupByParent, mergeDeep, pantryBody, sameSearch, targetBody } from "./ideas.js";
 import { IngredientPicker, ModeToggle, ParentPicker, TargetChips, UsdaPicker } from "./Pickers.jsx";
 
 const MAX_BATCH_G = 200_000; // the API's limit
@@ -124,6 +124,7 @@ function useCalibration() {
 // (design §§ 5, 10, 11), and Search deeper under them.
 export default function Ideas() {
   const [ingredients, setIngredients] = useState([]);
+  const [starred, setStarred] = useState([]); // must-use, a subset of ingredients (V7)
   const [targets, setTargets] = useState([]);
   const [mode, setMode] = useState("proven");
   const [parent, setParent] = useState(null); // Experimental: {kind: "batch" | "community", id, …}
@@ -146,7 +147,7 @@ export default function Ideas() {
   function buildQuery(m = mode, p = parent) {
     const exp = m !== "proven";
     return {
-      ingredients,
+      ...pantryBody(ingredients, starred),
       ...targetBody(targets),
       mode: m,
       temperature_c: temp.value,
@@ -207,7 +208,15 @@ export default function Ideas() {
           levels are model estimates, not validated.
         </p>
         <form className="space-y-5" onSubmit={submit} noValidate>
-          <IngredientPicker value={ingredients} onChange={setIngredients} />
+          <IngredientPicker
+            value={ingredients}
+            onChange={(names) => {
+              setIngredients(names);
+              setStarred((s) => s.filter((n) => names.includes(n)));
+            }}
+            starred={starred}
+            onStarredChange={setStarred}
+          />
           <TargetChips value={targets} onChange={setTargets} />
           <ModeToggle value={mode} onChange={setMode} note={calibration} />
           {experimental && (
