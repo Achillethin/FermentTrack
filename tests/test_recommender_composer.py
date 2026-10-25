@@ -55,4 +55,5 @@ def test_more_of_the_pantry_first_and_validation() -> None:
         C.composition(["Carrot"], ["Caraway seeds"])  # no sourced amount
     with pytest.raises(C.CompositionError):
         C.composition(["Carrot", "Radish", "Cucumber"], [])  # at most 2 bases
-    assert C.composition(["Carrot", "Carrot"], ["Garlic"]) == C.Composition(("Carrot",), ("Garlic",))
+    dup = C.composition(["Carrot", "Carrot"], ["Garlic"])
+    assert dup == C.Composition(("Carrot",), ("Garlic",))

@@ -180,7 +180,9 @@ def _in_library(c: Composition) -> bool:
 def notes(c: Composition) -> tuple[str, ...]:
     """What the card says about how it was composed."""
     if c.method == "dry_salted":
-        out = [f"composed: dry-salted at {DRY_SALT_PCT:g} % salt, the standard for shredded cabbage"]
+        out = [
+            f"composed: dry-salted at {DRY_SALT_PCT:g} % salt, the standard for shredded cabbage"
+        ]
     else:
         brine = 100.0 * BRINE_SALT_PCT / (100.0 * BRINE_SHARE)
         out = [
