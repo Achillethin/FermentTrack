@@ -80,6 +80,8 @@ A lacto recipe is assembled from parts, each a rule or a curated number:
 
 Composed recipes are Experimental-provenance with a "composed from sourced rules" label; the gate runs on every one.
 
+**As built (2026-10-24, `recommender/composer.py`).** Cabbages are dry-salted at 2.25 % (Johanningsmeier et al. 2007: the standard 2.0–2.25 %); every other base is brined at vegetables 46 % / brine 54 % of the jar (NCHFP dill pickles) with 2.5 % salt in the batch, i.e. a 4.6 % brine, inside UMN's 1–3 Tbsp per quart. Aromatics come from a composer table, not T3: T3 needs aroma data and garlic and onion have none until the lacto round's allium cascade lands (garlic 2.5 %, the median of five kimchi recipes; onion 4.4 %, one recipe; their aroma shows as "no aroma data"). Up to 2 compositions per request (the ones using more of the pantry first, none duplicating a library recipe) lead the Experimental section, each a live forecast (64 members); the card carries only the ingredients (`parent.composed`) and the forecast and Start batch derive every mass again (`ComposedIn`). Duration 3–4 weeks (NCHFP, UMN). Not yet: dill, caraway and other aromatics without a sourced amount; brine-specific aromatic shares; kimchi-style seasoned pastes.
+
 ### 3.4 Expected information gain badge (V12)
 
 With the ordinal tasting model of v1 § 15.1, P(rating ≥ k | n) = σ((Lₙ,ₛ − θ_k)/τ_obs), the gain of one tasting of series *s* at time *t* is EIG = H[Σₙ wₙ p(r | n)] − Σₙ wₙ H[p(r | n)]. It is computed per entry and series at grid build and stored. The badge shows on variants in the top quartile of EIG among served cards.

@@ -387,3 +387,10 @@ assert.equal(aromaShareText({ key: "x", modelled: true, share: 0.3 }), null); //
 assert.equal(aromaShareText({ key: "fishy", modelled: false, share: null }), null);
 assert.equal(aromaShareText({ key: "fishy", modelled: true, share: "large", noticeable: false }), null);
 for (const x of ["trace", "smaller", "large", "dominant"]) assert.doesNotMatch(aromaShareText({ modelled: true, share: x }), /\d/);
+
+// v2 § 3.3: a composed card sends back only its ingredients.
+assert.deepEqual(
+  cardSource({ section: "experimental", recipe_key: "composed:brine:Carrot+Garlic", operators: [],
+    parent: { kind: "composed", composed: { bases: ["Carrot"], aromatics: ["Garlic"] } } }),
+  { composed: { bases: ["Carrot"], aromatics: ["Garlic"] } }
+);

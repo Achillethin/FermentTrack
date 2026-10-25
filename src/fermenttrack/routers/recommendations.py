@@ -69,13 +69,14 @@ from fermenttrack.models import (
     Reminder,
 )
 from fermenttrack.prediction.service import PredictionUnavailable
-from fermenttrack.recommender import calibration, community, gate, jobs, run, service
+from fermenttrack.recommender import calibration, community, composer, gate, jobs, run, service
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.routers.batches import _get_batch, _ingredient_for_fdc_food
 from fermenttrack.routers.community import approved_candidate, approved_candidates
 from fermenttrack.schemas import (
     BatchOut,
     CalibrationReportOut,
+    ComposedIn,
     CultureOut,
     DeepSearchOut,
     FromRecommendationIn,
@@ -175,6 +176,17 @@ async def _own_parent(db: AsyncSession, batch_id: uuid.UUID, user_id: str) -> se
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
+def _composed_parent(spec: ComposedIn, temperature_c: float | None) -> service.Parent:
+    """v2 § 3.3: the composed card's parent, every mass derived here again (422 when the
+    ingredients don't compose)."""
+    try:
+        return service.composed_parent(
+            composer.composition(spec.bases, spec.aromatics), temperature_c
+        )
+    except composer.CompositionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
 def _requests(ops: list[OperatorIn]) -> tuple[service.OperatorRequest, ...]:
     return tuple(
         service.OperatorRequest(o.op, o.ingredient, o.replaces, o.to_c, o.fdc_id) for o in ops
@@ -220,7 +232,9 @@ async def forecast(
 ) -> RecommendationForecastOut:
     own = None
     shared = None  # a community card (no operators): its own live forecast
-    if payload.parent_batch_id is not None:
+    if payload.composed is not None:
+        own = _composed_parent(payload.composed, payload.temperature_c)
+    elif payload.parent_batch_id is not None:
         own = await _own_parent(db, payload.parent_batch_id, user_id)
     elif payload.community_recipe_id is not None:
         found = await approved_candidate(db, payload.community_recipe_id)
@@ -274,7 +288,9 @@ async def start_batch(
     ops = _requests(payload.operators)
     own = None
     shared = None  # a community card (no operators): booked from its own forecasts
-    if payload.parent_batch_id is not None:
+    if payload.composed is not None:
+        own = _composed_parent(payload.composed, payload.temperature_c)
+    elif payload.parent_batch_id is not None:
         own = await _own_parent(db, payload.parent_batch_id, user_id)
     elif payload.community_recipe_id is not None:
         picked = await approved_candidate(db, payload.community_recipe_id)

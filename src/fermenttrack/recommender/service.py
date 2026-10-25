@@ -94,7 +94,17 @@ from fermenttrack.prediction.sourdough import STYLES
 
 # `run`: how a recipe runs and how a run becomes grid statistics, shared with the grid builder
 # so a live forecast is computed the way its grid entry was. The only source of that logic.
-from fermenttrack.recommender import gate, grid, library, operators, run, score, screen, window
+from fermenttrack.recommender import (
+    composer,
+    gate,
+    grid,
+    library,
+    operators,
+    run,
+    score,
+    screen,
+    window,
+)
 from fermenttrack.recommender.library import Recipe, Span
 from fermenttrack.recommender.operators import Operator
 from fermenttrack.recommender.window import Window
@@ -709,16 +719,18 @@ class OperatorRefused(RecommendationError):
 @dataclass(frozen=True)
 class Parent:
     """An Experimental parent: an active library recipe, the user's own batch (Q16) as a
-    recipe (key "batch:<id>"), or an approved community recipe (design § 10.3, key
-    "community:<id>"). The last two have no grid entry: their basis comes with them, and they
-    run live (own_batch_cards)."""
+    recipe (key "batch:<id>"), an approved community recipe (design § 10.3, key
+    "community:<id>") or a lacto recipe composed for the pantry (v2 § 3.3, key
+    "composed:<method>:<names>"). The last three have no grid entry: their basis comes with
+    them, and they run live (own_batch_cards, composed_cards)."""
 
     recipe: Recipe
-    kind: Literal["library", "own_batch", "community"]
+    kind: Literal["library", "own_batch", "community", "composed"]
     label: str  # the recipe's name, "your batch #n" or "community recipe …"
     batch_id: str | None = None
     basis: Basis | None = None  # own batch, community recipe; library parents read the grid
     community_id: str | None = None
+    composition: composer.Composition | None = None  # a composed parent's ingredients
 
 
 @dataclass(frozen=True)
@@ -756,12 +768,16 @@ class Variant:
             return f"own_batch:{p.batch_id}:{self.key}"
         if p.kind == "community":
             return f"community:{p.community_id}:{self.key}"
+        if p.kind == "composed":
+            return p.recipe.key if not self.operators else f"{p.recipe.key}:{self.key}"
         return f"variant:{p.recipe.key}:{self.key}"
 
     @property
-    def source_kind(self) -> Literal["variant", "own_batch", "community"]:
+    def source_kind(self) -> Literal["variant", "own_batch", "community", "composed"]:
         if self.parent.kind == "own_batch":
             return "own_batch"
+        if self.parent.kind == "composed":
+            return "composed"
         return "community" if self.parent.kind == "community" else "variant"
 
     @property
@@ -775,7 +791,7 @@ class Variant:
         (your batch) or community_recipe_id (a community recipe)."""
         p = self.parent
         return {
-            "recipe_key": p.recipe.key if p.kind == "library" else None,
+            "recipe_key": p.recipe.key if p.kind in ("library", "composed") else None,
             "parent_batch_id": uuid.UUID(p.batch_id) if p.kind == "own_batch" and p.batch_id
             else None,
             "community_recipe_id": uuid.UUID(p.community_id)
@@ -825,6 +841,13 @@ def available_operators(
         op for op in ops
         if op.kind not in ("add", "swap") or (op.key in held and grid.temps(key, op.key))
     )  # fmt: skip
+
+
+def _operators_for(parent: Parent, requests: Sequence[OperatorRequest]) -> tuple[Operator, ...]:
+    """A composed parent is served as composed (no operators); otherwise resolve_operators."""
+    if parent.kind == "composed" and not requests:
+        return ()
+    return resolve_operators(parent, requests)
 
 
 def resolve_operators(parent: Parent, requests: Sequence[OperatorRequest]) -> tuple[Operator, ...]:
@@ -889,6 +912,8 @@ def variant_gate(v: Variant, temp: Temperature) -> gate.GateResult:
     """The gate at every temperature the card can show (check_gate) plus the operators' own
     bounds (design § 7, "also gated")."""
     result = check_gate(v.recipe, temp)
+    if v.parent.kind == "composed" and not v.operators:  # served as composed: no operator bounds
+        return result
     why = tuple(operators.bounds_reasons(v.parent.recipe, v.operators))
     return replace(result, ok=False, reasons=(*result.reasons, *why)) if why else result
 
@@ -987,6 +1012,8 @@ def variant_card(
     notes = [*temp.notes, *model_note(stats.temp_c, temp, nearest), *ev.notes]
     if v.parent.kind == "own_batch" and v.parent.recipe.notes:
         notes.append(v.parent.recipe.notes)  # e.g. a batch still running: typical timings
+    if v.parent.composition is not None:
+        notes += composer.notes(v.parent.composition)
     if ev.rising:
         notes.append(f"{', '.join(ev.rising)}: likely more noticeable than in {v.parent.label}")
     screened = v.screened and not live
@@ -1338,6 +1365,58 @@ def own_parent(own: OwnBatch) -> Parent:
     return Parent(recipe, "own_batch", label, own.batch_id, basis)
 
 
+COMPOSED_CARDS = 2  # v2 § 3.3: composed lacto ideas lead the Experimental section
+
+
+def composed_parent(c: composer.Composition, temperature_c: float | None = None) -> Parent:
+    """A composition as a live parent (raises composer.CompositionError)."""
+    recipe = composer.compose(c, temperature_c)
+    d = recipe.duration_h
+    assert d is not None
+    basis = Basis((d.lo, d.median, d.hi), PROFILES[composer.TYPE].horizon_h, None)
+    return Parent(recipe, "composed", composer.LABEL, basis=basis, composition=c)
+
+
+def composed_variant(
+    parent: Parent, temperature_c: float | None
+) -> tuple[Variant, grid.Entry, Reference]:
+    """The composed recipe run live (64 members) at the card's temperature, with the main
+    milestone's median for the no-target peak shift; it is its own reference (there is no
+    parent to compare off-notes with)."""
+    v = make_variant(parent, ())
+    temp = variant_temperature(v, temperature_c)
+    t_dst, end = own_axis(parent)
+    model_c = model_temperature(v.recipe, temp.served_c)
+    stats, _, _ = live_variant_statistics(v.recipe, model_c, FORECAST_MEMBERS, t_dst, end)
+    m = stats.milestones.get(_main_milestone(parent.recipe))
+    assert parent.basis is not None
+    parent = replace(parent, basis=replace(parent.basis, m_source_h=m.p50 if m else None))
+    d = parent.basis.duration_h if parent.basis else None
+    ref = Reference(character(parent.recipe, stats, d[1] if d else None), stats.p)
+    return replace(v, parent=parent), stats, ref
+
+
+def composed_cards(
+    listed: Sequence[str],
+    pantry: Sequence[str],
+    targets: Sequence[Target],
+    temperature_c: float | None,
+    batch_g: float = DEFAULT_BATCH_G,
+) -> list[Card]:
+    """v2 § 3.3: lacto recipes composed for what the user has (composer.candidates, the ones
+    using more of the pantry first), at most COMPOSED_CARDS, each live and gated."""
+    have = (*listed, *pantry)
+    cards: list[Card] = []
+    for c in composer.candidates(have, must_include(listed)):
+        if len(cards) == COMPOSED_CARDS:
+            break
+        v, stats, ref = composed_variant(composed_parent(c, temperature_c), temperature_c)
+        card, _ = variant_card(v, targets, temperature_c, batch_g, have, ref, stats=stats)
+        if card is not None and matches(card, targets):
+            cards.append(card)
+    return cards
+
+
 def own_axis(parent: Parent) -> tuple[FloatArray, float]:
     assert parent.basis is not None
     return run.time_axis(parent.basis.duration_h, parent.basis.horizon_h)
@@ -1643,7 +1722,9 @@ def _parent_json(v: Variant) -> dict[str, Any]:
         "community_recipe_id": p.community_id,
         "name": p.recipe.name,
         "label": p.label,
-    }
+    } | ({} if p.composition is None else {"composed": {
+        "bases": list(p.composition.bases), "aromatics": list(p.composition.aromatics),
+    }})  # fmt: skip
 
 
 def _bookable(i: library.RecipeIngredient) -> bool:
@@ -1661,7 +1742,9 @@ def card_json(card: Card, calibrated: int | None = None) -> dict[str, Any]:
     planner = r.handoff == "planner"
     link = planner_link(r, served, card.batch_g) if planner else None
     labels = [*CARD_LABELS]
-    if v is not None:
+    if v is not None and v.parent.kind == "composed":
+        labels.append(f"Experimental — {composer.LABEL}")
+    elif v is not None:
         labels.append(f"Experimental — departs from {v.parent.label}")
     labels += library.trust_labels(parent, served)
     if card.screened:
@@ -1843,6 +1926,10 @@ def experimental_section(
         mine = own_batch_cards(own, listed, targets, temperature_c, batch_g, usda_ids)
         considered = considered or bool(parent_combinations(own, listed, temperature_c, usda_ids))
         cards = [*mine[:1], *cards][:CARDS_PER_SECTION]
+    elif not usda_ids:  # v2 § 3.3: what the pantry composes into leads (the user asked for it)
+        composed = composed_cards(listed, pantry, targets, temperature_c, batch_g)
+        considered = considered or bool(composed)
+        cards = [*composed, *cards][:CARDS_PER_SECTION]
     return considered, cards
 
 
@@ -1979,7 +2066,7 @@ def variant_forecast(
     temperature comes back too, and "interaction detected" when the confirmed one is below
     0.8 times it. A fresh confirmation is kept by fingerprint and logged (log_candidate)."""
     targets = parse_targets(aromas, tastes)
-    v = make_variant(parent, resolve_operators(parent, requests))
+    v = make_variant(parent, _operators_for(parent, requests))
     temp = variant_temperature(v, temperature_c)
     result = variant_gate(v, temp)
     if not result.ok:
@@ -2138,7 +2225,7 @@ def variant_batch_plan(
     mode: str,
 ) -> BatchPlan:
     targets = parse_targets(aromas, tastes)
-    v = make_variant(parent, resolve_operators(parent, requests))
+    v = make_variant(parent, _operators_for(parent, requests))
     if parent.kind == "library":
         reference = library_reference(parent.recipe, temperature_c)
         card, _ = variant_card(v, targets, temperature_c, batch_g, (), reference)
@@ -2162,9 +2249,10 @@ def variant_batch_plan(
     first = card.schedule[0][1] if card.schedule else card.temperature.served_c
     chips = [operator_json(op, parent.recipe) for op in v.operators]
     link = link_columns(card, mode, v.source_kind, chips, **v.link_parent)
+    name = parent.recipe.name if parent.kind == "composed" else f"{parent.recipe.name} (variant)"
     return BatchPlan(
         card, float(first), rows, skipped, gate.needs_ph_reminder(v.recipe.fermentation_type),
-        link, f"{parent.recipe.name} (variant)", fdc_rows,
+        link, name, fdc_rows,
     )  # fmt: skip
 
 

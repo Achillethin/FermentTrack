@@ -354,7 +354,11 @@ export default function IdeaCard({ card, query, onUseAsParent }) {
         <h3 id={headingId} className="font-display text-lg font-bold text-slate-100">
           {card.name}
         </h3>
-        {card.parent && <p className="text-sm text-slate-300">Variant of {card.parent.label}</p>}
+        {card.parent?.kind === "composed" ? (
+          <p className="text-sm text-slate-300">Composed for what you have, from sourced rules</p>
+        ) : (
+          card.parent && <p className="text-sm text-slate-300">Variant of {card.parent.label}</p>
+        )}
         {card.community && <CommunityLine community={card.community} />}
         <OperatorChips operators={card.operators} />
         <div className="mt-2 space-y-1">

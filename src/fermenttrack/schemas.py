@@ -862,16 +862,35 @@ class OperatorIn(BaseModel):
 Operators = Annotated[list[OperatorIn], Field(max_length=3)]
 
 
+class ComposedIn(BaseModel):
+    """A lacto recipe composed for the pantry (recommender v2 § 3.3): only the ingredients; the
+    server derives the method, every mass and the salt again (recommender.composer)."""
+
+    bases: Annotated[list[str], Field(min_length=1, max_length=2)]
+    aromatics: Annotated[list[str], Field(max_length=3)] = []
+
+
+class ComposedOut(BaseModel):
+    bases: list[str]
+    aromatics: list[str]
+
+
 def _check_parent(
     recipe_key: str | None,
     parent_batch_id: uuid.UUID | None,
     operators: list[OperatorIn],
     community_recipe_id: uuid.UUID | None = None,
+    composed: ComposedIn | None = None,
 ) -> None:
-    if sum(x is not None for x in (recipe_key, parent_batch_id, community_recipe_id)) != 1:
-        raise ValueError("give one of recipe_key, parent_batch_id or community_recipe_id")
+    sources = (recipe_key, parent_batch_id, community_recipe_id, composed)
+    if sum(x is not None for x in sources) != 1:
+        raise ValueError(
+            "give one of recipe_key, parent_batch_id, community_recipe_id or composed"
+        )
     if parent_batch_id is not None and not operators:
         raise ValueError("a variant of your batch needs at least one operator")
+    if composed is not None and operators:
+        raise ValueError("a composed recipe takes no operators")
 
 
 class RecommendationRequest(BaseModel):
@@ -1019,12 +1038,14 @@ class OperatorChipOut(BaseModel):
 
 
 class CardParentOut(BaseModel):
-    kind: Literal["library", "own_batch", "community"]
+    kind: Literal["library", "own_batch", "community", "composed"]
     recipe_key: str | None
     batch_id: str | None
     community_recipe_id: str | None = None
     name: str
     label: str  # the recipe's name, "your batch #n" or "community recipe “…” by …"
+    # kind "composed": what to send back (ComposedIn); absent otherwise (the JSON before v2 § 3.3)
+    composed: ComposedOut | None = Field(default=None, exclude_if=_unset)
 
 
 class CommunityCardOut(BaseModel):
@@ -1042,7 +1063,7 @@ class CommunityCardOut(BaseModel):
 class RecommendationCardOut(BaseModel):
     id: str
     section: Literal["proven", "experimental", "community"]
-    source_kind: Literal["library", "variant", "own_batch", "community"]
+    source_kind: Literal["library", "variant", "own_batch", "community", "composed"]
     recipe_key: str | None  # the library recipe (a variant's parent); None: your batch, community
     name: str
     fermentation_type: str
@@ -1105,6 +1126,7 @@ class RecommendationForecastIn(BaseModel):
     recipe_key: str | None = None
     parent_batch_id: uuid.UUID | None = None
     community_recipe_id: uuid.UUID | None = None
+    composed: ComposedIn | None = None  # v2 § 3.3: a composed card
     operators: Operators = []
     aromas: list[str] = []
     tastes: list[str] = []
@@ -1115,7 +1137,8 @@ class RecommendationForecastIn(BaseModel):
     def _valid(self) -> RecommendationForecastIn:
         _check_targets(self.aromas, self.tastes)
         _check_parent(
-            self.recipe_key, self.parent_batch_id, self.operators, self.community_recipe_id
+            self.recipe_key, self.parent_batch_id, self.operators, self.community_recipe_id,
+            self.composed,
         )
         return self
 
@@ -1135,7 +1158,7 @@ class ForecastBandOut(BaseModel):
 
 class RecommendationForecastOut(BaseModel):
     recipe_key: str | None  # None: a variant of your batch, a community recipe
-    source_kind: Literal["library", "variant", "own_batch", "community"] = "library"
+    source_kind: Literal["library", "variant", "own_batch", "community", "composed"] = "library"
     operators: list[OperatorChipOut] = []
     screened: bool = False  # the variant's card was screened (design § 8.5)
     screened_e_peak: float | None = None  # its screened E(peak) at this temperature
@@ -1162,6 +1185,7 @@ class FromRecommendationIn(BaseModel):
     recipe_key: str | None = None
     parent_batch_id: uuid.UUID | None = None
     community_recipe_id: uuid.UUID | None = None
+    composed: ComposedIn | None = None  # v2 § 3.3: a composed card
     operators: Operators = []
     aromas: list[str] = []
     tastes: list[str] = []
@@ -1175,7 +1199,8 @@ class FromRecommendationIn(BaseModel):
     def _valid(self) -> FromRecommendationIn:
         _check_targets(self.aromas, self.tastes)
         _check_parent(
-            self.recipe_key, self.parent_batch_id, self.operators, self.community_recipe_id
+            self.recipe_key, self.parent_batch_id, self.operators, self.community_recipe_id,
+            self.composed,
         )
         return self
 

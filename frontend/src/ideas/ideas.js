@@ -179,11 +179,13 @@ export const isTemperatureVariant = (card) => (card.operators ?? []).some((op) =
 
 // What the forecast and Start batch need to recompute a card on the server: a library recipe
 // (recipe_key), a variant of it, of your batch (own-batch cards have recipe_key null: their
-// parent's batch_id) or of a community recipe, or a community card itself. Chips go back as is.
+// parent's batch_id) or of a community recipe, a community card itself, or a recipe composed
+// for your pantry (only its ingredients: the server derives the masses). Chips go back as is.
 export function cardSource(card) {
   if (card.section === "community" && card.community) return { community_recipe_id: card.community.id };
   const ops = card.operators?.length ? { operators: card.operators } : {};
   const p = card.parent;
+  if (p?.kind === "composed" && p.composed) return { composed: p.composed };
   if (p?.kind === "own_batch") return { parent_batch_id: p.batch_id, ...ops };
   if (p?.kind === "community") return { community_recipe_id: p.community_recipe_id, ...ops };
   return { recipe_key: card.recipe_key, ...ops };

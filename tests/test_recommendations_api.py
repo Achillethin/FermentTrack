@@ -1352,3 +1352,74 @@ async def test_start_batch_from_a_variant_of_your_batch(
     assert body["batch"]["id"] != str(mine.id)
     no_ops = {"parent_batch_id": str(mine.id), "operators": []}
     assert (await client.post("/batches/from-recommendation", json=no_ops)).status_code == 422
+
+
+# ── the lacto composer (recommender v2 § 3.3, release 2) ────────────────
+
+
+async def test_carrot_and_garlic_lead_experimental_with_a_composed_brined_carrot(
+    client: AsyncClient,
+) -> None:
+    resp = await client.post(
+        "/recommendations", json={"pantry": ["Carrot", "Garlic"], "mode": "experimental"}
+    )
+    assert resp.status_code == 200, resp.text
+    first = resp.json()["experimental"]["cards"][0]
+    assert first["id"] == "composed:brine:Carrot+Garlic" and first["source_kind"] == "composed"
+    assert first["name"] == "Brined carrot with garlic" and first["section"] == "experimental"
+    assert first["parent"]["kind"] == "composed"
+    assert first["parent"]["composed"] == {"bases": ["Carrot"], "aromatics": ["Garlic"]}
+    assert "Experimental — composed from sourced rules" in first["trust"]["labels"]
+    assert first["recipe"]["salt_pct"] == pytest.approx(2.5, abs=0.01)
+    assert first["to_buy"] == [] and first["window"] is not None
+    assert any(n.startswith("composed: vegetables 46 %") for n in first["notes"])
+
+
+async def test_a_composed_card_forecasts_and_starts_a_batch_from_its_ingredients(
+    client: AsyncClient, db_session: AsyncSession, catalogue: None
+) -> None:
+    composed = {"bases": ["Carrot"], "aromatics": ["Garlic"]}
+    fc = await client.post(
+        "/recommendations/forecast", json={"composed": composed, "temperature_c": 22}
+    )
+    assert fc.status_code == 200, fc.text
+    assert fc.json()["source_kind"] == "composed" and fc.json()["window"] is not None
+    assert fc.json()["temperature"]["served_c"] == 22
+    resp = await client.post(
+        "/batches/from-recommendation",
+        json={"composed": composed, "temperature_c": 22, "batch_g": 1000, "mode": "experimental"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["culture"]["name"] == "Brined carrot with garlic"
+    assert body["link"]["source_kind"] == "composed"
+    assert body["link"]["recipe_key"] == "composed:brine:Carrot+Garlic"
+    rows = (
+        await db_session.execute(
+            select(Ingredient.name, BatchIngredient.quantity)
+            .join(Ingredient, BatchIngredient.ingredient_id == Ingredient.id)
+            .where(BatchIngredient.batch_id == uuid.UUID(body["batch"]["id"]))
+        )
+    ).all()
+    assert dict(rows) == {
+        "Carrot": pytest.approx(435.0), "Garlic": pytest.approx(25.0),
+        "Water": pytest.approx(515.0), "Salt": pytest.approx(25.0),
+    }  # fmt: skip
+
+
+async def test_a_composed_request_is_validated_and_takes_no_operators(client: AsyncClient) -> None:
+    bad = await client.post(
+        "/recommendations/forecast", json={"composed": {"bases": ["Garlic"], "aromatics": []}}
+    )
+    assert bad.status_code == 422 and "base vegetable" in bad.text
+    both = await client.post(
+        "/recommendations/forecast",
+        json={"composed": {"bases": ["Carrot"]}, "recipe_key": KIMCHI},
+    )
+    assert both.status_code == 422
+    ops = await client.post(
+        "/recommendations/forecast",
+        json={"composed": {"bases": ["Carrot"]},
+              "operators": [{"kind": "temperature", "to_c": 22}]},
+    )  # fmt: skip
+    assert ops.status_code == 422

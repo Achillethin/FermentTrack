@@ -24,6 +24,9 @@ CASES = [
     ("kimchi-pantry", [], ["Napa cabbage", "Garlic", "Chilies"], [], [], P,
      ("top", {"napa_kimchi_room_temp"})),
     ("carrot-garlic-is-lacto", [], ["Carrot", "Garlic"], [], [], X, ("top", {"lacto_ferment"})),
+    # release 2 exit (v2 § 4): "carrot + garlic returns brined carrots with garlic" (composer)
+    ("carrot-garlic-is-brined-carrot", [], ["Carrot", "Garlic"], [], [], X,
+     ("top", {"composed:brine:Carrot+Garlic"})),
     ("cabbage-never-kombucha", [], ["Cabbage"], [], [], X, ("none", {"kombucha", "miso"})),
     # one base ingredient -> its classic ferment
     ("milk-is-dairy", [], ["Milk"], [], [], P, ("top", DAIRY)),
@@ -55,7 +58,8 @@ def _cards(starred, pantry, aromas, tastes, section) -> list[service.Card]:  # t
     targets = service.parse_targets(aromas, tastes)
     if section == P:
         return service.proven_cards(starred, targets, None, pantry=pantry)[0]
-    return service.experimental_cards(starred, targets, None, pantry=pantry)
+    # the section as served: composed lacto recipes (v2 § 3.3) lead the library variants
+    return service.experimental_section(starred, targets, None, 1000.0, (), None, pantry)[1]
 
 
 def _labels(card: service.Card) -> set[str]:

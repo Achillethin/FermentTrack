@@ -549,6 +549,54 @@ def variant_violations(card: dict[str, Any]) -> list[str]:
     return out
 
 
+def composed_violations(card: dict[str, Any]) -> list[str]:
+    """E4 for a lacto recipe composed for the pantry (v2 § 3.3): the server's own recipe from
+    the card's ingredients, the gate as served and as rebuilt, the composer's salt, the
+    documented 3-4 weeks, the label and the wording."""
+    from fermenttrack.recommender import composer
+
+    cid, out = card["id"], []
+    spec = (card.get("parent") or {}).get("composed")
+    if card["section"] != "experimental" or card["source_kind"] != "composed" or not spec:
+        return [f"{cid}: not a composed card"]
+    try:
+        c = composer.composition(spec["bases"], spec["aromatics"])
+    except composer.CompositionError as exc:
+        return [f"{cid}: the server refuses its own composition: {exc}"]
+    if cid != c.key or card["fermentation_type"] != composer.TYPE:
+        out.append(f"{cid}: id or type is not the composition's ({c.key})")
+    t = card["temperature"]
+    temps = [t["served_c"], *((t["slider"]["min_c"], t["slider"]["max_c"]) if t["slider"] else ())]
+    rows = tuple(
+        gate.IngredientRow(i["name"], i["role"], i["grams"], i["required"])
+        for i in card["recipe"]["ingredients"]
+    )
+    as_served = gate.RecipeLike(composer.TYPE, rows, (), (card["recipe"]["temperature_c"],))
+    rebuilt = composer.compose(c, t["served_c"])
+    for like in (as_served, gate.from_recipe(rebuilt)):
+        result = gate.check(like, temps)
+        if not result.ok:
+            out.append(f"{cid} @ {temps}: gate {result.reasons}")
+    want = composer.DRY_SALT_PCT if c.method == "dry_salted" else composer.BRINE_SALT_PCT
+    if abs(card["recipe"]["salt_pct"] - want) > 0.02:
+        out.append(f"{cid}: salt {card['recipe']['salt_pct']} %, the composer's {want} %")
+    w = card["window"]
+    if w and w["taste_from_h"] < composer.DURATION_H.lo - 0.05:
+        out.append(f"{cid}: taste from {w['taste_from_h']} h before the documented 3 weeks")
+    must, must_not = _mandatory_lines(card)
+    lines = set(card["safety_lines"])
+    if not must <= lines or must_not & lines:
+        out.append(f"{cid}: safety lines {sorted(lines)}")
+    if f"Experimental — {composer.LABEL}" not in card["trust"]["labels"]:
+        out.append(f"{cid}: no composed label")
+    if card["operators"] or card["screened"]:
+        out.append(f"{cid}: a composed card with operators or screened")
+    words = " ".join(card["notes"] + (w or {}).get("notes", [])).lower()
+    if any(f in words for f in FORBIDDEN):
+        out.append(f"{cid}: forbidden wording")
+    return out
+
+
 def _variant_card(kimchi_ops: list[str], temperature_c: float | None = None) -> dict[str, Any]:
     p = S.library_parent("napa_kimchi_room_temp")
     ops = {op.key: op for op in S.available_operators(p, temperature_c, ["Apple"], [169941])}
@@ -662,7 +710,8 @@ def test_e4_every_card_of_mode_both_requests() -> None:
             violations += card_violations(card)
         for card in body["experimental"]["cards"]:
             n_variants += 1
-            violations += variant_violations(card)
+            composed = card["source_kind"] == "composed"
+            violations += composed_violations(card) if composed else variant_violations(card)
     print(f"\nE4 (mode both): {len(violations)} violations over {n_proven} Proven and "
           f"{n_variants} Experimental cards from {n_requests} seeded requests")  # fmt: skip
     assert n_variants > 150
