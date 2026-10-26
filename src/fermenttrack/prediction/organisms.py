@@ -343,6 +343,44 @@ ORGANISM_KINETICS: dict[str, OrganismKinetics] = {
                 "Wang et al. 2013 PLoS ONE 8:e64995",
             ),
         ),
+        # Current name Latilactobacillus sakei. The cold-active homofermenter of kimchi and
+        # chilled ferments: the engine's other lactobacillus (L. plantarum, t_opt 35.5 °C)
+        # barely grows at 15 °C, where kimchi's lactobacilli reach 1e9 in 3 days (Foods
+        # 2025 Table 4). Growth rates in MRS (Silva et al. 2018 Table 1): 0.78 /h at 30 °C,
+        # 0.34 at 20, 0.24 at 16, 0.17 at 12, 0.06 at 8, 0.02 at 4; their square-root line
+        # (sqrt mu = 0.028 T + 0.037) puts Tmin at -1.3 °C.
+        OrganismKinetics(
+            name="Lactobacillus sakei",
+            kingdom="bacteria",
+            role="cold-active lactic acid bacterium: sugars -> lactic acid; drives kimchi and "
+            "cool vegetable ferments below the pH Leuconostoc stops at",
+            channels=(Channel(("hexoses", "sucrose"), HOMOLACTIC),),
+            mu_max=_r(0.45, 0.68, 1.0),  # 0.80 at t_opt in MRS (fit), x0.85 food factor
+            ks=_r(0.4, 0.8, 2.0),  # est., as L. plantarum
+            yield_xs=_r(0.12, 0.19, 0.25),  # est., as L. plantarum
+            # est., as L. plantarum; seed mash: 4.44e-11 mg lactic acid per cell per hour,
+            # 10x the other LAB there (Takahashi et al. 2021 AEM 87:e02546-20)
+            maint=_r(0.35, 0.7, 1.2),
+            t_min=_t(-3.0, -1.3, 1.0),  # Silva 2018 square-root fit
+            t_opt=_t(30.0, 32.0, 35.0),  # rate still rising at 30 °C (Silva 2018); est.
+            t_max=_t(37.0, 40.0, 44.0),  # est.
+            ph_min=_t(3.7, 3.9, 4.1),  # no growth below pH 3.9 (Takahashi 2021)
+            ph_opt=_t(5.5, 6.0, 6.5),  # est.
+            ph_max=_t(8.0, 8.5, 9.0),  # est.
+            mic_lactic_mm=_r(25.0, 45.0, 90.0),  # est.: less acid-tolerant than L. plantarum
+            mic_acetic_mm=_r(80.0, 120.0, 200.0),  # est.
+            aw_min=_t(0.93, 0.945, 0.955),  # est., as L. plantarum (salted meats, kimchi)
+            ethanol_max=_r(50.0, 80.0, 120.0),  # est.
+            x_max=_t(8.5, 9.0, 9.5),  # 1e9 in kimchi (Foods 2025); ln N 21.9 in MRS
+            h0=_r(0.5, 2.0, 6.0),  # est.: no lag from a growing inoculum (Silva 2018)
+            k_death=_r(0.001, 0.003, 0.01),  # est.
+            cell_mass_g=LAB_CELL_G,
+            sources=(
+                "Silva et al. 2018 Braz Arch Biol Technol 61, doi:10.1590/1678-4324-2018160159",
+                "Takahashi et al. 2021 AEM 87:e02546-20",
+                "Foods 2025, 14:2826",
+            ),
+        ),
         OrganismKinetics(
             name="Lactobacillus sanfranciscensis",
             kingdom="bacteria",

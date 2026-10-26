@@ -84,10 +84,10 @@ def test_20_sulfide_burst_and_dmds_rise(kimchi: At) -> None:
     assert c("dmts", 3) / c("dmts", 0) < 0.05
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "§ 5.7: the DMTS fermentation pool follows cumulative sugar use, and the engine's 15 °C "
-    "kimchi still ferments to d15 (pH 6.2 -> 4.3, 11 of 30 g/kg sugar), so d5-d15 spans x3"))
 def test_20_dmts_late_plateau(kimchi: At) -> None:
+    """§ 5.7: the DMTS fermentation pool follows cumulative sugar use. Until 2026-10-26 the
+    engine's 15 °C kimchi still fermented to d15 (pH 6.2 -> 4.3), so d5-d15 spanned x3;
+    L. sakei, the cold-active homofermenter, front-loads the fermentation."""
     late = [kimchi("dmts", d) for d in range(5, 16)]
     assert max(late) / min(late) <= 2.0
 

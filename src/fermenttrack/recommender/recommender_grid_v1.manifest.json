@@ -1,14 +1,14 @@
 {
   "grid": "recommender_grid_v1.npz",
-  "grid_sha256": "23be496da6838e7ca2c8e6da8628c4b77cfbf8e313eeb96d1e199c5802b8b25e",
-  "grid_bytes": 341276,
+  "grid_sha256": "46643e3304db7d0825801152a4a9df3f997025b8c6058b7e1ae543243a675280",
+  "grid_bytes": 341818,
   "schema": 4,
   "model_version": "kinetic-v1",
   "bake_model_version": "sourdough-v1",
   "derived_version": "sensory-v2",
   "inputs": {
-    "prediction/profiles.py": "f2b48e9f45fabc720342918ad83e5f107dbf105eaea1cb6657301dbd5071e574",
-    "prediction/organisms.py": "13b1748996e666612d809a69e6065f5eed2354c8345e2a1ecf65eebeec85a136",
+    "prediction/profiles.py": "c84dfea947a631532d0e3ce55cb94e8a8885ae3d8943db906d890dad996fc15b",
+    "prediction/organisms.py": "132ca9907f94a1d1f16fc6db76fb912e9afdcd1c132c635e3cf338a2e7a87cb6",
     "prediction/aroma_compounds_v1.csv": "fd1b1c1d1d28c0b1c98d59ef788a66456b344b71ada5df7497cac9b014680d8f",
     "prediction/aroma_data.py": "755f87d2fbc95aa3eb67b72b61b4fee6837b4c309805db09aadad95089acf766",
     "recommender/recipes_v1.csv": "35e38b39eb2ff7e09c9e1f5f958dbdfb573122239e5b3e29d429e9c518a55588",
@@ -844,39 +844,39 @@
     "numpy": "2.5.3",
     "scipy": "1.18.1"
   },
-  "build_date": "2026-10-24T13:20:10+00:00",
-  "build_seconds": 47.3,
+  "build_date": "2026-10-26T08:38:07+00:00",
+  "build_seconds": 176.7,
   "workers": 6,
   "slowest": [
     [
-      "levain_dur",
+      "levain_liquide",
       "swap:White wheat flour>Whole wheat flour",
       26.0,
-      2.6
+      8.9
+    ],
+    [
+      "levain_liquide",
+      "swap:White wheat flour>Whole wheat flour",
+      22.0,
+      8.8
+    ],
+    [
+      "levain_liquide",
+      "swap:White wheat flour>Rye flour",
+      30.0,
+      8.7
+    ],
+    [
+      "levain_liquide",
+      "swap:White wheat flour>Rye flour",
+      26.0,
+      8.6
     ],
     [
       "levain_liquide",
       "swap:White wheat flour>Whole wheat flour",
       30.0,
-      2.5
-    ],
-    [
-      "levain_dur",
-      null,
-      30.0,
-      2.5
-    ],
-    [
-      "rye_sour",
-      null,
-      30.0,
-      2.4
-    ],
-    [
-      "levain_dur",
-      "swap:White wheat flour>Rye flour",
-      30.0,
-      2.4
+      8.6
     ]
   ]
 }

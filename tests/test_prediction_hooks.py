@@ -72,8 +72,8 @@ PRIOR = _kraut()
 CALIBRATED = _kraut(READINGS, now_h=50.0, temp=None)
 
 PINNED_FINGERPRINTS = {
-    "prior": "d4aeb25a7020c94da1215bf77c5dab527cb1705e69241c64c66ac8914e05640a",
-    "calibrated": "25ca852f8a4e9584ecb9d4acf4acb1f9112955fb3f13ca5b3fef1c73155d8aa0",
+    "prior": "043442efb84e09ea900d6b485319021234f787bc0cdd6b59a0e0126b72adbe5a",
+    "calibrated": "89314ff2a4eed07240c4df37989c13f4728dd63ff24344f10460f0157728c0c8",
 }
 # _schedule(CALIBRATED, lacto, None, 672.0): t_h, temp_c, estimated, forecast, source, n, ignored
 PINNED_SCHEDULE = (
@@ -85,40 +85,42 @@ PINNED_SCHEDULE = (
 # pH p50 at grid points 20, 40, 80, 160; pH p05 at 160; lactic acid p50 at 40, 80, 160.
 # Re-pinned 2026-10-24 for an intended model change (Leuconostoc's measured salt tolerance,
 # organisms.py aw_min, recommender v2 release 2); fingerprints and schedules did not move.
+# Re-pinned 2026-10-26 for L. sakei (a third default lacto organism, migration 0024): the
+# fingerprints moved with the parameter space; the schedule did not.
 PINNED_FORECASTS: dict[str, dict[str, Any]] = {
     "prior": {
         "members": 160, "ess": 160.0,
-        "ph_p50": [4.871, 4.17, 3.855, 3.727], "ph_p05_end": 3.466,
-        "lactic_p50": [8.243, 12.462, 15.16],
-        "milestones": {"ph_below_4_6": 102.37, "ph_below_4_0": 229.6, "sugars_90pct_used": None,
-                       "taste_tangy": 60.9, "taste_sour": 178.5},
+        "ph_p50": [4.347, 3.911, 3.765, 3.708], "ph_p05_end": 3.459,
+        "lactic_p50": [11.004, 14.001, 15.602],
+        "milestones": {"ph_below_4_6": 69.59, "ph_below_4_0": 129.09, "sugars_90pct_used": None,
+                       "taste_tangy": 52.5, "taste_sour": 132.3},
         "temperature": {"forecast_c": 20.0, "source": "expected", "type_default_c": 20.0,
                         "range_c": [16.0, 24.0], "readings": 0},
         "assumption": "Temperature: your estimate of 20 °C from now on.",
     },
     "what_if_25": {
         "members": 128, "ess": 128.0,
-        "ph_p50": [4.32, 3.9, 3.713, 3.643], "ph_p05_end": 3.401,
-        "lactic_p50": [11.364, 15.393, 17.137],
-        "milestones": {"ph_below_4_6": 64.19, "ph_below_4_0": 132.66, "sugars_90pct_used": None,
-                       "taste_tangy": 48.3, "taste_sour": 107.1},
+        "ph_p50": [3.985, 3.793, 3.68, 3.646], "ph_p05_end": 3.384,
+        "lactic_p50": [13.296, 15.983, 17.087],
+        "milestones": {"ph_below_4_6": 48.12, "ph_below_4_0": 81.77, "sugars_90pct_used": None,
+                       "taste_tangy": 39.9, "taste_sour": 90.3},
         "temperature": {"forecast_c": 25.0, "source": "override", "type_default_c": 20.0,
                         "range_c": [16.0, 24.0], "readings": 0},
         "assumption": "Temperature: what-if: 25 °C from now on (not saved).",
     },
     "calibrated": {
-        "members": 400, "ess": 15.0,
-        "ph_p50": [4.526, 4.156, 3.837, 3.691], "ph_p05_end": 3.355,
-        "lactic_p50": [7.236, 9.808, 12.154],
-        "milestones": {"ph_below_4_6": 57.32, "ph_below_4_0": 216.05, "sugars_90pct_used": None,
-                       "taste_tangy": 47.1, "taste_sour": 237.3},
+        "members": 400, "ess": 34.2,
+        "ph_p50": [4.109, 3.922, 3.822, 3.716], "ph_p05_end": 3.499,
+        "lactic_p50": [9.531, 11.367, 12.576],
+        "milestones": {"ph_below_4_6": 46.33, "ph_below_4_0": 114.89, "sugars_90pct_used": None,
+                       "taste_tangy": 35.7, "taste_sour": 149.1},
         "temperature": {"forecast_c": 18.0, "source": "measured", "type_default_c": 20.0,
                         "range_c": [16.0, 24.0], "readings": 2},
         "assumption": "Temperature: 18 °C from now on (your last reading; no estimate set); "
                       "your 2 logged temperature reading(s) for the past.",
     },
 }  # fmt: skip
-PINNED_MEMBER_VALUES = {"members": 160, "times": 161, "ph_mean_at_120h": 4.486661}
+PINNED_MEMBER_VALUES = {"members": 160, "times": 161, "ph_mean_at_120h": 4.093778}
 
 
 @pytest.fixture(autouse=True)

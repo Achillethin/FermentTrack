@@ -75,3 +75,20 @@ foods2025,kimchi,15,2.3,336,3.89,table
 - Gaps: no day-by-day homemade kimchi series inside 16–24 °C with stated salt; no shredded
   dry-salted kraut table (Johanningsmeier 2007 and Plengvidhya 2007 plot pH in figures only);
   no pickles or hot sauces.
+
+## Model check (tests/test_lacto_literature.py)
+
+| Date | Engine | Points inside the 90 % band | Misses |
+|---|---|---|---|
+| 2026-10-24 | L. plantarum + Leuconostoc, seasoning flora | 35 / 37 | kimchi 48 h (both studies): band ends at 4.44, median 5.26 |
+| 2026-10-26 | + L. sakei (migration 0024) | 35 / 37 | Kristek's slowest cycle at 120 h (4.48 vs P95 4.44) and 144 h (4.30 vs 4.29) |
+
+L. sakei brought kimchi at 20 °C to a 48 h median of 4.75 (band 3.98–5.55). Its known
+limit is the species split: at 18 °C the model lets L. sakei lead the sauerkraut
+lactobacilli (8.75 vs 7.54 log CFU/g on day 7), whereas Plengvidhya 2007 names L. plantarum
+and the test checks the lactobacilli total only.
+
+Kristek's sauerkraut sits at pH 5.3–5.5 at 48 h, so a normal kraut fails the "≤ 4.6
+within 48 h at > 10 °C" line (BOT-002, cited to ANSES 2014-SA-0174 with no URL). Kimchi
+meets it (BC CDC restates Kim 2020). Whether the line applies to dry-salted vegetables at
+≥ 2 % salt is an open owner decision (site critique 2026-10-26, fix 3).

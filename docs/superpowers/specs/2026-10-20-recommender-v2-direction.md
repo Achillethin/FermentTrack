@@ -112,6 +112,8 @@ With the ordinal tasting model of v1 § 15.1, P(rating ≥ k | n) = σ((Lₙ,ₛ
 
 **Release 1 criterion, revised 2026-10-24.** "Served-card score IQR > 0.2" measured the wrong thing: the served cards are each query's best three, so their spread says how good the top is, not whether the score saturates (a perfect recommender would have a *small* served-card IQR). Measured on the release-1 grid: E's IQR is 0.13 over the 23 served cards but **0.66 over all 180 gated candidates** (v1: ≈ 0); the ranking magnitude C separates consecutive served cards by a median of 0.027 (v1's order differed by float16 steps, 10⁻³). Both are now tests (`tests/test_recommender_golden.py`). Owner: revert to the original wording if you disagree; the numbers above are what it would measure.
 
+**Release 2, kimchi rate (2026-10-26).** The 2026-10-24 calibration left kimchi a day slow at 20 °C (a strict xfail). Lactobacillus sakei, the cold-active homofermenter, is now the third default lacto organism (migration 0024; kinetics from Silva et al. 2018's growth rates at 4–30 °C, sources in `organisms.py`): kimchi at 48 h is inside the band, coverage stays 35 / 37 with the misses moved to Kristek's slowest sauerkraut cycle, and plain sauerkraut at 20 °C reaches pH 4.6 at ~70 h instead of ~102 h. Details: `research/lacto-ph/curves.md` § Model check.
+
 ## 5. Not doing (yet)
 
 - Cross-user recalibration from tastings (v1 § 15.1 at population level): after the per-user loop has data.

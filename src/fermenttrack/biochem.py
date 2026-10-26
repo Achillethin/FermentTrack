@@ -54,6 +54,9 @@ ORGANISMS: dict[str, str] = {
     "Kazachstania humilis": "yeast",
     "Lactobacillus brevis": "bacteria",
     "Lactobacillus reuteri": "bacteria",
+    # Kimchi's cold-active homofermenter (2026-10-26, recommender v2 release 2): added by
+    # migration 0024, no KEGG enzyme links yet. Current name Latilactobacillus sakei.
+    "Lactobacillus sakei": "bacteria",
 }
 
 # Hand-curated: fermentation_type -> default organisms (dominant, not exhaustive).
@@ -76,7 +79,9 @@ FERMENTATION_TYPE_ORGANISMS: dict[str, list[str]] = {
     # list Aspergillus oryzae (and its enzymes). Accepted trade-off of add-only attachments.
     "garum": ["Tetragenococcus halophilus", "Aspergillus oryzae"],
     "vinegar": ["Acetobacter aceti", "Acetobacter pasteurianus"],
-    "lacto_ferment": ["Lactobacillus plantarum", "Leuconostoc mesenteroides"],
+    "lacto_ferment": [
+        "Lactobacillus plantarum", "Leuconostoc mesenteroides", "Lactobacillus sakei",
+    ],
 }
 
 # Hand-curated: EC number -> organisms known to express it. Names are fetched

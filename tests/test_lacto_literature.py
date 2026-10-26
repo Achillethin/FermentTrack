@@ -57,8 +57,9 @@ def coverage() -> dict[str, list[tuple[float, float, float, float]]]:
 
 
 def test_the_90_percent_band_covers_85_to_95_percent_of_the_literature(coverage) -> None:  # type: ignore[no-untyped-def]
-    """Release 2 exit criterion (v2 § 4). 2026-10-24: 35 of 37 (94.6 %); the two misses are
-    the kimchi 48 h points (see the xfail below)."""
+    """Release 2 exit criterion (v2 § 4). 2026-10-26, with L. sakei: 35 of 37 (94.6 %); the
+    two misses are Kristek's slowest cycle at 120 and 144 h, just above P95 (4.48 vs 4.44,
+    4.30 vs 4.29). Before L. sakei (2026-10-24) the misses were kimchi at 48 h."""
     pts = [p for ds in coverage.values() for p in ds]
     inside = sum(lo <= obs <= hi for _, obs, lo, hi in pts)
     print(f"\n{inside}/{len(pts)} literature points inside the 90 % band")
@@ -70,11 +71,10 @@ def test_sauerkraut_follows_kristek_2004(coverage) -> None:  # type: ignore[no-u
     assert sum(lo <= obs <= hi for _, obs, lo, hi in pts) >= 0.9 * len(pts)
 
 
-@pytest.mark.xfail(strict=True, reason="2026-10-24: kimchi reaches pH 4.4 by 48 h at 20 °C in two "
-                   "studies; the band ends at ~4.44 (median 5.26). Psychrotrophic homofermenters "
-                   "(Latilactobacillus sakei, Weissella) are not modelled: L. plantarum is "
-                   "mesophilic. The bias is conservative for the pH 4.6 safety milestone.")
 def test_kimchi_reaches_ph_4_4_by_48_h_at_20_c(coverage) -> None:  # type: ignore[no-untyped-def]
+    """Two studies measure pH 4.4 at 48 h. Until 2026-10-26 the band ended at ~4.44 (median
+    5.26): L. plantarum is mesophilic. L. sakei, the cold-active homofermenter, brought the
+    median to 4.75 and the band to 3.98-5.55."""
     pts = [p for p in coverage["kimchi20"] if p[0] == 48]
     assert all(lo <= obs <= hi for _, obs, lo, hi in pts)
 
@@ -118,7 +118,8 @@ def test_plain_cabbage_keeps_the_vegetables_own_flora() -> None:
 
 def test_kimchi_seasoning_starts_the_flora_where_foods_2025_measured_it() -> None:
     """~8 % seasoning carries ~1e5.5 Leuconostoc and ~1e5.7 lactobacilli per g (measured
-    1e5.50 and 1e5.64 an hour after seasoning) and lowers the starting pH by ~0.45."""
+    1e5.50 and 1e5.64 an hour after seasoning; the lactobacilli are L. plantarum and L. sakei
+    together) and lowers the starting pH by ~0.45."""
     rows = [
         _row("Napa cabbage", 895.0, CABBAGE), _row("Salt", 25.0, SALT),
         _row("Chilies", 30.0, {"water": 88.0}), _row("Garlic", 20.0, {"water": 59.0}),
@@ -128,7 +129,10 @@ def test_kimchi_seasoning_starts_the_flora_where_foods_2025_measured_it() -> Non
     assert init.flora_fraction == pytest.approx(0.08)
     by_name = {o.name: p.median for o, p in zip(spec.organisms, spec.inoculum, strict=True)}
     assert by_name["Leuconostoc mesenteroides"] == pytest.approx(5.53, abs=0.05)
-    assert by_name["Lactobacillus plantarum"] == pytest.approx(5.67, abs=0.05)
+    lactobacilli = np.log10(
+        10 ** by_name["Lactobacillus plantarum"] + 10 ** by_name["Lactobacillus sakei"]
+    )
+    assert lactobacilli == pytest.approx(5.67, abs=0.05)
     assert spec.profile.ph0.median == pytest.approx(
         PROFILES["lacto_ferment"].ph0.median - 0.448, abs=0.01
     )

@@ -427,18 +427,25 @@ PROFILES: dict[str, FermentProfile] = {
             inoculum={
                 "Leuconostoc mesenteroides": _t(3.0, 4.2, 5.5),
                 "Lactobacillus plantarum": _t(2.5, 3.6, 5.0),
+                # est.: a minor part of raw vegetables' LAB; the seasoning brings most of it
+                "Lactobacillus sakei": _t(1.5, 2.8, 4.2),
             },
             # Kimchi seasoning brings most of kimchi's lactic flora: brined napa cabbage had no
             # detectable Leuconostoc and 1e3.1 Lactobacillus; an hour after mixing in ~8 % of
             # red pepper powder, garlic, ginger, green onion and fish sauce the kimchi had
             # 1e5.5 Leuconostoc and 1e5.6 Lactobacillus (Foods 2025, 14:2826, Tables 1, 4):
-            # ~1e7 LAB per g of seasoning, split 0.42 / 0.58. It also lowers the starting pH:
+            # ~1e7 LAB per g of seasoning, split 0.42 / 0.58, the lactobacilli shared equally
+            # by L. sakei and L. plantarum (est.: the study counted genera, not species).
+            # It also lowers the starting pH:
             # fresh kimchi 5.57 (that study, ~8 % seasoning) and 5.93 (Kim et al. 2020 Foods
             # 9:1075) against ~6.2 for cabbage, ~-0.45 at 8 %. ponytail: one load and one pH
             # slope for every seasoning row; per-ingredient values would refine both.
             carried_flora=CarriedFlora(
                 frozenset({"Chilies", "Garlic", "Fresh ginger", "Onion"}), 7.0,
-                {"Leuconostoc mesenteroides": 0.42, "Lactobacillus plantarum": 0.58},
+                {
+                    "Leuconostoc mesenteroides": 0.42, "Lactobacillus plantarum": 0.29,
+                    "Lactobacillus sakei": 0.29,
+                },
                 ph0_per_share=-5.6,
             ),
             milestones=(
