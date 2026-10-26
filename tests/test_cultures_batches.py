@@ -242,3 +242,35 @@ async def test_kefir_batch_has_no_stage_machine(client: AsyncClient) -> None:
     # Advancing a substrate with no stage machine has nowhere to go.
     resp = await client.patch(f"/batches/{batch['id']}/stage", json={})
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_ph_off_the_scale_is_refused(client: AsyncClient) -> None:
+    batch = await _create_batch(client, (await _create_culture(client))["id"])
+    for bad in (15.0, -0.5):
+        resp = await client.post(
+            f"/batches/{batch['id']}/measure", json={"type": "pH", "value_numeric": bad}
+        )
+        assert resp.status_code == 422
+    ok = await client.post(f"/batches/{batch['id']}/measure", json={"type": "pH", "value_numeric": 14})
+    assert ok.status_code == 201
+    # the range is pH's only: a temperature of 15 is fine
+    temp = {"type": "temperature", "value_numeric": 15.0}
+    assert (await client.post(f"/batches/{batch['id']}/measure", json=temp)).status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_a_wrong_reading_can_be_deleted_but_not_a_stage_change(client: AsyncClient) -> None:
+    batch = await _create_batch(client, (await _create_culture(client))["id"])
+    url = f"/batches/{batch['id']}"
+    await client.post(f"{url}/measure", json={"type": "pH", "value_numeric": 5.0})
+    assert (await client.patch(f"{url}/stage", json={})).status_code == 200
+    events = (await client.get(f"{url}/timeline")).json()["events"]
+    reading = next(e for e in events if e["kind"] == "measurement")
+    stage = next(e for e in events if e["kind"] == "stage_change")
+
+    assert (await client.delete(f"{url}/measurements/{stage['detail']['id']}")).status_code == 404
+    assert (await client.delete(f"{url}/measurements/{reading['detail']['id']}")).status_code == 204
+    kinds = [e["kind"] for e in (await client.get(f"{url}/timeline")).json()["events"]]
+    assert kinds == ["stage_change"]
+    assert (await client.delete(f"{url}/measurements/{reading['detail']['id']}")).status_code == 404

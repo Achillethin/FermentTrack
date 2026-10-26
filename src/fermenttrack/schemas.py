@@ -121,9 +121,17 @@ class StageAdvance(BaseModel):
 
 class MeasurementCreate(BaseModel):
     type: str
-    value_numeric: float | None = None
+    value_numeric: float | None = Field(default=None, allow_inf_nan=False)
     value_text: str | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _ph_on_the_scale(self) -> MeasurementCreate:
+        # a typo (pH 15) would steer the forecast's calibration and the safety banner
+        if self.type == "pH" and self.value_numeric is not None:
+            if not 0.0 <= self.value_numeric <= 14.0:
+                raise ValueError("pH must be between 0 and 14")
+        return self
 
 
 class MeasurementOut(BaseModel):

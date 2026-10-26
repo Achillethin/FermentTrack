@@ -204,12 +204,19 @@ function LogObservation({ batchId, onLogged, sourdough = false }) {
       } else {
         const effectiveType = type === "other" ? customType.trim() : type;
         if (!effectiveType) throw new Error("Pick or name an observation type");
+        // "5,8" is 5.8 (a French keyboard), never 5; anything else that isn't a number is refused
+        const number = valueNumeric.trim() ? Number(valueNumeric.trim().replace(",", ".")) : null;
+        if (number !== null && !Number.isFinite(number)) throw new Error("Enter a number, e.g. 4.2");
+        if (effectiveType === "pH" && number !== null) {
+          if (number < 0 || number > 14) throw new Error("pH runs from 0 to 14");
+          if ((number < 3 || number > 7) && !window.confirm(`pH ${number}? Most ferments sit between 3 and 7. Save anyway?`)) return;
+        }
         res = await fetch(`${API_URL}/batches/${batchId}/measure`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: effectiveType,
-            value_numeric: valueNumeric ? parseFloat(valueNumeric) : null,
+            value_numeric: number,
             value_text: valueText || null,
             notes: notes || null,
           }),
@@ -270,6 +277,7 @@ function LogObservation({ batchId, onLogged, sourdough = false }) {
                   label="Observation numeric value"
                   size="sm"
                   className="w-24"
+                  inputMode="decimal"
                   placeholder="value"
                   value={valueNumeric}
                   onChange={(e) => setValueNumeric(e.target.value)}
@@ -1185,7 +1193,8 @@ function eventLine(event) {
   return { title, value, extra: isNote ? null : d.notes };
 }
 
-function Timeline({ timeline }) {
+// onDelete: (measurement id) => Promise; absent on a read-only batch. Stage changes can't be deleted.
+function Timeline({ timeline, onDelete }) {
   if (timeline.length === 0) {
     return (
       <Card title="History">
@@ -1211,6 +1220,16 @@ function Timeline({ timeline }) {
                 {extra && <p className="text-sm text-slate-300">{extra}</p>}
                 <p className="text-xs text-slate-400">
                   {new Date(event.timestamp).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                  {onDelete && event.kind !== "stage_change" && event.detail.id && (
+                    <button
+                      type="button"
+                      className="ml-3 py-2 text-slate-400 underline hover:text-red-300"
+                      aria-label={`Delete ${title}${value ? ` ${value}` : ""}`}
+                      onClick={() => window.confirm(`Delete "${title}${value ? `: ${value}` : ""}"?`) && onDelete(event.detail.id)}
+                    >
+                      Delete
+                    </button>
+                  )}
                 </p>
               </li>
             );
@@ -1257,14 +1276,15 @@ function Safety({ safety }) {
         }`}
       >
         <SafetyIcon ok={safety.safe} hard />
-        <span>{safety.summary_en}</span>
+        {/* "All safety checks passed" overclaims: the rules only see what was logged */}
+        <span>{safety.safe ? "No safety rule flagged by your readings so far." : safety.summary_en}</span>
       </p>
     );
   }
   return (
     <Card title="Safety">
-      <p className={`mb-3 text-sm font-medium ${safety.safe ? "text-emerald-300" : "text-red-300"}`}>
-        {safety.summary_en}
+      <p className={`mb-3 text-sm font-medium ${safety.safe ? "text-amber-200" : "text-red-300"}`}>
+        {safety.safe ? "No hard stop, but check this:" : safety.summary_en}
       </p>
       <ul className="space-y-2">
         {verdicts.map((v) => (
@@ -1446,7 +1466,18 @@ export default function BatchView({ batchId, focus = null }) {
                 sourdough={preview.culture.type === "sourdough"}
                 onLogged={() => loadPreview(batchId)}
               />
-              <Timeline timeline={preview.timeline} />
+              <Timeline
+                timeline={preview.timeline}
+                onDelete={
+                  preview.read_only
+                    ? undefined
+                    : async (id) => {
+                        const res = await fetch(`${API_URL}/batches/${batchId}/measurements/${id}`, { method: "DELETE" });
+                        if (res.ok) loadPreview(batchId);
+                        else setError(`Could not delete (${res.status})`);
+                      }
+                }
+              />
             </>
           )}
           {panel(

@@ -6,10 +6,14 @@ pH > 4.6 -> BOT-001 hard stop.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
 import pytest
 from httpx import AsyncClient
 
 from fermenttrack.safety.rule_engine import SafetyRuleEngine
+from fermenttrack.safety.service import get_safety_report
 from fermenttrack.safety.state import TwinState
 
 
@@ -88,3 +92,45 @@ async def test_no_alarm_about_values_nobody_measured(client: AsyncClient) -> Non
     await client.post(f"/batches/{batch_id}/measure", json={"type": "salt_pct", "value_numeric": 1.5})
     await client.post(f"/batches/{batch_id}/measure", json={"type": "temperature", "value_numeric": 25})
     assert (await client.get(f"/batches/{batch_id}/safety")).json()["safe"] is False
+
+
+# ── what the banner can know (2026-10-26 site critique, fix 1) ──────────
+
+T0 = datetime(2026, 10, 1, 8, tzinfo=timezone.utc)
+
+
+def _batch(type_: str, *readings: tuple[str, float, float], temp: float | None = 20.0):
+    """A batch-like object: (measurement type, value, hours after the start) per reading."""
+    ms = [SimpleNamespace(type=k, value_numeric=v, measured_at=T0 + timedelta(hours=h))
+          for k, v, h in readings]  # fmt: skip
+    return SimpleNamespace(
+        culture=SimpleNamespace(type=type_), measurements=ms, started_at=T0,
+        expected_temperature_c=temp,
+    )  # fmt: skip
+
+
+def _codes(batch, at_h: float) -> tuple[set[str], set[str]]:  # type: ignore[no-untyped-def]
+    r = get_safety_report(batch, now=T0 + timedelta(hours=at_h))
+    return {v.reason_code for v in r.hard_stops}, {v.reason_code for v in r.warnings}
+
+
+def test_no_ph_after_24_h_warns_on_the_acid_safety_types_only() -> None:
+    assert _codes(_batch("lacto_ferment"), 120) == (set(), {"MISSING_PH_READING"})
+    assert _codes(_batch("lacto_ferment"), 12) == (set(), set())
+    assert _codes(_batch("sourdough"), 120) == (set(), set())  # the bake is its barrier
+
+
+def test_ph_above_4_6_after_48_h_stops_at_the_expected_temperature() -> None:
+    """No temperature logged: the batch's expected temperature grounds BOT-002."""
+    hard, _ = _codes(_batch("lacto_ferment", ("pH", 5.5, 60)), 60)
+    assert hard == {"BOTULISM_RISK_SLOW_ACIDIFICATION"}
+    assert _codes(_batch("lacto_ferment", ("pH", 5.5, 60), temp=8.0), 60)[0] == set()
+    assert _codes(_batch("lacto_ferment", ("pH", 4.2, 60)), 60) == (set(), set())
+    # a salt-barrier type keeps the old behaviour: no expected-temperature fallback
+    assert _codes(_batch("miso", ("pH", 5.5, 60)), 60)[0] == set()
+
+
+def test_a_stale_reading_is_not_a_verdict() -> None:
+    """pH 5.5 at 30 h, viewed at 60 h: unknown now, so no hard stop (Today asks for a
+    reading); the rule reads the reading's time, not the clock."""
+    assert _codes(_batch("lacto_ferment", ("pH", 5.5, 30)), 60) == (set(), set())

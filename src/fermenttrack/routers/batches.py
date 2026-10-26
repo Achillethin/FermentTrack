@@ -345,12 +345,37 @@ async def add_note(
     return note
 
 
+@router.delete("/{batch_id}/measurements/{measurement_id}", status_code=204)
+async def delete_measurement(
+    batch_id: uuid.UUID,
+    measurement_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> None:
+    """A wrong reading or note, removed. Stage changes stay: the batch's stage is not
+    rewound. A finished batch's stored evidence (population.record_evidence) is not
+    recomputed."""
+    await _get_batch(batch_id, db, user_id=user_id)  # 404 unless yours
+    found = await db.execute(
+        select(Measurement).where(
+            Measurement.id == measurement_id, Measurement.batch_id == batch_id,
+            Measurement.type != "stage_change",
+        )
+    )  # fmt: skip
+    measurement = found.scalar_one_or_none()
+    if measurement is None:
+        raise HTTPException(status_code=404, detail="Reading not found")
+    await db.delete(measurement)
+    await db.commit()
+
+
 def _build_timeline_events(batch: Batch) -> list[TimelineEvent]:
     return [
         TimelineEvent(
             kind=m.type if m.type in ("note", "stage_change") else "measurement",
             timestamp=m.measured_at,
             detail={
+                "id": str(m.id),
                 "type": m.type,
                 "value_numeric": m.value_numeric,
                 "value_text": m.value_text,
