@@ -119,7 +119,8 @@ function ReminderRow({ r, batch, busy, error, note, now, onDone, onSnooze, onLog
             {r.kind === "tasting" ? "Dismiss" : "Done"}
           </Button>
         )}
-        {SNOOZES.map((h) => (
+        {/* a critical reminder's due time is its deadline: no snoozing it by a day */}
+        {SNOOZES.filter((h) => r.urgency !== "critical" || h < 24).map((h) => (
           <Button
             key={h}
             size="sm"

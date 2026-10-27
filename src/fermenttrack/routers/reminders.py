@@ -5,12 +5,15 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fermenttrack.auth import get_current_user_id
 from fermenttrack.database import get_db
-from fermenttrack.models import Batch, Culture, Reminder
+from fermenttrack.models import STAGE_REMINDER, Batch, Culture, Reminder
 from fermenttrack.reminders import now_utc
+from fermenttrack.routers.batches import move_to_stage
+from fermenttrack.stages import SETUP_STAGES, next_stage_name
 from fermenttrack.schemas import ReminderOut, ReminderSnooze
 
 router = APIRouter(prefix="/reminders", tags=["reminders"])
@@ -56,6 +59,14 @@ async def mark_done(
 ) -> Reminder:
     reminder = await _get_reminder(reminder_id, db, user_id)
     reminder.completed_at = now_utc()
+    if reminder.kind == STAGE_REMINDER:
+        batch = await db.get(Batch, reminder.batch_id, options=[selectinload(Batch.culture)])
+        assert batch is not None
+        stage = (batch.culture.type, batch.current_stage)
+        if stage in SETUP_STAGES and batch.outcome == "in_progress":
+            nxt = next_stage_name(*stage)
+            if nxt is not None:
+                await move_to_stage(db, batch, nxt)  # supersedes this reminder too
     await db.commit()
     await db.refresh(reminder)
     return reminder

@@ -274,3 +274,32 @@ async def test_a_wrong_reading_can_be_deleted_but_not_a_stage_change(client: Asy
     kinds = [e["kind"] for e in (await client.get(f"{url}/timeline")).json()["events"]]
     assert kinds == ["stage_change"]
     assert (await client.delete(f"{url}/measurements/{reading['detail']['id']}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_a_setup_stage_moves_on_when_its_reminder_is_done(client: AsyncClient) -> None:
+    """Site critique fix 6: "brew the sweet tea" done means the ferment has started (1F);
+    a kraut no longer sits at "prep and salt" for days. Other stage reminders don't move it."""
+    batch = await _create_batch(client, (await _create_culture(client))["id"])
+    [setup] = [r for r in (await client.get("/reminders")).json() if r["batch_id"] == batch["id"]]
+    assert (await client.patch(f"/reminders/{setup['id']}/done")).status_code == 200
+    preview = (await client.get(f"/batches/{batch['id']}/preview")).json()
+    assert preview["batch"]["current_stage"] == "1F" and preview["next_stage"] == "2F_flavoring"
+    stage_changes = [e for e in preview["timeline"] if e["kind"] == "stage_change"]
+    assert [e["detail"]["value_text"] for e in stage_changes] == ["1F"]
+
+
+@pytest.mark.asyncio
+async def test_a_batch_can_be_discarded_with_its_reason(client: AsyncClient) -> None:
+    """Site critique fix 6: the app says "discard", so a batch can end as failed."""
+    batch = await _create_batch(client, (await _create_culture(client))["id"])
+    url = f"/batches/{batch['id']}"
+    assert (await client.post(f"{url}/discard", json={"reason": "cracked"})).status_code == 422
+    resp = await client.post(f"{url}/discard", json={"reason": "mould", "note": "white fuzz"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["outcome"] == "failed" and resp.json()["ended_at"] is not None
+    reminders = (await client.get("/reminders")).json()
+    assert all(r["batch_id"] != batch["id"] for r in reminders)  # it asks for nothing now
+    notes = [e for e in (await client.get(f"{url}/timeline")).json()["events"] if e["kind"] == "note"]
+    assert notes[-1]["detail"]["value_text"] == "Discarded: mould. white fuzz"
+    assert (await client.post(f"{url}/discard", json={"reason": "smell"})).status_code == 409

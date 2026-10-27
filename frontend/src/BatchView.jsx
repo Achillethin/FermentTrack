@@ -12,11 +12,18 @@ import { API_URL, urgencyColor, humanize, Card, apiError, errText } from "./shar
 
 const NO_REMINDER = { due: null, upcoming: null };
 
-function StageControl({ batchId, onAdvanced }) {
+// Names where it goes and asks first (site critique fix 6): the last stage ends the batch.
+function StageControl({ batchId, nextStage, onAdvanced }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const ends = ["ready", "done"].includes(nextStage);
+  const label = ends ? "Finish this batch" : `Move to ${humanize(nextStage)}`;
 
   async function advance() {
+    const ask = ends
+      ? "Finish this batch? It will be recorded as a success."
+      : `Move this batch to "${humanize(nextStage)}"?`;
+    if (!window.confirm(ask)) return;
     setBusy(true);
     setError(null);
     try {
@@ -39,8 +46,8 @@ function StageControl({ batchId, onAdvanced }) {
 
   return (
     <div className="mt-2">
-      <Button variant="secondary" size="sm" onClick={advance} disabled={busy}>
-        {busy ? "Advancing…" : "Advance to next stage"}
+      <Button variant="secondary" className="min-h-[44px]" onClick={advance} disabled={busy}>
+        {busy ? "Moving…" : label}
       </Button>
       {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
     </div>
@@ -61,7 +68,7 @@ function RepeatBatch({ batchId }) {
   }, []);
 
   async function repeat() {
-    if (inflight.current) return;
+    if (inflight.current || !window.confirm("Start a new batch like this one?")) return;
     inflight.current = true;
     setBusy(true);
     setError(null);
@@ -84,7 +91,7 @@ function RepeatBatch({ batchId }) {
     <div>
       <Button
         variant="secondary"
-        size="sm"
+        className="min-h-[44px]"
         onClick={repeat}
         disabled={busy}
         aria-label="Start a new batch like this one"
@@ -93,6 +100,70 @@ function RepeatBatch({ batchId }) {
       </Button>
       {error && (
         <p role="alert" className="mt-1 text-xs text-red-400">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const DISCARD_REASONS = [
+  ["mould", "Mould"],
+  ["slime", "Slime"],
+  ["ph_not_dropping", "pH not dropping"],
+  ["smell", "A bad smell"],
+  ["other", "Something else"],
+];
+
+// The app says "discard": this records it (site critique fix 6), as failed, with the reason.
+function DiscardBatch({ batchId, onDiscarded }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("mould");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function discard() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/discard`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) throw new Error(await apiError(res, "Could not discard the batch"));
+      setOpen(false);
+      onDiscarded();
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open)
+    return (
+      <Button variant="secondary" className="min-h-[44px]" onClick={() => setOpen(true)}>
+        Discard this batch…
+      </Button>
+    );
+  return (
+    <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-red-500/40 bg-red-950/30 p-3">
+      <Select label="Why are you discarding it?" value={reason} onChange={(e) => setReason(e.target.value)}>
+        {DISCARD_REASONS.map(([key, text]) => (
+          <option key={key} value={key}>
+            {text}
+          </option>
+        ))}
+      </Select>
+      <Button className="min-h-[44px] bg-red-700 hover:bg-red-600" onClick={discard} disabled={busy}>
+        {busy ? "Discarding…" : "Discard"}
+      </Button>
+      <Button variant="secondary" className="min-h-[44px]" onClick={() => setOpen(false)} disabled={busy}>
+        Keep it
+      </Button>
+      {error && (
+        <p role="alert" className="w-full text-xs text-red-400">
           {error}
         </p>
       )}
@@ -116,7 +187,7 @@ const fmtDays = (d) => (d < 10 ? d.toFixed(1) : String(Math.round(d)));
 
 // The batch reads like a paper label stuck on the jar; its controls sit on the
 // dark strip below it.
-function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced, onTemperatureSaved }) {
+function BatchHeader({ batchId, batch, culture, daysInStage, nextStage, onAdvanced, onTemperatureSaved }) {
   const ageDays = Math.max(0, (Date.now() - new Date(batch.started_at).getTime()) / 86_400_000);
   const finished = batch.outcome !== "in_progress";
   return (
@@ -151,7 +222,12 @@ function BatchHeader({ batchId, batch, culture, daysInStage, onAdvanced, onTempe
         <p className="mt-2 text-xs text-slate-400">
           Started {new Date(batch.started_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
         </p>
-        {!finished && <StageControl batchId={batchId} onAdvanced={onAdvanced} />}
+        {!finished && (
+          <div className="mt-2 flex flex-wrap items-start gap-2">
+            {nextStage && <StageControl batchId={batchId} nextStage={nextStage} onAdvanced={onAdvanced} />}
+            <DiscardBatch batchId={batchId} onDiscarded={onAdvanced} />
+          </div>
+        )}
       </div>
     </section>
   );
@@ -1506,6 +1582,7 @@ export default function BatchView({ batchId, focus = null }) {
             batch={preview.batch}
             culture={preview.culture}
             daysInStage={preview.days_in_stage}
+            nextStage={preview.next_stage}
             onAdvanced={() => {
               advanced.current = true;
               loadPreview(batchId);

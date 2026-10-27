@@ -378,6 +378,11 @@ def next_stage_name(substrate: str, current: str) -> str | None:
     return get_stage(substrate, current).next_stage
 
 
+# Short setup steps (1 h): their reminder done means the ferment has started, so the batch moves
+# on (site critique fix 6: a kraut sat for days at "prep and salt", nagged as overdue).
+SETUP_STAGES = frozenset({("lacto_ferment", "prep_and_salt"), ("kombucha", "brew_sweet_tea")})
+
+
 def first_stage(substrate: str) -> str:
     order = STAGE_ORDER.get(substrate)
     return order[0] if order else _NO_MACHINE_STAGE.name

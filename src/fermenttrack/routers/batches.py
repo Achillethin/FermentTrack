@@ -63,10 +63,11 @@ from fermenttrack.schemas import (
     RuleVerdictOut,
     SafetyReportOut,
     SaltSuggestionOut,
+    BatchDiscard,
     StageAdvance,
     TimelineEvent,
 )
-from fermenttrack.stages import InvalidStageError, first_stage, next_stage_name
+from fermenttrack.stages import InvalidStageError, first_stage, get_stage, next_stage_name
 
 router = APIRouter(prefix="/batches", tags=["batches"])
 
@@ -274,11 +275,21 @@ async def advance_stage(
         target_stage = payload.stage or next_stage_name(substrate, batch.current_stage)
         if target_stage is None:
             raise HTTPException(status_code=400, detail="Batch is already at its final stage")
-        entered_at = now_utc()
-        # validates stage name
-        reminder = build_reminder_for_stage(batch, substrate, target_stage, entered_at)
+        await move_to_stage(db, batch, target_stage)
     except InvalidStageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    await db.commit()
+    await db.refresh(batch)
+    return batch
+
+
+async def move_to_stage(db: AsyncSession, batch: Batch, target_stage: str) -> None:
+    """A stage change, uncommitted: the batch, the stage timers it supersedes, the new stage's
+    reminder and the stage history. Raises InvalidStageError. Also used by
+    routers.reminders when a setup stage's reminder is done (stages.SETUP_STAGES)."""
+    substrate = batch.culture.type
+    entered_at = now_utc()
+    reminder = build_reminder_for_stage(batch, substrate, target_stage, entered_at)  # validates
 
     batch.current_stage = target_stage
     batch.stage_entered_at = entered_at
@@ -310,6 +321,37 @@ async def advance_stage(
         )
     )  # fmt: skip
 
+
+DISCARD_REASONS = {
+    "mould": "mould", "slime": "slime", "ph_not_dropping": "pH not dropping", "smell": "a bad smell",
+    "other": "another reason",
+}  # fmt: skip
+
+
+@router.post("/{batch_id}/discard", response_model=BatchOut)
+async def discard_batch(
+    batch_id: uuid.UUID,
+    payload: BatchDiscard,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    user_id: str = Depends(get_current_user_id),
+) -> Batch:
+    """Site critique fix 6: the app says "discard", so a batch can end as failed, with its
+    reason in the history; its open reminders close (a discarded jar asks for nothing)."""
+    batch = await _get_batch(batch_id, db, user_id=user_id)
+    if batch.outcome != "in_progress":
+        raise HTTPException(status_code=409, detail="This batch has already ended")
+    now = now_utc()
+    batch.outcome, batch.ended_at = "failed", now
+    await db.execute(
+        update(Reminder)
+        .where(Reminder.batch_id == batch.id, Reminder.completed_at.is_(None))
+        .values(completed_at=now)
+    )
+    text = f"Discarded: {DISCARD_REASONS[payload.reason]}"
+    db.add(Measurement(
+        batch_id=batch.id, measured_at=now, type="note",
+        value_text=f"{text}. {payload.note}" if payload.note else text,
+    ))  # fmt: skip
     await db.commit()
     await db.refresh(batch)
     return batch
@@ -675,6 +717,7 @@ async def get_batch_preview(
         batch=BatchOut.model_validate(batch),
         culture=CultureOut.model_validate(batch.culture),
         days_in_stage=max(days_in_stage, 0.0),
+        next_stage=get_stage(batch.culture.type, batch.current_stage).next_stage,
         recipe=[BatchIngredientOut.model_validate(bi) for bi in batch.batch_ingredients],
         timeline=_build_timeline_events(batch),
         safety=safety,

@@ -117,6 +117,13 @@ class StageAdvance(BaseModel):
     stage: str | None = None
 
 
+class BatchDiscard(BaseModel):
+    """Site critique fix 6: the way to record that a batch went wrong (outcome "failed")."""
+
+    reason: Literal["mould", "slime", "ph_not_dropping", "smell", "other"]
+    note: Annotated[str, Field(max_length=500)] | None = None
+
+
 # ── Measurement ──────────────────────────────────────────────────────────
 
 class MeasurementCreate(BaseModel):
@@ -347,6 +354,7 @@ class BatchPreview(BaseModel):
     batch: BatchOut
     culture: CultureOut
     days_in_stage: float
+    next_stage: str | None = None  # what "Move to …" moves to; None: the last stage
     recipe: list[BatchIngredientOut]
     timeline: list[TimelineEvent]
     safety: SafetyReportOut
