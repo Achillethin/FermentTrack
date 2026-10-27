@@ -269,10 +269,14 @@ def crossing_times(
     return _first_crossing(t, v, target, below=ms.kind in ("below", "consumed_fraction"))
 
 
-def summarise_times(times: FloatArray, w: FloatArray) -> list[float]:
-    """[P10, P50, P90, reached share] of the members' crossing times (inf: not crossed)."""
+def summarise_times(
+    times: FloatArray, w: FloatArray, deadline_h: float | None = None
+) -> list[float]:
+    """[P10, P50, P90, reached share, share by deadline_h (NaN without one)] of the members'
+    crossing times (inf: not crossed)."""
     q = weighted_quantiles(times, w, QUANTILES)
-    return [*(float(x) for x in q), float(np.sum(w[np.isfinite(times)]) / np.sum(w))]
+    by = math.nan if deadline_h is None else float(np.sum(w[times <= deadline_h]) / np.sum(w))
+    return [*(float(x) for x in q), float(np.sum(w[np.isfinite(times)]) / np.sum(w)), by]
 
 
 def top_compounds(

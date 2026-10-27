@@ -311,7 +311,7 @@ def live_statistics(recipe: Recipe, model_c: float, members: int | None) -> grid
     kept = [(j, s) for j, s in enumerate(run.SERIES) if present[j]]
     e, u, p, share = (MappingProxyType({s: stats[k, j] for j, s in kept}) for k in range(4))
     milestones = {
-        m.key: grid.MilestoneTimes(*run.summarise_times(c, w))
+        m.key: grid.MilestoneTimes(*run.summarise_times(c, w, m.deadline_h))
         for m in run.milestones_for(PROFILES[recipe.fermentation_type])
         if (c := run.crossing_times(m, t, values)) is not None
     }
@@ -395,6 +395,10 @@ class Evaluation:
     # in the link, so the calibration gate can read P at a tasting's time (design § 13.2)
     t_h: FloatArray | None = field(default=None, compare=False, repr=False)
     p: Mapping[str, FloatArray] = field(default_factory=dict, compare=False, repr=False)
+    # the statistics' milestones, for the card's timeline (site critique fix 3)
+    milestones: Mapping[str, grid.MilestoneTimes] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -556,7 +560,7 @@ def evaluate(
         rising = tuple(o for o in sorted(var_p) if var_p[o] > par_p.get(o, 0.0))
     return Evaluation(
         win, basis_kind, peak, scores, e_peak, u_peak, tuple(notes), penalty, rising, c_peak,
-        t_h=t, p={k: stats.p[k] for k in keys if k in stats.p},
+        t_h=t, p={k: stats.p[k] for k in keys if k in stats.p}, milestones=stats.milestones,
     )
 
 
@@ -1563,7 +1567,7 @@ def live_variant_statistics(
     kept = [(j, s) for j, s in enumerate(run.SERIES) if present[j]]
     e, u, p, share = (MappingProxyType({s: stats[k, j] for j, s in kept}) for k in range(4))
     milestones = {
-        m.key: grid.MilestoneTimes(*run.summarise_times(c, w))
+        m.key: grid.MilestoneTimes(*run.summarise_times(c, w, m.deadline_h))
         for m in run.milestones_for(PROFILES[recipe.fermentation_type])
         if (c := run.crossing_times(m, t, values)) is not None
     }
@@ -1704,6 +1708,31 @@ def _target_json(s: TargetScore) -> dict[str, Any]:
     }
 
 
+def timeline_json(recipe: Recipe, parent: Recipe, ev: Evaluation) -> dict[str, Any] | None:
+    """Site critique fix 3 (owner, 2026-10-27): the card's two clocks, each labelled, so the
+    card and the batch page agree. The model's pH milestones as the batch forecast shows them
+    (median hours from the start; None: not within the forecast) and the source's documented
+    duration; for salted vegetables, the 48 h step's chance in words. None for the planner.
+    parent: what the duration is documented for (a variant's parent; else the recipe)."""
+    r = recipe
+    if r.handoff == "planner":
+        return None
+    model, step = [], None
+    for m in run.milestones_for(PROFILES[r.fermentation_type]):
+        t = ev.milestones.get(m.key)
+        if m.series != "ph" or t is None:
+            continue
+        if m.deadline_h is not None and math.isfinite(t.by_deadline):
+            step = {"title": m.title, "h": _num(m.deadline_h), "chance": engine.chance_word(t.by_deadline)}
+        model.append({
+            "key": m.key, "title": m.title, "note": m.note,
+            "p50_h": _num(t.p50) if math.isfinite(t.p50) else None,
+        })  # fmt: skip
+    d = parent.duration_h
+    source = None if d is None else {"lo_h": _num(d.lo), "hi_h": _num(d.hi)}
+    return {"model": model, "source": source, "step": step}
+
+
 def _window_json(ev: Evaluation) -> dict[str, Any] | None:
     w = ev.window
     if w is None:
@@ -1839,6 +1868,7 @@ def card_json(card: Card, calibrated: int | None = None) -> dict[str, Any]:
         },  # fmt: skip
         "temperature": _temperature_json(card.temperature, card.model_c),
         "window": _window_json(ev),
+        "timeline": timeline_json(r, parent, ev),
         "level": None if ev.e is None else score.low_med_high(ev.e),
         "targets": [_target_json(s) for s in ev.targets],
         "to_buy": list(card.to_buy),
@@ -2053,7 +2083,7 @@ def forecast(
     model_c = model_temperature(recipe, temp.served_c)
     stats = _live(recipe.key, model_c, members)
     ev = evaluate(recipe, stats, temp, targets)
-    return body | live_json(stats, temp, model_c, ev, targets)
+    return body | live_json(stats, temp, model_c, ev, targets, recipe=recipe)
 
 
 def forecast_body(
@@ -2076,14 +2106,17 @@ def forecast_body(
 
 
 def live_json(
-    stats: grid.Entry, temp: Temperature, model_c: float, ev: Evaluation, targets: Sequence[Target]
+    stats: grid.Entry, temp: Temperature, model_c: float, ev: Evaluation, targets: Sequence[Target],
+    *, recipe: Recipe, parent: Recipe | None = None,
 ) -> dict[str, Any]:
-    """A live forecast's part of a forecast response: the temperature, the window, the levels
-    (E and U at the peak per target), the bands and the notes."""
+    """A live forecast's part of a forecast response: the temperature, the window and the
+    timeline at the slider's temperature, the levels (E and U at the peak per target), the
+    bands and the notes. parent: a variant's (its documented duration)."""
     return {
         "members": stats.members,
         "temperature": _temperature_json(temp, model_c),
         "window": _window_json(ev),
+        "timeline": timeline_json(recipe, parent or recipe, ev),
         "level": None if ev.e is None else score.low_med_high(ev.e),
         "e_peak": None if ev.e is None else _num(ev.e, 3),
         "u_peak": None if ev.u is None else _num(ev.u, 3),
@@ -2172,7 +2205,9 @@ def variant_forecast(
         interaction = ev.e < INTERACTION_RATIO * screened_e
     if fresh:
         log_candidate(candidate_record(v, stats, fp, ev, screened_e))
-    out = body | live_json(stats, temp, stats.temp_c, ev, targets)
+    out = body | live_json(
+        stats, temp, stats.temp_c, ev, targets, recipe=v.recipe, parent=v.parent.recipe
+    )
     if interaction:
         out["notes"] = [
             *out["notes"],

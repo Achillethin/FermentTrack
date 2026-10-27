@@ -1485,3 +1485,23 @@ async def test_a_composed_request_is_validated_and_takes_no_operators(client: As
               "operators": [{"kind": "temperature", "to_c": 22}]},
     )  # fmt: skip
     assert ops.status_code == 422
+
+
+def test_a_card_shows_both_clocks_labelled() -> None:
+    """Site critique fix 3 (owner, 2026-10-27): the model's pH milestones (as the batch page
+    shows them), the source's documented duration, and for salted vegetables the 48 h step's
+    chance in words; none for the planner's cards. The slider's forecast re-reads it."""
+    body = S.recommend(["Napa cabbage"], [], [])
+    kimchi = next(c for c in body["proven"]["cards"] if c["recipe_key"] == KIMCHI)
+    tl = kimchi["timeline"]
+    assert [m["key"] for m in tl["model"]] == ["ph_below_4_6", "ph_below_5_0", "ph_below_4_0"]
+    assert tl["source"] == {"lo_h": 24.0, "hi_h": 48.0}  # CSU/NCSU's 1-2 days at room temperature
+    assert tl["step"]["title"] == "pH below 5.0" and tl["step"]["h"] == 48
+    assert tl["step"]["chance"] in {"likely", "maybe", "unlikely"}
+    cards = S.recommend(["Rye flour"], [], [])["proven"]["cards"]
+    levain = next(c for c in cards if c["handoff"] == "planner")
+    assert levain["timeline"] is None
+    kombucha = S.card_json(S.build_card(_recipe(KOMBUCHA), (), None)[0])  # type: ignore[arg-type]
+    assert kombucha["timeline"]["step"] is None  # BOT-002's types: no 5.0 step
+    live = S.forecast(KIMCHI, [], [], 24.0)
+    assert live["timeline"]["step"]["chance"] in {"likely", "maybe", "unlikely"}

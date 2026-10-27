@@ -23,6 +23,7 @@ from fermenttrack.prediction.service import (
     PredictionInputs,
     RecipeIn,
     _schedule,
+    chance_word,
     clear_caches,
     member_values,
     population_samples,
@@ -86,13 +87,14 @@ PINNED_SCHEDULE = (
 # Re-pinned 2026-10-24 for an intended model change (Leuconostoc's measured salt tolerance,
 # organisms.py aw_min, recommender v2 release 2); fingerprints and schedules did not move.
 # Re-pinned 2026-10-26 for L. sakei (a third default lacto organism, migration 0024): the
-# fingerprints moved with the parameter space; the schedule did not.
+# fingerprints moved with the parameter space; the schedule did not. 2026-10-27: the lacto
+# profile's ph_below_5_0 milestone (VEG-001's 48 h step) added; nothing else moved.
 PINNED_FORECASTS: dict[str, dict[str, Any]] = {
     "prior": {
         "members": 160, "ess": 160.0,
         "ph_p50": [4.347, 3.911, 3.765, 3.708], "ph_p05_end": 3.459,
         "lactic_p50": [11.004, 14.001, 15.602],
-        "milestones": {"ph_below_4_6": 69.59, "ph_below_4_0": 129.09, "sugars_90pct_used": None,
+        "milestones": {"ph_below_4_6": 69.59, "ph_below_5_0": 57.91, "ph_below_4_0": 129.09, "sugars_90pct_used": None,
                        "taste_tangy": 52.5, "taste_sour": 132.3},
         "temperature": {"forecast_c": 20.0, "source": "expected", "type_default_c": 20.0,
                         "range_c": [16.0, 24.0], "readings": 0},
@@ -102,7 +104,7 @@ PINNED_FORECASTS: dict[str, dict[str, Any]] = {
         "members": 128, "ess": 128.0,
         "ph_p50": [3.985, 3.793, 3.68, 3.646], "ph_p05_end": 3.384,
         "lactic_p50": [13.296, 15.983, 17.087],
-        "milestones": {"ph_below_4_6": 48.12, "ph_below_4_0": 81.77, "sugars_90pct_used": None,
+        "milestones": {"ph_below_4_6": 48.12, "ph_below_5_0": 40.54, "ph_below_4_0": 81.77, "sugars_90pct_used": None,
                        "taste_tangy": 39.9, "taste_sour": 90.3},
         "temperature": {"forecast_c": 25.0, "source": "override", "type_default_c": 20.0,
                         "range_c": [16.0, 24.0], "readings": 0},
@@ -112,7 +114,7 @@ PINNED_FORECASTS: dict[str, dict[str, Any]] = {
         "members": 400, "ess": 34.2,
         "ph_p50": [4.109, 3.922, 3.822, 3.716], "ph_p05_end": 3.499,
         "lactic_p50": [9.531, 11.367, 12.576],
-        "milestones": {"ph_below_4_6": 46.33, "ph_below_4_0": 114.89, "sugars_90pct_used": None,
+        "milestones": {"ph_below_4_6": 46.33, "ph_below_5_0": 36.11, "ph_below_4_0": 114.89, "sugars_90pct_used": None,
                        "taste_tangy": 35.7, "taste_sour": 149.1},
         "temperature": {"forecast_c": 18.0, "source": "measured", "type_default_c": 20.0,
                         "range_c": [16.0, 24.0], "readings": 2},
@@ -325,3 +327,16 @@ def test_only_the_default_ensemble_feeds_population_learning() -> None:
     assert population_samples(finished) is None
     predict(finished, horizon_h=H)
     assert population_samples(finished) is not None
+
+
+def test_the_48_h_step_reports_its_chance_in_words() -> None:
+    """Site critique fix 3 (owner, 2026-10-27): salted vegetables' ph_below_5_0 milestone
+    (VEG-001) carries the chance of crossing by 48 h, in words; no other milestone has one.
+    A plain kraut at 20 °C: 'unlikely', as Kristek's measured krauts (pH 5.3-5.5 at 48 h)."""
+    assert [chance_word(p) for p in (0.7, 0.69, 0.3, 0.29)] == [
+        "likely", "maybe", "maybe", "unlikely",
+    ]  # fmt: skip
+    ms = {m["key"]: m for m in predict(PRIOR)["milestones"]}
+    step = ms["ph_below_5_0"]["by_deadline"]
+    assert step == {"h": 48.0, "p": pytest.approx(0.256, abs=0.01), "chance": "unlikely"}
+    assert all(m["by_deadline"] is None for k, m in ms.items() if k != "ph_below_5_0")

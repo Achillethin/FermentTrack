@@ -103,6 +103,12 @@ export function unitSuffix(unit) {
   return ` ${unit}`;
 }
 
+// A milestone's chance by its deadline, in words (site critique fix 3; VEG-001's 48 h step).
+export function deadlineText(m) {
+  const d = m?.by_deadline;
+  return d ? `Within ${duration(d.h)} of the start: ${d.chance}` : null;
+}
+
 export function pct(p) {
   return `${Math.round(p * 100)} %`;
 }

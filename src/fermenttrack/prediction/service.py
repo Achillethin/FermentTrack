@@ -16,7 +16,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
 from itertools import pairwise
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -755,6 +755,12 @@ def _first_crossing(t: FloatArray, v: FloatArray, target: FloatArray, below: boo
     return out
 
 
+def chance_word(p: float) -> Literal["likely", "maybe", "unlikely"]:
+    """A milestone's chance by its deadline in words (site critique fix 3: "reached in 39 % of
+    model runs" helps nobody decide). The model is not calibrated yet: words, not numbers."""
+    return "likely" if p >= 0.7 else "maybe" if p >= 0.3 else "unlikely"
+
+
 def _milestone(
     ms: Milestone, t: FloatArray, values: dict[str, FloatArray], w: FloatArray
 ) -> dict[str, Any] | None:
@@ -791,7 +797,13 @@ def _milestone(
         "threshold": {"series": ms.series, "value": ms.threshold, "kind": ms.kind},
         "t_h": {"p05": fmt(float(q[0])), "p50": fmt(float(q[1])), "p95": fmt(float(q[2]))},
         "probability": round(float(np.sum(w[reached])), 3),
+        "by_deadline": None if ms.deadline_h is None else _by_deadline(times, w, ms.deadline_h),
     }
+
+
+def _by_deadline(times: FloatArray, w: FloatArray, deadline_h: float) -> dict[str, Any]:
+    p = float(np.sum(w[times <= deadline_h]) / np.sum(w))
+    return {"h": deadline_h, "p": round(p, 3), "chance": chance_word(p)}
 
 
 def _channel_label(ch: Channel) -> str:

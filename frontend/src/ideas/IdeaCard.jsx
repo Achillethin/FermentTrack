@@ -17,6 +17,7 @@ import {
   madeText,
   plannerHref,
   scheduleText,
+  timelineLines,
   aromaShareText,
   targetLine,
   tierText,
@@ -403,6 +404,13 @@ export default function IdeaCard({ card, query, onUseAsParent }) {
                   </div>
                 ))}
               </dl>
+              {timelineLines(view.timeline).length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-sm text-slate-300">
+                  {timelineLines(view.timeline).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              )}
               {basis && <p className="mt-1.5 text-xs text-slate-400">{basis}</p>}
               {w.notes.map((n, i) => (
                 <p key={i} className={`text-xs text-slate-400 ${!basis && i === 0 ? "mt-1.5" : ""}`}>

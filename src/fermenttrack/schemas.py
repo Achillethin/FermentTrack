@@ -493,6 +493,12 @@ class MilestoneThresholdOut(BaseModel):
     kind: str
 
 
+class MilestoneDeadlineOut(BaseModel):
+    h: float  # hours from the start
+    p: float  # weighted share of the ensemble crossing by then
+    chance: Literal["likely", "maybe", "unlikely"]  # prediction.service.chance_word
+
+
 class PredictionMilestoneOut(BaseModel):
     key: str
     label: str
@@ -502,6 +508,7 @@ class PredictionMilestoneOut(BaseModel):
     t_h: MilestoneTimesOut  # hours from batch start; null = not reached by the horizon
     probability: float  # weighted share of the ensemble reaching it within the horizon
     lens: Literal["process", "taste", "nutrition"] = "process"  # forecast-panel lens
+    by_deadline: MilestoneDeadlineOut | None = None  # Milestone.deadline_h (VEG-001's 48 h)
 
 
 class ReferenceLineOut(BaseModel):
@@ -1076,6 +1083,32 @@ class CommunityCardOut(BaseModel):
     mean_liking: float | None
 
 
+class CardMilestoneOut(BaseModel):
+    key: str
+    title: str
+    note: str
+    p50_h: float | None  # median hours from the start; None: not within the forecast
+
+
+class CardSourceDurationOut(BaseModel):
+    lo_h: float
+    hi_h: float
+
+
+class CardStepOut(BaseModel):
+    title: str  # "pH below 5.0"
+    h: float  # by this hour from the start
+    chance: Literal["likely", "maybe", "unlikely"]
+
+
+class CardTimelineOut(BaseModel):
+    """Site critique fix 3: the model's pH milestones and the source's duration, labelled."""
+
+    model: list[CardMilestoneOut]
+    source: CardSourceDurationOut | None
+    step: CardStepOut | None  # salted vegetables' 48 h step (VEG-001), in words
+
+
 class RecommendationCardOut(BaseModel):
     id: str
     section: Literal["pantry", "proven", "experimental", "community"]
@@ -1091,6 +1124,7 @@ class RecommendationCardOut(BaseModel):
     recipe: CardRecipeOut
     temperature: CardTemperatureOut
     window: CardWindowOut | None
+    timeline: CardTimelineOut | None = None  # None: the sourdough planner's card
     level: Level | None  # the targets' mean; None without targets
     targets: list[CardTargetOut]
     to_buy: list[str]  # core ingredients beyond the staples and the user's list
@@ -1183,6 +1217,7 @@ class RecommendationForecastOut(BaseModel):
     members: int | None
     temperature: CardTemperatureOut | None
     window: CardWindowOut | None
+    timeline: CardTimelineOut | None = None  # at this temperature (the card's, re-read)
     level: Level | None
     e_peak: float | None
     u_peak: float | None

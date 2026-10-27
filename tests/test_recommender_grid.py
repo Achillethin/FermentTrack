@@ -455,7 +455,7 @@ def test_a_rebuilt_entry_matches_the_committed_one(key: str, op: str | None) -> 
         m = stored.milestones[name]
         np.testing.assert_allclose(
             np.asarray(values, dtype=np.float32),
-            np.asarray([m.p10, m.p50, m.p90, m.reached], dtype=np.float32),
+            np.asarray([m.p10, m.p50, m.p90, m.reached, m.by_deadline], dtype=np.float32),
             rtol=time_rtol,
             err_msg=f"{STALE} ({name})",
         )

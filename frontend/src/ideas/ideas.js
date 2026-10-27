@@ -1,6 +1,6 @@
 // The Ideas page's pure logic: targets, card text and the live-forecast merge.
 // No React, no import.meta: `node src/ideas/ideas.check.mjs` runs it.
-import { duration, parseApiDate } from "../prediction/format.js";
+import { duration, durationRange, parseApiDate } from "../prediction/format.js";
 import { FAMILY_GLOSS } from "../prediction/sensory.js";
 import { formatC } from "../prediction/temperature.js";
 
@@ -39,6 +39,22 @@ const SHARE_WORDS = {
   smaller: "a smaller part of the aroma",
   trace: "only a trace in the aroma",
 };
+// The card's two clocks, each labelled (site critique fix 3): the model's pH milestones as the
+// batch page shows them, the 48 h step's chance in words (salted vegetables), and how long the
+// source ferments it. [] without a timeline (the planner's card, an older response).
+export function timelineLines(tl) {
+  if (!tl) return [];
+  const known = tl.model.filter((m) => m.p50_h != null).sort((a, b) => a.p50_h - b.p50_h);
+  const lines = [];
+  if (known.length) {
+    const parts = known.map((m, i) => `${i ? m.title.replace(/^pH /, "") : m.title} in about ${duration(m.p50_h)}`);
+    lines.push(`The model: ${parts.join(", ")}.`);
+  }
+  if (tl.step) lines.push(`${tl.step.title} within ${duration(tl.step.h)}, the first safety step: ${tl.step.chance}.`);
+  if (tl.source) lines.push(`The source ferments it ${durationRange(tl.source.lo_h, tl.source.hi_h)}.`);
+  return lines;
+}
+
 // The card's coverage line (site critique fix 4): which of your ingredients it uses, then what
 // to buy; without any of yours, only what to buy.
 export function coverageText(card) {
@@ -127,6 +143,7 @@ export function withForecast(card, fc) {
     },
     temperature: fc.temperature,
     window: fc.window,
+    timeline: fc.timeline ?? card.timeline,
     level: fc.level,
     targets: fc.targets.map(({ e_peak: _e, u_peak: _u, p_peak: _pp, ...t }) => t),
     safety_lines: fc.safety_lines,

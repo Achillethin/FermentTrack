@@ -39,6 +39,8 @@ class Milestone:
     ref: str | None = None
     # which lens of the forecast panel lists it (spec 2026-10-02 § 6)
     lens: Literal["process", "taste", "nutrition"] = "process"
+    # the chance of crossing it by this hour from the start is reported too (VEG-001's 48 h)
+    deadline_h: float | None = None
 
 
 @dataclass(frozen=True)
@@ -134,6 +136,11 @@ def _ph_below(value: float, note: str) -> Milestone:
 
 # Worded as a threshold, never as "safe by": a forecast must not stand in for a reading.
 _PH_46 = _ph_below(4.6, "the food-safety acidity threshold; confirm with a pH reading")
+# Salted vegetables' first step (VEG-001, owner decision 2026-10-26): below 5.0 within 48 h.
+_VEG_STEP = Milestone(
+    "ph_below_5_0", "pH below 5.0", "the first safety step: below 5.0 within 48 h", "ph",
+    "below", 5.0, deadline_h=48.0,
+)  # fmt: skip
 _SUGARS_90 = Milestone(
     "sugars_90pct_used", "90 % of the sugars fermented", "most of the sweetness gone",
     "sugars_total", "consumed_fraction", 0.9,
@@ -450,6 +457,7 @@ PROFILES: dict[str, FermentProfile] = {
             ),
             milestones=(
                 _PH_46,
+                _VEG_STEP,
                 _ph_below(4.0, "tangy, typical sauerkraut/kimchi"),
                 _SUGARS_90,
             ),

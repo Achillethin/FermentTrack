@@ -1,13 +1,13 @@
 {
   "grid": "recommender_grid_v1.npz",
-  "grid_sha256": "b7c567163172c0fce8d8601e487b2157269e5cf43700342f1cea55e49c39359c",
-  "grid_bytes": 678042,
-  "schema": 4,
+  "grid_sha256": "9e8ab10df62a4989aa81ea13c3514fbcab0e49b9cb67cb294346ba3a47889e2a",
+  "grid_bytes": 680386,
+  "schema": 5,
   "model_version": "kinetic-v1",
   "bake_model_version": "sourdough-v1",
   "derived_version": "sensory-v2",
   "inputs": {
-    "prediction/profiles.py": "c84dfea947a631532d0e3ce55cb94e8a8885ae3d8943db906d890dad996fc15b",
+    "prediction/profiles.py": "8cc44cb10f3ca639fac74f42e169dd2bffba17cbf1056de6d042045ee3ae66de",
     "prediction/organisms.py": "132ca9907f94a1d1f16fc6db76fb912e9afdcd1c132c635e3cf338a2e7a87cb6",
     "prediction/aroma_compounds_v1.csv": "fd1b1c1d1d28c0b1c98d59ef788a66456b344b71ada5df7497cac9b014680d8f",
     "prediction/aroma_data.py": "755f87d2fbc95aa3eb67b72b61b4fee6837b4c309805db09aadad95089acf766",
@@ -1694,39 +1694,39 @@
     "numpy": "2.5.3",
     "scipy": "1.18.1"
   },
-  "build_date": "2026-10-26T16:39:31+00:00",
-  "build_seconds": 257.1,
+  "build_date": "2026-10-27T16:18:07+00:00",
+  "build_seconds": 186.4,
   "workers": 6,
   "slowest": [
     [
-      "rye_sour",
-      "swap:Rye flour>Whole wheat flour",
+      "levain_liquide",
+      "swap:White wheat flour>Rye flour",
+      26.0,
+      8.3
+    ],
+    [
+      "levain_liquide",
+      "swap:White wheat flour>Rye flour",
+      22.0,
+      8.0
+    ],
+    [
+      "levain_liquide",
+      "swap:White wheat flour>Rye flour",
       30.0,
-      11.6
+      7.9
     ],
     [
-      "rye_sour",
-      "swap:Rye flour>White wheat flour",
-      28.0,
-      11.2
-    ],
-    [
-      "san_francisco",
+      "levain_liquide",
       "swap:White wheat flour>Whole wheat flour",
-      27.0,
-      11.1
+      30.0,
+      7.9
     ],
     [
-      "rye_sour",
+      "levain_liquide",
       null,
       30.0,
-      10.8
-    ],
-    [
-      "rye_sour",
-      "swap:Rye flour>Whole wheat flour",
-      28.0,
-      10.8
+      7.7
     ]
   ]
 }

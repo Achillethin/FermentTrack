@@ -1,4 +1,4 @@
-import { describeMilestone, duration } from "./format.js";
+import { deadlineText, describeMilestone, duration } from "./format.js";
 
 function Icon({ state }) {
   const common = { viewBox: "0 0 16 16", className: "mt-0.5 h-4 w-4 shrink-0", fill: "none", "aria-hidden": true };
@@ -99,6 +99,7 @@ export default function Milestones({ data, whatIf, exploratory }) {
               Reached in {Math.round(hero.d.prob * 100)} % of model runs within the window
             </p>
           )}
+          {deadlineText(hero.m) && <p className="mt-1 text-sm font-medium text-slate-100">{deadlineText(hero.m)}</p>}
           {hero.note && <p className="mt-2 text-xs text-slate-400">{hero.note}</p>}
         </div>
       )}
@@ -136,6 +137,7 @@ export default function Milestones({ data, whatIf, exploratory }) {
                         .flatMap((el, k) => (k ? [" · ", el] : [el]))}
                     </p>
                   )}
+                  {deadlineText(i.m) && <p className="text-xs text-slate-200">{deadlineText(i.m)}</p>}
                   {i.note && <p className="text-xs text-slate-400">{i.note}</p>}
                   {reading && <p className="mt-1 text-xs text-amber-300/90">{reading}</p>}
                 </div>

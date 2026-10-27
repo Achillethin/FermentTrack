@@ -14,6 +14,7 @@ import {
   cardSource,
   chipText,
   coverageText,
+  timelineLines,
   errorText,
   finishedParents,
   fmtGrams,
@@ -408,3 +409,21 @@ assert.equal(coverageText({ uses: ["Cabbage", "Carrot"], to_buy: [] }), "Uses ca
 assert.equal(coverageText({ uses: ["Cabbage"], to_buy: ["Napa cabbage"] }), "Uses cabbage ✓ · to buy: napa cabbage");
 assert.equal(coverageText({ uses: [], to_buy: ["Milk"] }), "To buy: milk");
 assert.equal(coverageText({ to_buy: [] }), ""); // an older response without `uses`
+{
+  const tl = {
+    model: [
+      { key: "ph_below_4_6", title: "pH below 4.6", note: "", p50_h: 62 },
+      { key: "ph_below_5_0", title: "pH below 5.0", note: "", p50_h: 34 },
+      { key: "ph_below_4_0", title: "pH below 4.0", note: "", p50_h: null },
+    ],
+    source: { lo_h: 504, hi_h: 672 },
+    step: { title: "pH below 5.0", h: 48, chance: "likely" },
+  };
+  const lines = timelineLines(tl);
+  assert.match(lines[0], /^The model: pH below 5\.0 in about .+, below 4\.6 in about .+\.$/); // soonest first
+  assert.doesNotMatch(lines[0], /4\.0/); // not within the forecast: left out
+  assert.match(lines[1], /^pH below 5\.0 within .+, the first safety step: likely\.$/);
+  assert.match(lines[2], /^The source ferments it .+\.$/);
+  assert.deepEqual(timelineLines(null), []);
+  assert.deepEqual(timelineLines({ model: [], source: null, step: null }), []);
+}

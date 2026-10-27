@@ -46,7 +46,7 @@ GRID_NPZ = HERE / "recommender_grid_v1.npz"
 MANIFEST_JSON = HERE / "recommender_grid_v1.manifest.json"
 REBUILD = "python scripts/build_recommender_grid.py --workers 4"
 # 2: operator entries (B7); 3: E and U score character (recommender v2 § 3.1); 4: C, the share
-SCHEMA = 4
+SCHEMA = 5  # 5: milestones carry by_deadline (2026-10-27)
 MAX_BYTES = 5 * 1024 * 1024  # design § 8.2: over budget, the npz becomes a release asset
 STATISTICS = ("E", "U", "P", "C")
 SAFETY_MILESTONE = "ph_below_4_6"  # stored wherever the profile has ph_safety_line
@@ -97,6 +97,7 @@ class MilestoneTimes:
     p50: float
     p90: float
     reached: float  # the weighted share of members that cross it
+    by_deadline: float = math.nan  # the share crossing by Milestone.deadline_h; NaN: none
 
 
 @dataclass(frozen=True)
@@ -354,7 +355,7 @@ def mix(recipe_key: str, lo: Entry, hi: Entry, t: float) -> Entry:
     milestones = {
         name: MilestoneTimes(*(
             _lerp(getattr(m, x), getattr(hi.milestones[name], x), f)
-            for x in ("p10", "p50", "p90", "reached")
+            for x in ("p10", "p50", "p90", "reached", "by_deadline")
         ))
         for name, m in lo.milestones.items()
         if name in hi.milestones

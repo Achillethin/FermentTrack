@@ -215,6 +215,7 @@ def _run(recipe: Recipe, temp_c: float, op_key: str | None) -> dict[str, Any]:
     if not present[len(AROMA_SERIES) :].all() or not present[: len(AROMA_SERIES)].any():
         raise BuildError(f"{where}: taste or aroma missing (engine failure?)")
     crossings = {m.key: c for m in milestones if (c := crossing_times(m, t, values)) is not None}
+    deadlines = {m.key: m.deadline_h for m in milestones}
     crossings.update(extra)
     return {
         "recipe": key,
@@ -223,7 +224,9 @@ def _run(recipe: Recipe, temp_c: float, op_key: str | None) -> dict[str, Any]:
         "t_h": t_dst,
         "stats": stats,
         "present": present,
-        "milestones": {name: summarise_times(c, w) for name, c in crossings.items()},
+        "milestones": {
+            name: summarise_times(c, w, deadlines.get(name)) for name, c in crossings.items()
+        },
         "milestone_end_h": float(t[-1]),
         "members": int(len(w)),
         "schedule": [list(step) for step in schedule],
@@ -263,7 +266,7 @@ def assemble(
     n_t = np.zeros(n, dtype=np.int16)
     stats = np.full((n, len(grid.STATISTICS), len(SERIES), MAX_TIMES), np.nan, dtype=np.float16)
     present = np.zeros((n, len(SERIES)), dtype=bool)
-    milestones = np.full((n, n_ms, 4), np.nan, dtype=np.float32)
+    milestones = np.full((n, n_ms, 5), np.nan, dtype=np.float32)
     entries = []
     row: dict[tuple[str, str | None, float], int] = {}
     for i, r in enumerate(good):

@@ -669,7 +669,7 @@ def forecast(
     stats = _live(c, temp, members)
     ev = service.evaluate(recipe, stats, temp, targets, mode="community", basis=basis(c))
     body = service.forecast_body(None, "community", [], False, result, temp)
-    return body | service.live_json(stats, temp, stats.temp_c, ev, targets)
+    return body | service.live_json(stats, temp, stats.temp_c, ev, targets, recipe=recipe)
 
 
 def batch_plan(
