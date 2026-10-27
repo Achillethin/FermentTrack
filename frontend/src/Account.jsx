@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { currentUser, signInWithEmail, signOut } from "./auth.js";
 import MyRecipes from "./community/MyRecipes.jsx";
 import { Button, Input } from "./components/ui.jsx";
-import { API_URL, Card } from "./shared.jsx";
+import { API_URL, Card, apiError, errText } from "./shared.jsx";
 import SaveAccount from "./sourdough/SaveAccount.jsx";
 
 // Who you are, how to keep your data (email), and how to sign in on another device.
@@ -79,7 +79,61 @@ export default function Account({ blocked = null }) {
       {!blocked && guest && <SaveAccount />}
       {!blocked && <MyRecipes admin={Boolean(me?.admin)} />}
       {guest && <EmailSignIn />}
+      {!blocked && me && <DeleteMyData />}
     </div>
+  );
+}
+
+// GDPR erasure (site critique: DELETE /me existed without a button). It deletes every culture,
+// batch, reading and tasting; a published community recipe stays, without your name. Typed
+// confirmation, then sign out: the data behind this session is gone.
+function DeleteMyData() {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const id = useId();
+  const ready = text.trim().toLowerCase() === "delete";
+
+  async function erase(e) {
+    e.preventDefault();
+    if (!ready) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/me`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await apiError(res, "Could not delete your data"));
+      await signOut().catch(() => {});
+      window.location.hash = "#/today";
+      window.location.reload();
+    } catch (err) {
+      setError(errText(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="Delete my data">
+      <p className="text-sm text-slate-300">
+        This deletes all your cultures, batches, readings and tastings, for good. A recipe you published to the
+        community stays, without your name.
+      </p>
+      <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={erase}>
+        <div>
+          <label htmlFor={id} className="mb-1 block text-xs text-slate-400">
+            Type <strong>delete</strong> to confirm
+          </label>
+          <Input id={id} value={text} onChange={(e) => setText(e.target.value)} autoComplete="off" label="Type delete to confirm" />
+        </div>
+        <Button type="submit" className="min-h-[44px] bg-red-700 hover:bg-red-600" disabled={!ready || busy}>
+          {busy ? "Deleting…" : "Delete my data"}
+        </Button>
+      </form>
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-red-400">
+          {error}
+        </p>
+      )}
+    </Card>
   );
 }
 
