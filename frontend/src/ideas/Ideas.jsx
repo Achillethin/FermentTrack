@@ -3,11 +3,11 @@ import { Button } from "../components/ui.jsx";
 import TemperatureField from "../prediction/TemperatureField.jsx";
 import { parseTemperature } from "../prediction/temperature.js";
 import { Card } from "../shared.jsx";
-import { getCalibration, postRecommendations } from "./api.js";
+import { getCalibration, postPantry, postRecommendations } from "./api.js";
 import { DeepSearchPanel, useDeepSearch } from "./DeepSearch.jsx";
 import { isActive } from "./deep.js";
 import IdeaCard from "./IdeaCard.jsx";
-import { calibrationText, groupByParent, mergeDeep, pantryBody, sameSearch, targetBody } from "./ideas.js";
+import { calibrationText, groupByParent, mergeDeep, pantryBody, sameSearch, searchSummary, targetBody } from "./ideas.js";
 import { IngredientPicker, ModeToggle, ParentPicker, TargetChips, UsdaPicker } from "./Pickers.jsx";
 
 const MAX_BATCH_G = 200_000; // the API's limit
@@ -19,6 +19,7 @@ function parseBatch(text) {
 
 // The sections in display order: [key, title, what it is].
 const SECTIONS = [
+  ["pantry", "Made from what you have", "standard brines built from sourced rules"],
   ["proven", "Proven", "curated, cited recipes"],
   ["experimental", "Experimental", "model-guided changes, untested"],
   ["community", "Community — not proven", "shared by other fermenters, reviewed, not proven"],
@@ -64,8 +65,10 @@ function Section({ name, title, what, section, cards, query, seq, onUseAsParent 
   );
 }
 
-function Results({ result, experimentalCards, statusRef, onUseAsParent }) {
-  const { status, data, query, error, seq } = result;
+function Results({ result, pantry, experimentalCards, statusRef, onUseAsParent }) {
+  const { status, query, error, seq } = result;
+  // the pantry section comes from its own request; it shows only when it has cards
+  const data = result.data && { ...result.data, pantry: pantry.cards?.length ? pantry : null };
   let said = "";
   if (status === "loading") said = "Finding ideas…";
   else if (status === "done") said = foundText(data);
@@ -87,6 +90,9 @@ function Results({ result, experimentalCards, statusRef, onUseAsParent }) {
               {n}
             </p>
           ))}
+          {pantry.status === "loading" && (
+            <p className="text-sm text-slate-400">Composing recipes from what you have…</p>
+          )}
           {SECTIONS.filter(([key]) => data[key]).map(([key, title, what]) => (
             <Section
               key={key}
@@ -132,6 +138,8 @@ export default function Ideas() {
   const [tempText, setTempText] = useState("");
   const [batchText, setBatchText] = useState("1000");
   const [result, setResult] = useState({ status: "idle", seq: 0 });
+  const [pantry, setPantry] = useState({ status: "idle" });
+  const [editing, setEditing] = useState(true); // the form, or its one-line summary after results
   const deep = useDeepSearch();
   const calibration = useCalibration();
   const statusRef = useRef(null);
@@ -163,9 +171,20 @@ export default function Ideas() {
     // a finished deep search of another request does not belong under the new results
     if (ds.status !== "starting" && !isActive(ds.status) && !sameSearch(ds.request ?? ds.job?.request, query)) deep.reset();
     setResult((r) => ({ ...r, status: "loading" }));
+    // "Made from what you have" (live forecasts, slower): in parallel, so Proven doesn't wait
+    const listed = (query.ingredients?.length ?? 0) + (query.pantry?.length ?? 0) > 0;
+    setPantry({ status: listed ? "loading" : "idle", query });
+    if (listed) {
+      // a slower answer to an earlier search must not land under this one
+      const mine = (next) => setPantry((p) => (p.query === query ? next : p));
+      postPantry(query)
+        .then((section) => mine({ status: "done", query, ...section }))
+        .catch(() => mine({ status: "error", query })); // a bonus section: Proven still answers
+    }
     try {
       const data = await postRecommendations(query);
       setResult((r) => ({ status: "done", data, query, seq: r.seq + 1 }));
+      setEditing(false);
     } catch (err) {
       // The previous query's cards would read as answers to this one: drop them.
       setResult((r) => ({ status: "error", error: err.message, seq: r.seq }));
@@ -207,6 +226,14 @@ export default function Ideas() {
           Start from what you have, what you would like to notice, or both. Ideas are model-guided: timings and aroma
           levels are model estimates, not validated.
         </p>
+        {!editing && done ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p className="min-w-0 text-sm text-slate-200">{searchSummary(result.query) || "Your search"}</p>
+            <Button type="button" variant="secondary" size="sm" className="min-h-[44px]" onClick={() => setEditing(true)}>
+              Edit search
+            </Button>
+          </div>
+        ) : (
         <form className="space-y-5" onSubmit={submit} noValidate>
           <IngredientPicker
             value={ingredients}
@@ -269,8 +296,15 @@ export default function Ideas() {
             )}
           </div>
         </form>
+        )}
       </Card>
-      <Results result={result} experimentalCards={experimentalCards} statusRef={statusRef} onUseAsParent={useAsParent} />
+      <Results
+        result={result}
+        pantry={pantry}
+        experimentalCards={experimentalCards}
+        statusRef={statusRef}
+        onUseAsParent={useAsParent}
+      />
       {/* always mounted: it renders nothing until there is something to show */}
       <DeepSearchPanel
         deep={deep}

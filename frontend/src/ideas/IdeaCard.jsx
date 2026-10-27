@@ -9,6 +9,7 @@ import {
   basisText,
   cardSource,
   chipText,
+  coverageText,
   fmtGrams,
   isTemperatureVariant,
   levelsLegend,
@@ -145,6 +146,7 @@ function TemperatureSlider({ min, max, value, moved, disabled = false, onChange,
 }
 
 const SECTION_TAG = {
+  pantry: ["accent", "Made from what you have"],
   proven: ["accent", "Proven"],
   experimental: ["warn", "Experimental"],
   community: ["neutral", "Community — not proven"],
@@ -320,8 +322,9 @@ export default function IdeaCard({ card, query, onUseAsParent }) {
         tastes: query.tastes,
         temperature_c: tempC ?? query.temperature_c,
         batch_g: query.batch_g,
-        // a variant is Experimental whatever the request's mode (search deeper runs from any)
-        mode: card.section === "experimental" && query.mode === "proven" ? "experimental" : query.mode,
+        // a variant or a composed recipe is untested whatever the request's mode (search deeper
+        // and the pantry section run from any)
+        mode: ["experimental", "pantry"].includes(card.section) && query.mode === "proven" ? "experimental" : query.mode,
       });
       if (!mounted.current) return;
       if (out.skipped_ingredients.length) setStarted(out);
@@ -385,7 +388,7 @@ export default function IdeaCard({ card, query, onUseAsParent }) {
       <Part title={`Recipe for ${fmtGrams(view.recipe.batch_g)}`}>
         <Ingredients recipe={view.recipe} />
         <Facts recipe={view.recipe} />
-        {card.to_buy.length > 0 && <p className="mt-2 text-sm text-slate-300">To buy: {card.to_buy.join(", ")}</p>}
+        {coverageText(card) && <p className="mt-2 text-sm text-slate-300">{coverageText(card)}</p>}
       </Part>
 
       <Part title={planner ? "When the levain is ready" : "When to taste"}>

@@ -39,6 +39,15 @@ const SHARE_WORDS = {
   smaller: "a smaller part of the aroma",
   trace: "only a trace in the aroma",
 };
+// The card's coverage line (site critique fix 4): which of your ingredients it uses, then what
+// to buy; without any of yours, only what to buy.
+export function coverageText(card) {
+  const uses = (card.uses ?? []).map((n) => n.toLowerCase());
+  const buy = (card.to_buy ?? []).map((n) => n.toLowerCase());
+  if (!uses.length) return buy.length ? `To buy: ${buy.join(", ")}` : "";
+  return `Uses ${uses.join(", ")} ✓ · ${buy.length ? `to buy: ${buy.join(", ")}` : "nothing to buy"}`;
+}
+
 export function aromaShareText(target) {
   if (!target.modelled || target.noticeable === false) return null;
   return SHARE_WORDS[target.share] ?? null;

@@ -87,6 +87,7 @@ from fermenttrack.schemas import (
     RecommendationJobOut,
     RecommendationLinkOut,
     RecommendationRequest,
+    RecommendationSectionOut,
     RecommendationsOut,
     ReminderOut,
 )
@@ -229,6 +230,26 @@ async def recommend(
     except run.RecipeError as exc:
         raise _cannot_run(exc) from None
     return RecommendationsOut.model_validate(body)
+
+
+@router.post("/recommendations/pantry", response_model=RecommendationSectionOut)
+async def pantry(
+    payload: RecommendationRequest,
+    user_id: str = Depends(get_current_user_id),  # signed-in users only, as /recommendations
+) -> RecommendationSectionOut:
+    """The "Made from what you have" section (service.pantry_section): composed lacto
+    recipes, each a live forecast."""
+    calibrated = calibration.calibrated_on(calibration.cached())
+    try:
+        body = await run_in_threadpool(
+            service.pantry_section, payload.ingredients, payload.pantry, payload.aromas,
+            payload.tastes, payload.temperature_c, payload.batch_g, calibrated=calibrated,
+        )  # fmt: skip
+    except PredictionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    except run.RecipeError as exc:
+        raise _cannot_run(exc) from None
+    return RecommendationSectionOut.model_validate(body)
 
 
 @router.post("/recommendations/forecast", response_model=RecommendationForecastOut)

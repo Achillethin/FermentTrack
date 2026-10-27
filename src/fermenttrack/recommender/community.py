@@ -566,6 +566,7 @@ def community_card(
         safety_lines=result.safety_lines, batch_g=batch_g,
         to_buy=service.to_buy(recipe, listed), not_modelled=stats.not_modelled,
         notes=(*temp.notes, *service.model_note(stats.temp_c, temp, nearest), *ev.notes),
+        uses=service.uses(recipe, listed),
     )  # fmt: skip
 
 

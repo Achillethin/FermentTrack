@@ -28,6 +28,8 @@ export async function request(path, { method = "GET", body, signal } = {}) {
 export const getIngredients = (signal) => request("/ingredients", { signal });
 export const postRecommendations = (body, signal) => request("/recommendations", { method: "POST", body, signal });
 export const postForecast = (body, signal) => request("/recommendations/forecast", { method: "POST", body, signal });
+// "Made from what you have": composed recipes, live, so apart from /recommendations
+export const postPantry = (body, signal) => request("/recommendations/pantry", { method: "POST", body, signal });
 export const postStartBatch = (body) => request("/batches/from-recommendation", { method: "POST", body });
 
 // Experimental: your batches as parents (Q16), USDA foods for operator (v).

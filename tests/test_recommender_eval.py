@@ -568,7 +568,7 @@ def composed_violations(card: dict[str, Any]) -> list[str]:
 
     cid, out = card["id"], []
     spec = (card.get("parent") or {}).get("composed")
-    if card["section"] != "experimental" or card["source_kind"] != "composed" or not spec:
+    if card["section"] != "pantry" or card["source_kind"] != "composed" or not spec:
         return [f"{cid}: not a composed card"]
     try:
         c = composer.composition(spec["bases"], spec["aromatics"])
@@ -598,7 +598,7 @@ def composed_violations(card: dict[str, Any]) -> list[str]:
     lines = set(card["safety_lines"])
     if not must <= lines or must_not & lines:
         out.append(f"{cid}: safety lines {sorted(lines)}")
-    if f"Experimental — {composer.LABEL}" not in card["trust"]["labels"]:
+    if f"{S.PANTRY_LABEL} — {composer.LABEL}" not in card["trust"]["labels"]:
         out.append(f"{cid}: no composed label")
     if card["operators"] or card["screened"]:
         out.append(f"{cid}: a composed card with operators or screened")
@@ -708,7 +708,7 @@ def _forbidden(p: S.Parent, rng: np.random.Generator) -> operators.Operator:
 
 def test_e4_every_card_of_mode_both_requests() -> None:
     rng = np.random.default_rng(SEED + 8)
-    n_requests, n_proven, n_variants, violations = 120, 0, 0, []
+    n_requests, n_proven, n_variants, n_composed, violations = 120, 0, 0, 0, []
     for _ in range(n_requests):
         req = random_request(rng)
         body = S.recommend(
@@ -721,10 +721,19 @@ def test_e4_every_card_of_mode_both_requests() -> None:
             violations += card_violations(card)
         for card in body["experimental"]["cards"]:
             n_variants += 1
-            composed = card["source_kind"] == "composed"
-            violations += composed_violations(card) if composed else variant_violations(card)
-    print(f"\nE4 (mode both): {len(violations)} violations over {n_proven} Proven and "
-          f"{n_variants} Experimental cards from {n_requests} seeded requests")  # fmt: skip
+            violations += variant_violations(card)
+            if card["source_kind"] == "composed":
+                violations.append(f"{card['id']}: a composed card in Experimental")
+        pantry = S.pantry_section(
+            [], req["ingredients"], req["aromas"], req["tastes"], req["temperature_c"],
+            req["batch_g"],
+        )  # fmt: skip
+        for card in pantry["cards"]:
+            n_composed += 1
+            violations += composed_violations(card)
+    print(f"\nE4 (mode both): {len(violations)} violations over {n_proven} Proven, "
+          f"{n_variants} Experimental and {n_composed} composed cards from {n_requests} "
+          "seeded requests")  # fmt: skip
     assert n_variants > 150
     assert violations == []
 

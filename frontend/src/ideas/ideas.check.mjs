@@ -13,6 +13,7 @@ import {
   calibrationText,
   cardSource,
   chipText,
+  coverageText,
   errorText,
   finishedParents,
   fmtGrams,
@@ -403,3 +404,7 @@ assert.deepEqual(pantryBody(["Cabbage"], []), { ingredients: [], pantry: ["Cabba
 assert.equal(MAX_STARRED, 2);
 assert.ok(!sameSearch({ ingredients: [], pantry: ["Carrot"] }, { ingredients: [], pantry: ["Garlic"] }));
 assert.equal(searchSummary({ ingredients: ["Garlic"], pantry: ["Carrot"] }), "Garlic ★, Carrot");
+assert.equal(coverageText({ uses: ["Cabbage", "Carrot"], to_buy: [] }), "Uses cabbage, carrot ✓ · nothing to buy");
+assert.equal(coverageText({ uses: ["Cabbage"], to_buy: ["Napa cabbage"] }), "Uses cabbage ✓ · to buy: napa cabbage");
+assert.equal(coverageText({ uses: [], to_buy: ["Milk"] }), "To buy: milk");
+assert.equal(coverageText({ to_buy: [] }), ""); // an older response without `uses`

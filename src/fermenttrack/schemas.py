@@ -1070,7 +1070,7 @@ class CommunityCardOut(BaseModel):
 
 class RecommendationCardOut(BaseModel):
     id: str
-    section: Literal["proven", "experimental", "community"]
+    section: Literal["pantry", "proven", "experimental", "community"]
     source_kind: Literal["library", "variant", "own_batch", "community", "composed"]
     recipe_key: str | None  # the library recipe (a variant's parent); None: your batch, community
     name: str
@@ -1086,6 +1086,7 @@ class RecommendationCardOut(BaseModel):
     level: Level | None  # the targets' mean; None without targets
     targets: list[CardTargetOut]
     to_buy: list[str]  # core ingredients beyond the staples and the user's list
+    uses: list[str] = []  # the user's listed ingredients it uses, staples aside
     not_modelled: list[str]  # ingredients without aroma data
     trust: CardTrustOut
     safety_lines: list[str]  # mandatory (design § 7)

@@ -16,7 +16,7 @@ import pytest
 
 from fermenttrack.recommender import library, service
 
-P, X = "proven", "experimental"
+P, X, M = "proven", "experimental", "pantry"
 DAIRY = {"kefir", "cheese"}
 CASES = [
     # pantry-first lacto (V1 audience 1)
@@ -25,7 +25,7 @@ CASES = [
      ("top", {"napa_kimchi_room_temp"})),
     ("carrot-garlic-is-lacto", [], ["Carrot", "Garlic"], [], [], X, ("top", {"lacto_ferment"})),
     # release 2 exit (v2 § 4): "carrot + garlic returns brined carrots with garlic" (composer)
-    ("carrot-garlic-is-brined-carrot", [], ["Carrot", "Garlic"], [], [], X,
+    ("carrot-garlic-is-brined-carrot", [], ["Carrot", "Garlic"], [], [], M,
      ("top", {"composed:brine:Carrot+Garlic"})),
     ("cabbage-never-kombucha", [], ["Cabbage"], [], [], X, ("none", {"kombucha", "miso"})),
     # one base ingredient -> its classic ferment
@@ -58,7 +58,8 @@ def _cards(starred, pantry, aromas, tastes, section) -> list[service.Card]:  # t
     targets = service.parse_targets(aromas, tastes)
     if section == P:
         return service.proven_cards(starred, targets, None, pantry=pantry)[0]
-    # the section as served: composed lacto recipes (v2 § 3.3) lead the library variants
+    if section == M:  # "Made from what you have": composed lacto recipes (v2 § 3.3)
+        return service.composed_cards(starred, pantry, targets, None)
     return service.experimental_section(starred, targets, None, 1000.0, (), None, pantry)[1]
 
 

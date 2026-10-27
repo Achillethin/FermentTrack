@@ -1376,22 +1376,42 @@ async def test_start_batch_from_a_variant_of_your_batch(
 # ── the lacto composer (recommender v2 § 3.3, release 2) ────────────────
 
 
-async def test_carrot_and_garlic_lead_experimental_with_a_composed_brined_carrot(
+async def test_carrot_and_garlic_compose_a_brined_carrot_in_its_own_section(
     client: AsyncClient,
 ) -> None:
+    """Site critique fix 4 (owner, 2026-10-27): "Made from what you have" is its own section,
+    in every mode, served by /recommendations/pantry; Experimental no longer holds it."""
     resp = await client.post(
-        "/recommendations", json={"pantry": ["Carrot", "Garlic"], "mode": "experimental"}
+        "/recommendations/pantry", json={"pantry": ["Carrot", "Garlic"], "mode": "proven"}
     )
     assert resp.status_code == 200, resp.text
-    first = resp.json()["experimental"]["cards"][0]
+    first = resp.json()["cards"][0]
     assert first["id"] == "composed:brine:Carrot+Garlic" and first["source_kind"] == "composed"
-    assert first["name"] == "Brined carrot with garlic" and first["section"] == "experimental"
+    assert first["name"] == "Brined carrot with garlic" and first["section"] == "pantry"
     assert first["parent"]["kind"] == "composed"
     assert first["parent"]["composed"] == {"bases": ["Carrot"], "aromatics": ["Garlic"]}
-    assert "Experimental — composed from sourced rules" in first["trust"]["labels"]
+    assert "Made from what you have — composed from sourced rules" in first["trust"]["labels"]
     assert first["recipe"]["salt_pct"] == pytest.approx(2.5, abs=0.01)
     assert first["to_buy"] == [] and first["window"] is not None
+    assert first["uses"] == ["Carrot", "Garlic"]
     assert any(n.startswith("composed: vegetables 46 %") for n in first["notes"])
+    both = await client.post(
+        "/recommendations", json={"pantry": ["Carrot", "Garlic"], "mode": "experimental"}
+    )
+    assert all(c["source_kind"] != "composed" for c in both.json()["experimental"]["cards"])
+    nothing = await client.post("/recommendations/pantry", json={"pantry": ["Milk"]})
+    assert nothing.status_code == 200 and nothing.json()["cards"] == []
+
+
+async def test_every_card_says_which_listed_ingredients_it_uses(client: AsyncClient) -> None:
+    """The coverage line (site critique fix 4): staples aside, in the recipe's order."""
+    body = (await client.post(
+        "/recommendations", json={"pantry": ["Cabbage", "Carrot", "Salt"], "mode": "proven"}
+    )).json()  # fmt: skip
+    cards = {c["recipe_key"]: c for c in body["proven"]["cards"]}
+    assert cards["sauerkraut_dry_salted"]["uses"] == ["Cabbage"]
+    kraut = cards["katz_mixed_kraut_tastingtable"]
+    assert kraut["uses"] == ["Cabbage", "Carrot"] and "Napa cabbage" in kraut["to_buy"]
 
 
 async def test_a_composed_card_forecasts_and_starts_a_batch_from_its_ingredients(

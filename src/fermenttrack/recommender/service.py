@@ -223,7 +223,8 @@ def _safe_span(
     probe = replace(like, temperatures_c=())
     cuts = (gate.LACTIC_MAX_C, gate.GARUM_HOT_MIN_C, gate.KOJI_MIN_C, gate.KOJI_MAX_C)
     ends = sorted({lo, hi, *(c for c in cuts if lo < c < hi)})
-    points = [x for a, b in zip(ends, ends[1:]) for x in (a, (a + b) / 2)] + [ends[-1]]
+    pairs = zip(ends, ends[1:], strict=False)
+    points = [x for a, b in pairs for x in (a, (a + b) / 2)] + [ends[-1]]
     ok = [gate.check(probe, [t]).ok for t in points]
     spans: list[tuple[float, float]] = []
     start: float | None = None
@@ -578,6 +579,7 @@ class Card:
     screened: bool = False  # Experimental: combined additively from single-operator entries
     coverage: float = 0.0  # the share of the recipe's non-staple mass the user has (v2 § 3.2)
     foreign: int = 0  # (v) foods taken into a type they aren't tagged for (v2 § 3.2)
+    uses: tuple[str, ...] = ()  # the user's listed ingredients it uses, staples aside
 
 
 def coverage(recipe: Recipe, have: Iterable[str]) -> float:
@@ -607,6 +609,13 @@ def uses_pantry(names: Iterable[str], have: Iterable[str]) -> bool:
     non-staple ingredient at all (a targets-only request)."""
     listed = set(must_include(have))
     return not listed or bool(listed & set(names))
+
+
+def uses(recipe: Recipe, listed: Iterable[str]) -> tuple[str, ...]:
+    """The user's listed ingredients the recipe uses, staples aside, in the recipe's order: the
+    card's coverage line ("Uses cabbage, carrot ✓ · nothing to buy"; site critique fix 4)."""
+    have = set(listed) - library.STAPLES
+    return tuple(dict.fromkeys(i.name for i in recipe.ingredients if i.name in have))
 
 
 def to_buy(recipe: Recipe, listed: Iterable[str]) -> tuple[str, ...]:
@@ -646,7 +655,7 @@ def build_card(
         model_c=stats.temp_c, evaluation=ev, safety_lines=result.safety_lines, batch_g=batch_g,
         to_buy=to_buy(recipe, listed), not_modelled=stats.not_modelled,
         notes=(*temp.notes, *model_note(stats.temp_c, temp, PRECOMPUTED), *ev.notes),
-        coverage=coverage(recipe, listed),
+        coverage=coverage(recipe, listed), uses=uses(recipe, listed),
     )  # fmt: skip
     return card, result
 
@@ -1063,6 +1072,7 @@ def variant_card(
         to_buy=to_buy(v.recipe, listed), not_modelled=not_modelled(v.recipe),
         notes=tuple(notes), variant=v, screened=screened, coverage=coverage(v.recipe, listed),
         foreign=foreign(v.operators, v.parent.recipe.fermentation_type),
+        uses=uses(v.recipe, listed),
     )  # fmt: skip
     return card, result
 
@@ -1402,7 +1412,7 @@ def own_parent(own: OwnBatch) -> Parent:
     return Parent(recipe, "own_batch", label, own.batch_id, basis)
 
 
-COMPOSED_CARDS = 2  # v2 § 3.3: composed lacto ideas lead the Experimental section
+COMPOSED_CARDS = 2  # v2 § 3.3: the "Made from what you have" section (pantry_section)
 
 
 def composed_parent(c: composer.Composition, temperature_c: float | None = None) -> Parent:
@@ -1787,8 +1797,9 @@ def card_json(card: Card, calibrated: int | None = None) -> dict[str, Any]:
     planner = r.handoff == "planner"
     link = planner_link(r, served, card.batch_g) if planner else None
     labels = [*CARD_LABELS]
-    if v is not None and v.parent.kind == "composed":
-        labels.append(f"Experimental — {composer.LABEL}")
+    composed = v is not None and v.parent.kind == "composed"
+    if composed:
+        labels.append(f"{PANTRY_LABEL} — {composer.LABEL}")
     elif v is not None:
         labels.append(f"Experimental — departs from {v.parent.label}")
     labels += library.trust_labels(parent, served)
@@ -1798,7 +1809,7 @@ def card_json(card: Card, calibrated: int | None = None) -> dict[str, Any]:
         labels.append(operators.AROMA_UNKNOWN)
     body = {
         "id": v.id if v else f"library:{r.key}",
-        "section": "experimental" if v else "proven",
+        "section": "pantry" if composed else "experimental" if v else "proven",
         "source_kind": v.source_kind if v else "library",
         "recipe_key": (v.parent.recipe.key if v.parent.kind == "library" else None) if v
         else r.key,
@@ -1831,6 +1842,7 @@ def card_json(card: Card, calibrated: int | None = None) -> dict[str, Any]:
         "level": None if ev.e is None else score.low_med_high(ev.e),
         "targets": [_target_json(s) for s in ev.targets],
         "to_buy": list(card.to_buy),
+        "uses": list(card.uses),
         "not_modelled": list(card.not_modelled),
         "trust": {
             "provenance": parent.provenance,
@@ -1971,11 +1983,29 @@ def experimental_section(
         mine = own_batch_cards(own, listed, targets, temperature_c, batch_g, usda_ids)
         considered = considered or bool(parent_combinations(own, listed, temperature_c, usda_ids))
         cards = [*mine[:1], *cards][:CARDS_PER_SECTION]
-    elif not usda_ids:  # v2 § 3.3: what the pantry composes into leads (the user asked for it)
-        composed = composed_cards(listed, pantry, targets, temperature_c, batch_g)
-        considered = considered or bool(composed)
-        cards = [*composed, *cards][:CARDS_PER_SECTION]
     return considered, cards
+
+
+PANTRY_LABEL = "Made from what you have"
+
+
+def pantry_section(
+    listed: Sequence[str],
+    pantry: Sequence[str],
+    aromas: Sequence[str],
+    tastes: Sequence[str],
+    temperature_c: float | None,
+    batch_g: float = DEFAULT_BATCH_G,
+    *,
+    calibrated: int | None = None,
+) -> dict[str, Any]:
+    """POST /recommendations/pantry (site critique 2026-10-26, fix 4; owner decision
+    2026-10-27): the lacto recipes composed for what the user has (v2 § 3.3), their own
+    section in every mode rather than the head of Experimental. Apart from /recommendations
+    because each card is a live forecast (~1 s cold), so the Proven cards don't wait for it."""
+    targets = parse_targets(aromas, tastes)
+    cards = composed_cards(tuple(dict.fromkeys(listed)), pantry, targets, temperature_c, batch_g)
+    return {"cards": [card_json(c, calibrated) for c in cards], "message": None}
 
 
 # ── the live per-card forecast (design § 10.1) ──────────────────────────
