@@ -1,7 +1,7 @@
 {
   "grid": "recommender_grid_v1.npz",
-  "grid_sha256": "46643e3304db7d0825801152a4a9df3f997025b8c6058b7e1ae543243a675280",
-  "grid_bytes": 341818,
+  "grid_sha256": "b7c567163172c0fce8d8601e487b2157269e5cf43700342f1cea55e49c39359c",
+  "grid_bytes": 678042,
   "schema": 4,
   "model_version": "kinetic-v1",
   "bake_model_version": "sourdough-v1",
@@ -11,9 +11,9 @@
     "prediction/organisms.py": "132ca9907f94a1d1f16fc6db76fb912e9afdcd1c132c635e3cf338a2e7a87cb6",
     "prediction/aroma_compounds_v1.csv": "fd1b1c1d1d28c0b1c98d59ef788a66456b344b71ada5df7497cac9b014680d8f",
     "prediction/aroma_data.py": "755f87d2fbc95aa3eb67b72b61b4fee6837b4c309805db09aadad95089acf766",
-    "recommender/recipes_v1.csv": "35e38b39eb2ff7e09c9e1f5f958dbdfb573122239e5b3e29d429e9c518a55588",
-    "recommender/recipe_ingredients_v1.csv": "775472a156c446eacebcc07fa3791df604e80e011d32ea5f1a86c4ae4c9562c5",
-    "recommender/ingredient_use_levels_v1.csv": "1d59b2c14cc8265b18f58caa89069ce573d8431cd3bf5eb94df92f63975fa72e"
+    "recommender/recipes_v1.csv": "03f6e1a215e0cb581ff110cca9fc8c9895832c3fcefd375799e95c364508c5c2",
+    "recommender/recipe_ingredients_v1.csv": "a87755536a4edc4f2ff13f9db88a759ac8b20e34d0061e087df4b8beb6d8a7f9",
+    "recommender/ingredient_use_levels_v1.csv": "c80082a7d337e9d95caf9ff7192257f3e0548d9377693aa40f9e5f7146495428"
   },
   "tau": 0.25,
   "character": {
@@ -82,16 +82,10 @@
     "pacific_sand_lance_rice_koji_fish_sauce": {
       "kept": [
         20.0,
-        30.0
+        30.0,
+        60.0
       ],
-      "dropped": [
-        {
-          "temp_c": 60.0,
-          "reasons": [
-            "TEMP-001: 60 °C > 45 °C"
-          ]
-        }
-      ]
+      "dropped": []
     },
     "sauerkraut_dry_salted": {
       "kept": [
@@ -122,6 +116,142 @@
         20.0,
         25.0,
         28.0
+      ],
+      "dropped": []
+    },
+    "noma_lacto_blueberries": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
+      ],
+      "dropped": []
+    },
+    "noma_lemon_verbena_kombucha": {
+      "kept": [
+        20.0,
+        24.0,
+        28.0
+      ],
+      "dropped": []
+    },
+    "noma_chicken_wing_garum": {
+      "kept": [
+        20.0,
+        30.0,
+        60.0
+      ],
+      "dropped": []
+    },
+    "noma_lacto_ceps": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
+      ],
+      "dropped": []
+    },
+    "noma_apple_kombucha": {
+      "kept": [
+        20.0,
+        24.0,
+        28.0
+      ],
+      "dropped": []
+    },
+    "noma_coffee_kombucha": {
+      "kept": [
+        20.0,
+        24.0,
+        28.0
+      ],
+      "dropped": []
+    },
+    "noma_lacto_plums": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
+      ],
+      "dropped": []
+    },
+    "katz_miso_short_light": {
+      "kept": [
+        15.0,
+        25.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "katz_miso_long_dark": {
+      "kept": [
+        15.0,
+        25.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "noma_elderflower_peaso": {
+      "kept": [
+        15.0,
+        25.0,
+        30.0
+      ],
+      "dropped": []
+    },
+    "noma_rule_lacto_raspberries": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
+      ],
+      "dropped": []
+    },
+    "noma_rule_lacto_blackberries": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
+      ],
+      "dropped": []
+    },
+    "noma_rule_lacto_mulberries": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
+      ],
+      "dropped": []
+    },
+    "noma_rule_lacto_white_currants": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
+      ],
+      "dropped": []
+    },
+    "bergo_meat_garum_noma_style": {
+      "kept": [
+        20.0,
+        30.0,
+        60.0
+      ],
+      "dropped": []
+    },
+    "bergo_lacto_mushrooms_3pct": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
+      ],
+      "dropped": []
+    },
+    "katz_mixed_kraut_tastingtable": {
+      "kept": [
+        16.0,
+        20.0,
+        24.0
       ],
       "dropped": []
     },
@@ -319,7 +449,8 @@
         "kind": "swap",
         "temps": [
           20.0,
-          30.0
+          30.0,
+          60.0
         ],
         "dropped": []
       },
@@ -327,6 +458,13 @@
         "kind": "temperature",
         "temps": [
           30.0
+        ],
+        "dropped": []
+      },
+      "temp:60": {
+        "kind": "temperature",
+        "temps": [
+          60.0
         ],
         "dropped": []
       }
@@ -553,6 +691,718 @@
         "kind": "temperature",
         "temps": [
           20.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_lacto_blueberries": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Blueberries>Cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Blueberries>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Blueberries>Napa cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "temp:16": {
+        "kind": "temperature",
+        "temps": [
+          16.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_lemon_verbena_kombucha": {
+      "swap:Lemon verbena (dried)>Fresh ginger": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "swap:Lemon verbena (dried)>Lemon": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "swap:Lemon verbena (dried)>Lemongrass": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "swap:Lemon verbena (dried)>Mint": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_chicken_wing_garum": {
+      "swap:Chicken wings (roasted)>Anchovies": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          30.0,
+          60.0
+        ],
+        "dropped": []
+      },
+      "swap:Chicken wings (roasted)>Mackerel": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          30.0,
+          60.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:30": {
+        "kind": "temperature",
+        "temps": [
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_lacto_ceps": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "temp:16": {
+        "kind": "temperature",
+        "temps": [
+          16.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_apple_kombucha": {
+      "swap:Apple juice (unfiltered)>Black tea leaves": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "swap:Apple juice (unfiltered)>Green tea leaves": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_coffee_kombucha": {
+      "swap:Coffee (ground)>Fresh ginger": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "swap:Coffee (ground)>Lemon": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "swap:Coffee (ground)>Lemongrass": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "swap:Coffee (ground)>Mint": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          24.0,
+          28.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_lacto_plums": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Plums>Cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Plums>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Plums>Napa cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "temp:16": {
+        "kind": "temperature",
+        "temps": [
+          16.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      }
+    },
+    "katz_miso_short_light": {
+      "swap:Soybeans>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          25.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White rice>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          25.0,
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "katz_miso_long_dark": {
+      "swap:Soybeans>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          25.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White rice>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          25.0,
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_elderflower_peaso": {
+      "swap:White rice>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          25.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:White rice>Soybeans": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          25.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:Yellow split peas (cooked)>Pearl barley": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          25.0,
+          30.0
+        ],
+        "dropped": []
+      },
+      "swap:Yellow split peas (cooked)>Soybeans": {
+        "kind": "swap",
+        "temps": [
+          15.0,
+          25.0,
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_rule_lacto_raspberries": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "temp:16": {
+        "kind": "temperature",
+        "temps": [
+          16.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_rule_lacto_blackberries": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Blackberries>Cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Blackberries>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Blackberries>Napa cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "temp:16": {
+        "kind": "temperature",
+        "temps": [
+          16.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_rule_lacto_mulberries": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Mulberries>Cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Mulberries>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Mulberries>Napa cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "temp:16": {
+        "kind": "temperature",
+        "temps": [
+          16.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "noma_rule_lacto_white_currants": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:White currants>Cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:White currants>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:White currants>Napa cabbage": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "temp:16": {
+        "kind": "temperature",
+        "temps": [
+          16.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:24": {
+        "kind": "temperature",
+        "temps": [
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "bergo_meat_garum_noma_style": {
+      "swap:Lamb tongue>Anchovies": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          30.0,
+          60.0
+        ],
+        "dropped": []
+      },
+      "swap:Lamb tongue>Mackerel": {
+        "kind": "swap",
+        "temps": [
+          20.0,
+          30.0,
+          60.0
+        ],
+        "dropped": []
+      },
+      "temp:20": {
+        "kind": "temperature",
+        "temps": [
+          20.0
+        ],
+        "dropped": []
+      },
+      "temp:30": {
+        "kind": "temperature",
+        "temps": [
+          30.0
+        ],
+        "dropped": []
+      }
+    },
+    "bergo_lacto_mushrooms_3pct": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      }
+    },
+    "katz_mixed_kraut_tastingtable": {
+      "add:Fresh ginger": {
+        "kind": "add",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Cabbage>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Carrot>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Napa cabbage>Cucumber": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Onion>Caraway seeds": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Onion>Dill": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
+        ],
+        "dropped": []
+      },
+      "swap:Onion>Lemongrass": {
+        "kind": "swap",
+        "temps": [
+          16.0,
+          20.0,
+          24.0
         ],
         "dropped": []
       }
@@ -823,9 +1673,9 @@
     }
   },
   "operator_counts": {
-    "add": 1,
-    "swap": 42,
-    "temperature": 28
+    "add": 10,
+    "swap": 85,
+    "temperature": 59
   },
   "members_per_forecast": {
     "service": [
@@ -835,48 +1685,48 @@
       128
     ]
   },
-  "recipes": 20,
-  "entries": 188,
-  "operator_entries": 129,
+  "recipes": 37,
+  "entries": 397,
+  "operator_entries": 286,
   "platform": {
     "os": "win32",
     "machine": "AMD64",
     "numpy": "2.5.3",
     "scipy": "1.18.1"
   },
-  "build_date": "2026-10-26T08:38:07+00:00",
-  "build_seconds": 176.7,
+  "build_date": "2026-10-26T16:39:31+00:00",
+  "build_seconds": 257.1,
   "workers": 6,
   "slowest": [
     [
-      "levain_liquide",
-      "swap:White wheat flour>Whole wheat flour",
-      26.0,
-      8.9
-    ],
-    [
-      "levain_liquide",
-      "swap:White wheat flour>Whole wheat flour",
-      22.0,
-      8.8
-    ],
-    [
-      "levain_liquide",
-      "swap:White wheat flour>Rye flour",
+      "rye_sour",
+      "swap:Rye flour>Whole wheat flour",
       30.0,
-      8.7
+      11.6
     ],
     [
-      "levain_liquide",
-      "swap:White wheat flour>Rye flour",
-      26.0,
-      8.6
+      "rye_sour",
+      "swap:Rye flour>White wheat flour",
+      28.0,
+      11.2
     ],
     [
-      "levain_liquide",
+      "san_francisco",
       "swap:White wheat flour>Whole wheat flour",
+      27.0,
+      11.1
+    ],
+    [
+      "rye_sour",
+      null,
       30.0,
-      8.6
+      10.8
+    ],
+    [
+      "rye_sour",
+      "swap:Rye flour>Whole wheat flour",
+      28.0,
+      10.8
     ]
   ]
 }

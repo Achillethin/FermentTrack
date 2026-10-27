@@ -51,6 +51,7 @@ from fermenttrack.schemas import RecommendationsOut
 SEED = 20261008
 FORBIDDEN = ("tastes like", "smells like", "will taste")
 PH_LINES = (gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE)
+VEG_LINES = (gate.VEG_PH_LINE, gate.PH_LOG_LINE)  # salted vegetables (owner decision 2026-10-26)
 
 
 def _query(recipe: library.Recipe) -> list[str]:
@@ -80,7 +81,7 @@ def test_e1_a_recipe_comes_back_for_its_ingredients() -> None:
     whose core is all staples has no ingredient query (not a miss)."""
     hits, n, misses, _ = _e1()
     print(f"\nE1 = {hits}/{n} = {hits / n:.0%} over eligible recipes; misses {misses}")
-    assert n == 11
+    assert n == 28  # 11 before curation § 9 (2026-10-26: 27/28, Katz's light miso the miss)
     assert hits / n >= 0.9
 
 
@@ -138,7 +139,7 @@ def test_e2_a_recipe_comes_back_for_its_reported_aromas() -> None:
     misses = [(k, rank) for k, rank in rows if rank is None or rank > 5]
     print(f"\nE2 = {hits}/{len(rows)} = {hits / len(rows):.1%} (top 5 of the Proven ranking); "
           f"misses (recipe, rank) {misses}")  # fmt: skip
-    assert len(rows) == 6  # the recipes with source-reported aromas
+    assert len(rows) == 21  # the recipes with source-reported aromas (6 before § 9)
     assert hits / len(rows) >= E2_TARGET
 
 
@@ -164,7 +165,7 @@ def test_e3_the_unclipped_window_overlaps_the_documented_duration() -> None:
     hits = sum(o for _, o, _ in rows)
     misses = [k for k, o, _ in rows if not o]
     print(f"\nE3 (all) = {hits}/{len(rows)} = {hits / len(rows):.1%}; misses {misses}")
-    assert len(rows) == 16
+    assert len(rows) == 33  # 16 before curation § 9
     assert hits / len(rows) >= 0.8
 
 
@@ -173,7 +174,7 @@ def test_e3_without_the_windows_that_overlap_by_construction() -> None:
     hits = sum(o for _, o, _ in rows)
     print(f"\nE3 (without source-only and beyond-horizon) = {hits}/{len(rows)} = "
           f"{hits / len(rows):.1%}; misses {[k for k, o, _ in rows if not o]}")  # fmt: skip
-    assert len(rows) == 9
+    assert len(rows) == 18  # 9 before curation § 9
     assert hits / len(rows) >= 0.8
 
 
@@ -216,7 +217,7 @@ def _mandatory_lines(card: dict[str, Any]) -> tuple[set[str], set[str]]:
     ft = card["fermentation_type"]
     must: set[str] = set()
     if ft in {"lacto_ferment", "kombucha", "kefir", "cheese", "vinegar"}:
-        must |= set(PH_LINES)
+        must |= {VEG_LINES[0] if ft == "lacto_ferment" else PH_LINES[0], gate.PH_LOG_LINE}
     if ft == "vinegar":
         must |= set(gate.VINEGAR_LINES)
     if ft == "koji":
@@ -225,9 +226,9 @@ def _mandatory_lines(card: dict[str, Any]) -> tuple[set[str], set[str]]:
             must.add(gate.TANE_KOJI_LINE)
     if ft in {"miso", "garum"}:
         must.add(gate.SALT_BARRIER_LINE)
-    must_not = set() if ft in {"lacto_ferment", "kombucha", "kefir", "cheese", "vinegar"} else set(
-        PH_LINES
-    )
+    must_not = set() if ft in {"lacto_ferment", "kombucha", "kefir", "cheese", "vinegar"} else {
+        *PH_LINES, *VEG_LINES
+    }
     return must, must_not
 
 
@@ -236,12 +237,15 @@ def safe_range(recipe: library.Recipe, starters: list[str]) -> tuple[float, floa
     owner), from the design independently of the service: the documented span within the
     safety limits; koji 25 °C (KOJI-002) to 35 °C with certified tane-koji as the only starter
     ("up to 35 °C only with certified tane-koji"), else 33 °C (KOJI-001); TEMP-001's 45 °C
-    for the lactic types. Not the profile range."""
+    for the lactic types, except hot garum at 57 °C or more (owner decision 2026-10-26). Not
+    the profile range."""
     assert recipe.temp_c is not None
     lo, hi = recipe.temp_c.lo, recipe.temp_c.hi
     if recipe.fermentation_type == "koji":
         cap = 35.0 if starters == [gate.CERTIFIED_KOJI_STARTER] else 33.0
         return max(lo, 25.0), min(hi, cap)
+    if recipe.fermentation_type == "garum" and lo >= HOT_GARUM_C:
+        return lo, hi
     return lo, min(hi, gate.LACTIC_MAX_C)
 
 
@@ -318,7 +322,7 @@ def card_violations(card: dict[str, Any]) -> list[str]:
 
 def test_e4_the_checker_catches_a_bad_card() -> None:
     """The property test is not vacuous: tampered cards are flagged."""
-    [card] = S.recommend(["Napa cabbage"], [], [])["proven"]["cards"]
+    card = S.recommend(["Napa cabbage"], [], [])["proven"]["cards"][0]
     assert card_violations(card) == []
     no_lines = card | {"safety_lines": []}
     assert any("missing safety lines" in v for v in card_violations(no_lines))
@@ -447,9 +451,13 @@ def _pct(rows: list[tuple[str, float]], name: str) -> float | None:
     return round(100.0 * part / total, 2) if part > 0 and total > 0 else None
 
 
+HOT_GARUM_C = 57.0  # FDA Food Code hot holding: garum's TEMP-001 exemption (owner, 2026-10-26)
+
+
 def _limits(ft: str, starters: list[str]) -> tuple[float, float]:
     """The safety limits alone (no documented span): koji 25 °C to 35 °C with certified
-    tane-koji as the only starter, else 33 °C; lactic types to 45 °C."""
+    tane-koji as the only starter, else 33 °C; lactic types to 45 °C (and hot garum from
+    57 °C, checked by the caller)."""
     if ft == "koji":
         return 25.0, 35.0 if starters == [gate.CERTIFIED_KOJI_STARTER] else 33.0
     return -math.inf, gate.LACTIC_MAX_C
@@ -500,7 +508,9 @@ def variant_violations(card: dict[str, Any]) -> list[str]:
         kept, was, shown = _pct(grams, name), _pct(mine, name), card["recipe"][key]
         if (was is None) != (shown is None) or (was is not None and abs(shown - was) > 0.02):
             out.append(f"{cid}: {name} {shown} % shown, the parent's {was} %")
-        if kept is not None and was is not None and abs(kept - was) > 0.05:
+        # salt is rounded up, never down (service.batch_grams): up to 0.1 g more
+        up = 10.0 / sum(g for _, g in grams) if name == gate.SALT else 0.0
+        if kept is not None and was is not None and not -0.05 <= kept - was <= 0.05 + up:
             out.append(f"{cid}: {name} {kept} % in the grams, the parent's {was} %")
     p_lo, p_hi = PROFILES[ft].temp_range
     moves = [o for o in ops if o["op"] == "temperature"]
@@ -508,7 +518,8 @@ def variant_violations(card: dict[str, Any]) -> list[str]:
         to_c, (s_lo, s_hi) = moves[0]["to_c"], _limits(ft, starters)
         if served != to_c or t["slider"] is not None or card["recipe"]["temperature_c"] != to_c:
             out.append(f"{cid}: served {served} °C / slider {t['slider']}, the operator {to_c}")
-        if not (p_lo <= served <= p_hi and s_lo <= served <= s_hi):
+        hot_garum = ft == "garum" and served >= HOT_GARUM_C
+        if not (p_lo <= served <= p_hi and (s_lo <= served <= s_hi or hot_garum)):
             out.append(f"{cid}: {served} °C outside the profile or the safety limits")
         if parent.temp_c.lo <= served <= parent.temp_c.hi:
             out.append(f"{cid}: a temperature operator inside the documented span")

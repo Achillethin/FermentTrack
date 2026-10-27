@@ -131,7 +131,10 @@ LOW_RESOLUTION: frozenset[str] = frozenset(
     )
     <= 2
 )
-PROVENANCE_RANK = {"institutional_tested": 0, "peer_reviewed": 1, "traditional_documented": 2}
+PROVENANCE_RANK = {
+    "institutional_tested": 0, "peer_reviewed": 1, "traditional_documented": 2,
+    "chef_published": 3,  # curation § 9: a recognised practitioner's published recipe
+}  # fmt: skip
 CONFIDENCE_RANK = {"established": 0, "exploratory": 1}
 CARD_LABELS = ("Model-guided idea", "model estimate, not validated")
 CALIBRATED_LABEL = "calibrated on {n} batches"  # once the calibration gate passes (§ 13.2)
@@ -206,18 +209,34 @@ def _tane_koji_cap(like: gate.RecipeLike) -> float:
     return CERTIFIED_KOJI_MAX_C if like.fermentation_type == "koji" and certified else math.inf
 
 
-def _safe_span(like: gate.RecipeLike, lo: float, hi: float) -> tuple[float, float] | None:
+def _safe_span(
+    like: gate.RecipeLike, lo: float, hi: float, near: float | None = None
+) -> tuple[float, float] | None:
     """The part of [lo, hi] that passes the gate and the tane-koji ceiling (None if empty).
-    The gate's temperature rules are thresholds, so the passing set is an interval whose
-    ends are lo, hi or a threshold; gate.check decides."""
+    The gate's temperature rules are thresholds, so the passing set is a union of intervals
+    whose ends are lo, hi or a threshold (hot garum leaves a hole, 45-57 °C): the one holding
+    `near` is returned, else the nearest (default: the lowest). gate.check decides, at the
+    ends and between them."""
     hi = min(hi, _tane_koji_cap(like))
     if lo > hi:
         return None
     probe = replace(like, temperatures_c=())
-    cuts = (gate.LACTIC_MAX_C, gate.KOJI_MIN_C, gate.KOJI_MAX_C)
+    cuts = (gate.LACTIC_MAX_C, gate.GARUM_HOT_MIN_C, gate.KOJI_MIN_C, gate.KOJI_MAX_C)
     ends = sorted({lo, hi, *(c for c in cuts if lo < c < hi)})
-    passing = [t for t in ends if gate.check(probe, [t]).ok]
-    return (passing[0], passing[-1]) if passing else None
+    points = [x for a, b in zip(ends, ends[1:]) for x in (a, (a + b) / 2)] + [ends[-1]]
+    ok = [gate.check(probe, [t]).ok for t in points]
+    spans: list[tuple[float, float]] = []
+    start: float | None = None
+    for i, t in enumerate(points):
+        if ok[i] and start is None:
+            start = t
+        if start is not None and (i == len(points) - 1 or not ok[i + 1]):
+            spans.append((start, t))
+            start = None
+    if not spans:
+        return None
+    at = lo if near is None else near
+    return min(spans, key=lambda s: max(s[0] - at, at - s[1], 0.0))
 
 
 def resolve_temperature(recipe: Recipe, requested_c: float | None) -> Temperature:
@@ -230,7 +249,7 @@ def resolve_temperature(recipe: Recipe, requested_c: float | None) -> Temperatur
     span = recipe.temp_c
     asked = None if requested_c is None else round(requested_c, 1)
     source = span.median if asked is None else min(max(asked, span.lo), span.hi)
-    safe = _safe_span(gate.from_recipe(recipe), span.lo, span.hi)
+    safe = _safe_span(gate.from_recipe(recipe), span.lo, span.hi, source)
     served = source if safe is None else min(max(source, safe[0]), safe[1])  # None: refused
     notes: list[str] = []
     if served != source:
@@ -666,11 +685,29 @@ def _target_phrase(targets: Sequence[Target]) -> str:
     return keys[0] if len(keys) == 1 else f"{', '.join(keys[:-1])} or {keys[-1]}"
 
 
+def main_aroma_modelled(card: Card) -> bool:
+    """Whether the recipe's main ingredient (its heaviest non-staple core base) has aroma data.
+    Without it the aroma forecast holds only microbial odorants, so a note's share is an
+    artifact: Noma's lacto blueberries, with no blueberry data, would lead "fruity" on yeast
+    esters alone. ADDING_AN_INGREDIENT.md: tier T2 (aroma data) serves aroma targets."""
+    rows = [
+        (i.g_per_kg.median, i.name) for i in card.recipe.ingredients
+        if i.required == "core" and i.role in ("base", "liquid") and i.g_per_kg is not None
+        and i.name not in library.STAPLES
+    ]  # fmt: skip
+    return not rows or max(rows)[1] not in card.not_modelled
+
+
 def matches(card: Card, targets: Sequence[Target]) -> bool:
     """With targets, a card is served only when some target is modelled, likely noticeable and
     more than a trace (C > 0, v2 § 3.1): a recipe that can't give the note is not a
-    recommendation for it, so fewer cards beat filler (a kombucha for "fishy")."""
-    return not targets or (card.evaluation.c or 0.0) > 0.0
+    recommendation for it, so fewer cards beat filler (a kombucha for "fishy"). An aroma
+    target also needs the main ingredient's aroma data (main_aroma_modelled)."""
+    if not targets:
+        return True
+    if any(t.kind == "aroma" for t in targets) and not main_aroma_modelled(card):
+        return False
+    return (card.evaluation.c or 0.0) > 0.0
 
 
 def proven_cards(
@@ -1686,10 +1723,18 @@ def _pct(recipe: Recipe, name: str) -> float | None:
     return _num(100.0 * part / total, 2) if part > 0 and total > 0 else None
 
 
+def batch_grams(name: str, g_per_kg: float, batch_g: float) -> float:
+    """A row's grams for batch_g, to 0.1 g. Salt is rounded up, never down, so the gate's
+    minimum holds on what the user weighs: a recipe at 2.00 % (Noma's "2 % of the produce",
+    curation § 9) would otherwise drop to 1.98 % in some batch sizes."""
+    g = g_per_kg * batch_g / 1000.0
+    return math.ceil(round(g * 10, 6)) / 10 if name == gate.SALT else round(g, 1)
+
+
 def scaled_grams(recipe: Recipe, batch_g: float) -> list[tuple[library.RecipeIngredient, float]]:
-    """Each row with a mass, its median g/kg scaled to batch_g, to 0.1 g."""
+    """Each row with a mass, its median g/kg scaled to batch_g (batch_grams)."""
     return [
-        (i, round(i.g_per_kg.median * batch_g / 1000.0, 1))
+        (i, batch_grams(i.name, i.g_per_kg.median, batch_g))
         for i in recipe.ingredients
         if i.g_per_kg is not None
     ]
@@ -2203,7 +2248,7 @@ def batch_plan(
     assert card.evaluation.window is not None  # only sourdough lacks one: the planner starts it
     booked, skipped = run.recipe_rows(recipe)  # what the forecast runs is what gets booked
     rows = tuple(
-        (r.name, round(r.quantity * batch_g / 1000.0, 1), r.role)
+        (r.name, batch_grams(r.name, r.quantity, batch_g), r.role)
         for r in booked
         if r.quantity is not None  # always set: recipe_rows skips rows without a mass
     )
@@ -2242,7 +2287,7 @@ def variant_batch_plan(
     assert card.evaluation.window is not None  # only sourdough lacks one: the planner starts it
     booked, skipped = run.recipe_rows(v.recipe)
     fdc = {i.name: i.fdc_id for i in v.recipe.ingredients if i.fdc_id is not None}
-    grams = [(r.name, round(r.quantity * batch_g / 1000.0, 1), r.role) for r in booked
+    grams = [(r.name, batch_grams(r.name, r.quantity, batch_g), r.role) for r in booked
              if r.quantity is not None]  # fmt: skip
     rows = tuple(g for g in grams if g[0] not in fdc)
     fdc_rows = tuple((fdc[n], q, role) for n, q, role in grams if n in fdc)

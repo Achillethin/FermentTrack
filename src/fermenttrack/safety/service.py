@@ -14,7 +14,7 @@ import re
 from datetime import datetime, timezone
 
 from fermenttrack.models import Batch, Measurement
-from fermenttrack.recommender.gate import ACID_SAFETY_TYPES
+from fermenttrack.recommender.gate import ACID_SAFETY_TYPES, GARUM_HOT_MIN_C
 from fermenttrack.reminders import now_utc
 from fermenttrack.safety.rule_engine import RuleVerdict, SafetyReport, SafetyRuleEngine
 from fermenttrack.safety.state import TwinState
@@ -40,6 +40,17 @@ def _utc(dt: datetime) -> datetime:
 
 # state variable -> the measurement type that grounds it
 _MEASURED = {"ph": "pH", "temperature_c": "temperature", "salt_pct": "salt_pct"}
+# Salted vegetables follow the two-step rule (VEG-001, VEG-002; owner decision 2026-10-26)
+# instead of BOT-002, which a normal sauerkraut fails; every other type keeps BOT-002.
+VEGETABLE_RULES = ("VEG-001", "VEG-002")
+
+
+def _applies(rule_id: str, ferment_type: str, temperature_c: float | None) -> bool:
+    if ferment_type == "lacto_ferment":
+        return rule_id != "BOT-002"
+    if rule_id == "TEMP-001" and ferment_type == "garum":  # hot garum (gate.GARUM_HOT_MIN_C)
+        return temperature_c is None or temperature_c < GARUM_HOT_MIN_C
+    return rule_id not in VEGETABLE_RULES
 
 
 def _observed(batch: Batch, now: datetime | None = None) -> tuple[dict[str, float], float]:
@@ -93,7 +104,8 @@ def get_safety_report(batch: Batch, now: datetime | None = None) -> SafetyReport
     def grounded(v: RuleVerdict) -> bool:
         rule = engine.catalog.get_rule(v.rule_id)
         cond = rule.condition if rule is not None else ""
-        return not any(re.search(r"\b" + var + r"\b", cond) for var in unmeasured)
+        measured = not any(re.search(r"\b" + var + r"\b", cond) for var in unmeasured)
+        return measured and _applies(v.rule_id, batch.culture.type, observed.get("temperature_c"))
 
     hard = [v for v in report.hard_stops if grounded(v)]
     warn = [v for v in report.warnings if grounded(v)]

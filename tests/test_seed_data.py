@@ -99,3 +99,27 @@ def test_v4_names_unique_new_and_valid() -> None:
     for name, role, systems in INGREDIENT_SEED_DATA_V4:
         assert role in VALID_ROLES and systems, name
     assert {"Napa cabbage", "Cucumber", "Radish", "Garlic", "Carrot"} <= set(new)
+
+
+def test_v5_names_unique_new_valid_and_fdc_mapped() -> None:
+    from fermenttrack.seed_data import (
+        INGREDIENT_FDC_IDS_V4,
+        INGREDIENT_FDC_IDS_V5,
+        INGREDIENT_SEED_DATA_V4,
+        INGREDIENT_SEED_DATA_V5,
+    )
+
+    old = {
+        n for n, _r, _s in INGREDIENT_SEED_DATA + INGREDIENT_SEED_DATA_V2 + INGREDIENT_SEED_DATA_V3
+        + INGREDIENT_SEED_DATA_V4
+    }  # fmt: skip
+    new = [n for n, _r, _s in INGREDIENT_SEED_DATA_V5]
+    assert len(new) == len(set(new)) and not (set(new) & old)
+    for name, role, systems in INGREDIENT_SEED_DATA_V5:
+        assert role in VALID_ROLES and systems, name
+    assert set(INGREDIENT_FDC_IDS_V5) <= set(new)
+    assert not set(INGREDIENT_FDC_IDS_V5.values()) & set(INGREDIENT_FDC_IDS_V4.values())
+    # no FDC row: tea-like flavourings, kept at tier T0
+    assert set(new) - set(INGREDIENT_FDC_IDS_V5) == {
+        "Lemon verbena (dried)", "Coffee (ground)", "Elderflower",
+    }  # fmt: skip

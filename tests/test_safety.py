@@ -122,12 +122,39 @@ def test_no_ph_after_24_h_warns_on_the_acid_safety_types_only() -> None:
 
 def test_ph_above_4_6_after_48_h_stops_at_the_expected_temperature() -> None:
     """No temperature logged: the batch's expected temperature grounds BOT-002."""
-    hard, _ = _codes(_batch("lacto_ferment", ("pH", 5.5, 60)), 60)
+    hard, _ = _codes(_batch("kombucha", ("pH", 5.5, 60)), 60)
     assert hard == {"BOTULISM_RISK_SLOW_ACIDIFICATION"}
-    assert _codes(_batch("lacto_ferment", ("pH", 5.5, 60), temp=8.0), 60)[0] == set()
-    assert _codes(_batch("lacto_ferment", ("pH", 4.2, 60)), 60) == (set(), set())
+    assert _codes(_batch("kombucha", ("pH", 5.5, 60), temp=8.0), 60)[0] == set()
+    assert _codes(_batch("kombucha", ("pH", 4.2, 60)), 60) == (set(), set())
     # a salt-barrier type keeps the old behaviour: no expected-temperature fallback
     assert _codes(_batch("miso", ("pH", 5.5, 60)), 60)[0] == set()
+
+
+def test_salted_vegetables_follow_the_two_step_rule() -> None:
+    """Owner decision 2026-10-26 (VEG-001/002 instead of BOT-002): below 5.0 by 48 h, then
+    4.6 or lower before eating. Kristek's normal kraut at pH 4.8 on day 3 is not a stop."""
+    assert _codes(_batch("lacto_ferment", ("pH", 5.2, 60)), 60) == (
+        {"VEG_ACIDIFICATION_FAILED"}, set(),
+    )  # fmt: skip
+    assert _codes(_batch("lacto_ferment", ("pH", 4.8, 60)), 60) == (set(), {"VEG_NOT_READY"})
+    assert _codes(_batch("lacto_ferment", ("pH", 4.5, 60)), 60) == (set(), set())
+    assert _codes(_batch("lacto_ferment", ("pH", 5.2, 30)), 30) == (set(), set())  # before 48 h
+    assert _codes(_batch("lacto_ferment", ("pH", 5.2, 60), temp=8.0), 60)[0] == set()  # cold
+    # other types never see the vegetable rules: kombucha keeps BOT-002
+    assert _codes(_batch("kombucha", ("pH", 4.8, 60)), 60) == (
+        {"BOTULISM_RISK_SLOW_ACIDIFICATION"}, set(),
+    )  # fmt: skip
+
+
+def test_hot_garum_is_not_a_temp_001_stop() -> None:
+    """Owner decision 2026-10-26, as the gate (gate.GARUM_HOT_MIN_C): at or above 57 °C a
+    garum is an enzymatic hydrolysis; 45-57 °C stays a stop; other types keep 45 °C."""
+    hot = _batch("garum", ("temperature", 60.0, 10), temp=None)
+    assert "TEMP_TOO_HIGH_LACTIC" not in _codes(hot, 20)[0]
+    warm = _batch("garum", ("temperature", 50.0, 10), temp=None)
+    assert "TEMP_TOO_HIGH_LACTIC" in _codes(warm, 20)[0]
+    miso = _batch("miso", ("temperature", 60.0, 10), temp=None)
+    assert "TEMP_TOO_HIGH_LACTIC" in _codes(miso, 20)[0]
 
 
 def test_a_stale_reading_is_not_a_verdict() -> None:

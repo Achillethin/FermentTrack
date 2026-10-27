@@ -21,6 +21,7 @@ from pathlib import Path
 
 from fermenttrack.prediction.profiles import PROFILES
 from fermenttrack.prediction.sourdough import STYLES
+from fermenttrack.recommender.library import CATALOGUE_NAMES
 
 ROOT = Path(__file__).resolve().parents[1]
 DRAFTS = ROOT / "docs/superpowers/research/recipes"
@@ -77,6 +78,54 @@ STATUS: dict[str, str] = {
     "poolish": "excluded",
     "biga": "excluded",
     "type_iii": "excluded",
+    # § 9: recipe round 2, Noma and Katz (2026-10-26). Active: every value sourced or derived,
+    # core ingredients catalogued (seed V5), and the gate passes (owner decisions D1-D3).
+    "noma_lacto_blueberries": "active",
+    "noma_lacto_ceps": "active",
+    "noma_lacto_plums": "active",
+    "bergo_lacto_mushrooms_3pct": "active",
+    "katz_mixed_kraut_tastingtable": "active",
+    "noma_rule_lacto_raspberries": "active",
+    "noma_rule_lacto_blackberries": "active",
+    "noma_rule_lacto_mulberries": "active",
+    "noma_rule_lacto_white_currants": "active",
+    "noma_lemon_verbena_kombucha": "active",
+    "noma_apple_kombucha": "active",
+    "noma_coffee_kombucha": "active",
+    "katz_miso_short_light": "active",
+    "katz_miso_long_dark": "active",
+    "noma_elderflower_peaso": "active",
+    "noma_chicken_wing_garum": "active",
+    "bergo_meat_garum_noma_style": "active",
+    # § 9 drafts, each with the reason
+    "katz_sauerkraut_basic": "draft",  # salt 1.67 % (1.70 % of the rest) < SALT-001's 2 %
+    "katz_sour_pickles": "draft",  # dill and garlic unweighed
+    "katz_kombucha_basic": "draft",  # tea unweighed
+    "katz_kimchi_brine_soaked": "draft",  # only the cabbage is weighed
+    "katz_mexican_kimchi": "draft",  # unweighed core rows; masa, pineapple not catalogued
+    "katz_milk_kefir": "draft",  # grain dose and temperature not opened
+    "zilber_rice_koji": "draft",  # spore dose not stated
+    "koji_alchemy_long_grain_rice_koji": "draft",  # spore dose not stated
+    "zilber_caviar_koji_garum": "draft",  # salt 7.41 % < garum's 8.3 % barrier
+    "noma_mushroom_oat_garum": "draft",  # salt 7 % < garum's 8.3 % barrier
+    "bergo_ramp_leaf_koji_garum": "draft",  # ramps: no FDC row (leek proxy only)
+    "noma_peaso_plain": "draft",  # peas and koji unweighed
+    "noma_kyoto_peaso": "draft",  # duration not stated
+    "wf_sweet_garbanzo_miso": "draft",  # salt 3.91 % < miso's 4 % barrier
+    "wf_black_bean_miso": "draft",  # garlic unweighed
+    # sugar -> ethanol -> acetic acid needs a yeast stage the vinegar profile lacks
+    "noma_perry_vinegar": "draft",  # also: pears and yeast unweighed
+    "katz_persimmon_vinegar": "draft",
+    "bergo_fruit_scrap_vinegar_classic": "draft",
+    "bergo_fruit_scrap_vinegar_vodka": "draft",
+    "noma_rule_lacto_gooseberries": "draft",  # the FDC row has no sugar data
+    # the Noma brine rule: vegetable-to-water ratio and time not stated
+    "noma_rule_brined_beets": "draft",
+    "noma_rule_brined_radishes": "draft",
+    "noma_rule_brined_young_carrots": "draft",
+    "noma_rule_brined_onions_turnips_herbs": "draft",
+    "noma_rule_lacto_white_asparagus": "draft",
+    "noma_rule_lacto_small_pumpkins": "draft",
 }
 
 RENAMES = {"green_tea_kombucha_variant": "green_dominant_kombucha"}  # § 3
@@ -143,6 +192,12 @@ KOJI_SPLIT = (
     "shiro_miso_kagawa_sweet",
     "red_rice_miso_kagawa_long",
     "pacific_sand_lance_rice_koji_fish_sauce",
+    # § 9: the same split for round 2's rice koji
+    "katz_miso_short_light",
+    "katz_miso_long_dark",
+    "noma_elderflower_peaso",
+    "noma_chicken_wing_garum",
+    "bergo_meat_garum_noma_style",
 )
 RICE_KG, KOJI_KG = 15, 17
 KOJI_LABEL = "made into rice koji first: 15 g rice absorbs 2 g of the Water row -> 17 g koji"
@@ -154,6 +209,31 @@ STAND_INS: dict[tuple[str, str], tuple[str, str]] = {
         "Anchovies",
         "stand-in species: recipe uses Pacific sand lance",
     ),
+    # § 9
+    ("noma_lacto_ceps", "Porcini mushrooms"): (
+        "Mushrooms",
+        "stand-in: the recipe uses ceps (porcini); white-mushroom nutrients",
+    ),
+    ("noma_chicken_wing_garum", "Pearl barley"): (
+        "White rice",
+        "the book uses pearl-barley koji; the recipe allows commercial koji, booked as rice koji",
+    ),
+    ("bergo_meat_garum_noma_style", "Lamb (lean meat)"): ("Lamb tongue", "the cut the source used"),
+}
+
+# § 9 (owner decision D1, 2026-10-26): a source that states no temperature ("room temperature",
+# "a cool place") gets the profile's temperature and range; envelope_basis profile_temperature.
+PROFILE_TEMPERATURE = frozenset({
+    "bergo_lacto_mushrooms_3pct", "katz_mixed_kraut_tastingtable", "katz_miso_short_light",
+    "katz_miso_long_dark", "noma_elderflower_peaso",
+})  # fmt: skip
+
+# § 9: unweighed optional rows left out of the served recipe (the gate needs every mass)
+DROPPED_ROWS: dict[tuple[str, str], str] = {
+    ("katz_mixed_kraut_tastingtable", "Coriander seeds"): "1 tsp toasted coriander, unweighed",
+    ("katz_mixed_kraut_tastingtable", "Chilies"): "1/4 tsp red pepper flakes, unweighed",
+    ("bergo_lacto_mushrooms_3pct", "Water"): "the vacuum version is served; the brine's water "
+    "ratio is not stated",
 }
 
 # § 3 kimchi: the two `new` seasonings (1.5 % and 0.8 % of Jang 2024's formula, i.e. 14.7 and
@@ -265,12 +345,15 @@ def build() -> tuple[list[Row], list[Row]]:
     if len(keys) != len(set(keys)) or set(keys) != set(STATUS):
         raise ValueError(f"uncurated or duplicate draft keys: {sorted(set(keys) ^ set(STATUS))}")
 
+    ingredients = [r for r in ingredients if (r["recipe_key"], r["ingredient"]) not in DROPPED_ROWS]
     for r in ingredients:
         r.setdefault("label", "")
         swap = STAND_INS.get((r["recipe_key"], r["ingredient"]))
         if swap:
             _add_note(r, f"booked as {swap[0]} (Q32 stand-in, curation § 3)")
             r["ingredient"], r["catalogue_status"], r["label"] = swap[0], "existing", swap[1]
+        if r["catalogue_status"] == "new" and r["ingredient"] in CATALOGUE_NAMES:
+            r["catalogue_status"] = "existing_no_aroma"  # § 9: catalogued since the research
         if (r["recipe_key"], r["ingredient"]) in OPTIONAL:
             r["required"] = "optional"
         r["label"] = LABELS.get((r["recipe_key"], r["ingredient"]), r["label"])
@@ -288,6 +371,15 @@ def build() -> tuple[list[Row], list[Row]]:
         r.update(RECIPE_EDITS.get(key, {}))
         if key in CURATION_NOTES:
             _add_note(r, CURATION_NOTES[key])
+        dropped = [n for (k, _i), n in DROPPED_ROWS.items() if k == key]
+        if dropped:
+            _add_note(r, f"curation § 9: left out: {'; '.join(dropped)}")
+        defaulted = key in PROFILE_TEMPERATURE and not r["temp_c_median"]
+        if defaulted:  # § 9 D1
+            profile = PROFILES[r["fermentation_type"]]
+            r["temp_c_median"] = _fmt(Decimal(str(profile.temp_c)))
+            r["temp_c_lo"], r["temp_c_hi"] = (_fmt(Decimal(str(v))) for v in profile.temp_range)
+            _add_note(r, "curation § 9 (D1): temperature not stated by the source; the profile's")
         if r["fermentation_type"] == "sourdough":
             if key not in STYLES:
                 raise ValueError(f"{key}: not a sourdough catalogue style")
@@ -295,7 +387,8 @@ def build() -> tuple[list[Row], list[Row]]:
         widened = _widen(r)
         if widened:
             _add_note(r, f"curation § 1 rule 4 (Q25): widened single-value {' and '.join(widened)}")
-        r["envelope_basis"] = "widened_single_value" if widened else "sourced"
+        basis = ["profile_temperature"] * defaulted + ["widened_single_value"] * bool(widened)
+        r["envelope_basis"] = ";".join(basis) or "sourced"
         r["model_scope"] = _model_scope(r)
         r["key"] = RENAMES.get(key, key)
         out.append(r)
@@ -307,7 +400,7 @@ def build() -> tuple[list[Row], list[Row]]:
             if r["catalogue_status"] == "new":  # curation § 1 rule 2
                 raise ValueError(f"{r['recipe_key']}: core ingredient {r['ingredient']} is new")
         r["recipe_key"] = RENAMES.get(r["recipe_key"], r["recipe_key"])
-    for key in {r["key"] for r in out}:
+    for key in {r["key"] for r in out if r["status"] == "active"}:  # drafts may lack masses (§ 9)
         total = sum(Decimal(r["g_per_kg_median"]) for r in rows
                     if r["recipe_key"] == key and r["g_per_kg_median"])  # fmt: skip
         if not 950 <= total <= 1050:  # curation § 3: medians sum to 1000 g/kg ± 5 %

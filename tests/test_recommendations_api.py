@@ -39,7 +39,7 @@ from fermenttrack.prediction import service as engine
 from fermenttrack.prediction.sourdough import plan_from_dict
 from fermenttrack.recommender import gate, grid, library, operators, run, score
 from fermenttrack.recommender import service as S
-from fermenttrack.routers.recommendations import PH_REMINDER, _own_parent
+from fermenttrack.routers.recommendations import _own_parent, ph_reminder_action
 from fermenttrack.schemas import RecommendationsOut, SourdoughPlanIn
 from fermenttrack.seed_data import (
     INGREDIENT_SEED_DATA,
@@ -49,6 +49,8 @@ from fermenttrack.seed_data import (
     RETIRED_V3,
 )
 from tests.conftest import TEST_USER_ID
+
+PH_REMINDER = ph_reminder_action("lacto_ferment")  # the pH-reminder batches below are lacto
 
 KIMCHI = "napa_kimchi_room_temp"
 GARUM = "pacific_sand_lance_rice_koji_fish_sauce"
@@ -61,6 +63,10 @@ SOURCE_ONLY_AT_MEDIAN = {
     "cider_vinegar_surface",
     GARUM,
     "type_ii",
+    # curation § 9: Noma's lacto fruit and ceps at 24.5-28 °C, above the profile's 16-24
+    "noma_lacto_blueberries", "noma_lacto_ceps", "noma_lacto_plums",
+    "noma_rule_lacto_raspberries", "noma_rule_lacto_blackberries", "noma_rule_lacto_mulberries",
+    "noma_rule_lacto_white_currants",
 }
 FORBIDDEN = ("tastes like", "smells like", "will taste")
 
@@ -115,9 +121,9 @@ async def anonymous() -> AsyncIterator[AsyncClient]:
 # ── service: temperature, source-only, gate ─────────────────────────────
 
 
-def test_source_only_is_set_for_exactly_five_recipes_at_their_median() -> None:
-    """Q26, pinned (B3 handoff): these five are served at their source temperature, outside
-    the model's range, so their window comes from the source alone."""
+def test_source_only_is_set_for_exactly_these_recipes_at_their_median() -> None:
+    """Q26, pinned (B3 handoff): these are served at their source temperature, outside the
+    model's range, so their window comes from the source alone."""
     got = {r.key for r in library.active() if S.resolve_temperature(r, None).source_only}
     assert got == SOURCE_ONLY_AT_MEDIAN
     for r in library.active():
@@ -165,6 +171,10 @@ def test_the_slider_is_the_documented_span_within_the_safety_limits() -> None:
                   gate.IngredientRow("Salt", "additive", 120.0)),  # 12 %: the salt barrier holds
     )  # fmt: skip
     assert S._safe_span(garum, 20.0, 60.0) == (20.0, 45.0)  # TEMP-001
+    # hot garum (owner decision 2026-10-26): a hole at 45-57 °C, the span holding `near` wins
+    assert S._safe_span(garum, 20.0, 60.0, near=60.0) == (57.0, 60.0)
+    assert S._safe_span(garum, 20.0, 60.0, near=50.0) == (20.0, 45.0)  # 5 °C from 45, 7 from 57
+    assert S._safe_span(garum, 20.0, 60.0, near=52.0) == (57.0, 60.0)
     # not limited to the profile: cheese 21-22 °C (profile 28-32), sand lance 18-20 (20-60)
     assert S.resolve_temperature(_recipe("lactic_fresh_cheese_curd"), None).slider_c == (
         21.0, 22.0,
@@ -175,13 +185,13 @@ def test_the_slider_is_the_documented_span_within_the_safety_limits() -> None:
 
 
 def test_a_gate_failure_removes_the_card(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(gate, "LACTIC_MAX_C", 22.0)  # sauerkraut is served at 22.5 °C
+    monkeypatch.setattr(gate, "LACTIC_MAX_C", 15.0)  # both cabbage krauts run at 16 °C or more
     body = S.recommend(["Cabbage"], [], [])
     assert body["proven"]["cards"] == []
     assert body["proven"]["message"] == "No proven recipe passes the safety checks here."
-    [refused] = body["debug"]["gated_out"]
-    assert refused["recipe_key"] == "sauerkraut_dry_salted"
-    assert any(r.startswith("TEMP-001: 22.5 °C") for r in refused["reasons"])
+    refused = {r["recipe_key"]: r["reasons"] for r in body["debug"]["gated_out"]}
+    assert set(refused) == {"sauerkraut_dry_salted", "katz_mixed_kraut_tastingtable"}
+    assert any(r.startswith("TEMP-001: 22.5 °C") for r in refused["sauerkraut_dry_salted"])
 
 
 def test_a_staged_recipe_keeps_its_source_stages() -> None:
@@ -342,10 +352,11 @@ def test_a_target_the_ferment_does_not_produce_is_not_modelled() -> None:
 
 def test_ranking_without_targets_follows_the_tie_keys() -> None:
     """§ 5.4 with v2 § 3.2: the most of the pantry first (koji is all rice; the sweet shiro miso
-    has more rice per kg than the long red one); then nothing to buy, provenance, the key."""
+    has more rice per kg than Katz's light miso, which has more than the long red one); then
+    nothing to buy, provenance, the key."""
     cards, _ = S.proven_cards(["White rice"], (), None)
     assert [c.recipe.key for c in cards] == [
-        KOJI, "shiro_miso_kagawa_sweet", "red_rice_miso_kagawa_long",
+        KOJI, "shiro_miso_kagawa_sweet", "katz_miso_short_light",
     ]  # fmt: skip
     assert [c.coverage for c in cards] == sorted((c.coverage for c in cards), reverse=True)
     assert [c.to_buy for c in cards] == [(), ("Soybeans",), ("Soybeans",)]
@@ -354,8 +365,9 @@ def test_ranking_without_targets_follows_the_tie_keys() -> None:
 def test_ranking_with_targets_is_by_the_share_at_the_peak() -> None:
     targets = S.parse_targets(["fruity"], ["sour"])
     cards = [
-        c for r in library.active() if (c := S.build_card(r, targets, None)[0]) is not None
-    ]
+        c for r in library.active()
+        if (c := S.build_card(r, targets, None)[0]) is not None and S.matches(c, targets)
+    ]  # fmt: skip
     best, _ = S.proven_cards([], targets, None)
     ranked = sorted(cards, key=S.rank_key)
     assert [c.recipe.key for c in best] == [c.recipe.key for c in ranked[:3]]
@@ -404,7 +416,9 @@ async def test_a_proven_card(client: AsyncClient) -> None:
         {"key": "pungent", "kind": "aroma", "low_resolution": False},
         {"key": "sour", "kind": "taste", "low_resolution": False},
     ]
-    [card] = body["proven"]["cards"]
+    cards = {c["recipe_key"]: c for c in body["proven"]["cards"]}
+    assert set(cards) == {KIMCHI, "katz_mixed_kraut_tastingtable"}  # the napa recipes
+    card = cards[KIMCHI]
     assert card["id"] == f"library:{KIMCHI}" and card["section"] == "proven"
     assert card["recipe"]["batch_g"] == 2000
     grams = {i["name"]: i["grams"] for i in card["recipe"]["ingredients"]}
@@ -413,7 +427,7 @@ async def test_a_proven_card(client: AsyncClient) -> None:
     assert card["temperature"]["served_c"] == 20 and card["temperature"]["slider"] == {
         "min_c": 17, "max_c": 23,
     }  # fmt: skip
-    assert card["safety_lines"] == [gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE]
+    assert card["safety_lines"] == [gate.VEG_PH_LINE, gate.PH_LOG_LINE]
     assert card["level"] in {"Low", "Med", "High"}
     for t in card["targets"]:  # Low / Med / High, never a number, before the calibration gate
         assert set(t) == {
@@ -435,7 +449,7 @@ async def test_a_proven_card(client: AsyncClient) -> None:
             "milk_kefir_grains_5pct_24h", "milk_kefir_grains_10pct_extended",
             "lactic_fresh_cheese_curd",
         }),
-        (["Cabbage", "Water"], {"sauerkraut_dry_salted"}),
+        (["Cabbage", "Water"], {"sauerkraut_dry_salted", "katz_mixed_kraut_tastingtable"}),
     ],
 )  # fmt: skip
 async def test_listed_staples_never_exclude_a_recipe(
@@ -456,8 +470,12 @@ async def test_a_pantry_alone_is_a_request_and_never_excludes_on_its_own(
     assert body["experimental"]["cards"][0]["fermentation_type"] == "lacto_ferment"
     starred = {"ingredients": ["Carrot"], "pantry": ["Cabbage"]}
     body = (await client.post("/recommendations", json=starred)).json()
-    assert body["proven"]["cards"] == []  # no library recipe holds carrot
-    assert body["proven"]["message"] == "No proven recipe contains all of: Carrot."
+    # the one library recipe with carrot (curation § 9); sauerkraut has cabbage, not carrot
+    assert [c["recipe_key"] for c in body["proven"]["cards"]] == ["katz_mixed_kraut_tastingtable"]
+    starred = {"ingredients": ["Cucumber"], "pantry": ["Cabbage"]}
+    body = (await client.post("/recommendations", json=starred)).json()
+    assert body["proven"]["cards"] == []  # no active library recipe holds cucumber
+    assert body["proven"]["message"] == "No proven recipe contains all of: Cucumber."
 
 
 def test_a_sourdough_card_hands_off_to_the_planner() -> None:
@@ -534,7 +552,7 @@ async def test_the_live_forecast(client: AsyncClient) -> None:
     assert body["targets"][0]["top_compound"]["tier"] in {"calibrated", "reported", "plausible"}
     band = body["bands"][0]
     assert band["key"] == "sulfurous" and len(band["t_h"]) == len(band["e"]) == len(band["u"])
-    assert body["safety_lines"] == [gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE]
+    assert body["safety_lines"] == [gate.VEG_PH_LINE, gate.PH_LOG_LINE]
     again = await client.post("/recommendations/forecast", json=payload)
     assert again.content == resp.content  # a slider position asked twice answers the same
 
@@ -842,7 +860,8 @@ async def _own_batch(
 
 
 def test_an_experimental_card_adds_a_t3_flavouring_and_keeps_the_salt() -> None:
-    body = S.recommend(["Fresh ginger"], [], [], "experimental")
+    # with cabbage too: the Noma kombuchas' ginger swaps lead a ginger-only request
+    body = S.recommend(["Fresh ginger", "Cabbage"], [], [], "experimental")
     RecommendationsOut.model_validate(body)
     assert body["proven"] is None
     card = _by_parent(body)[KRAUT]
@@ -865,8 +884,8 @@ def test_an_experimental_card_adds_a_t3_flavouring_and_keeps_the_salt() -> None:
     proven = S.card_json(S.build_card(kraut, (), None)[0])  # type: ignore[arg-type]
     assert card["recipe"]["salt_pct"] == proven["recipe"]["salt_pct"]
     assert _labels(card)[:3] == [*S.CARD_LABELS, f"Experimental — departs from {kraut.name}"]
-    assert card["safety_lines"] == [gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE]
-    assert card["to_buy"] == ["Cabbage"]
+    assert card["safety_lines"] == [gate.VEG_PH_LINE, gate.PH_LOG_LINE]
+    assert card["to_buy"] == []  # the request lists cabbage
     assert kraut.duration_h is not None
     assert card["window"]["taste_from_h"] >= kraut.duration_h.lo
     assert card["window"]["stop_by_h"] <= 1.5 * kraut.duration_h.hi
@@ -1023,7 +1042,7 @@ async def test_variants_of_your_batch_run_live_and_lead_the_section(
     }  # fmt: skip
     assert own["id"].startswith(f"own_batch:{mine.id}:")
     assert "Experimental — departs from your batch #2" in _labels(own)
-    assert not own["screened"] and own["safety_lines"] == [gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE]
+    assert not own["screened"] and own["safety_lines"] == [gate.VEG_PH_LINE, gate.PH_LOG_LINE]
     assert 2 <= len(calls) <= 1 + S.OWN_BATCH_VARIANTS  # the batch itself, then its variants
     assert {m for _, _, m in calls} == {S.FORECAST_MEMBERS}
     assert all(c["source_kind"] == "variant" for c in library_cards) and len(cards) <= 3
@@ -1160,7 +1179,7 @@ async def test_a_variant_of_your_batch_runs_through_the_engine(
     assert card["id"] == f"own_batch:{kefir.id}:temp:18"
     t = card["temperature"]
     assert (t["served_c"], t["slider"], t["source_only"]) == (18, None, False)
-    assert card["safety_lines"] == [gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE]
+    assert card["safety_lines"] == [gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE]  # kefir: BOT-002
     assert card["window"]["taste_from_h"] >= 0.7 * 30.0 - 0.05  # d_lo of the widened 30 h
 
 

@@ -63,7 +63,7 @@ PERSIMMON = 169941  # USDA FDC: Persimmons, japanese, raw
 CATALOGUE_FDC = {"Cabbage": 169975, "Salt": 173468}  # USDA FDC: Cabbage, raw; Salt, table
 KRAUT_ROWS = [("Cabbage", 1.958, "kg"), ("Salt", 42.0, "g")]  # a 2 kg batch: 979 + 21 g/kg
 START = datetime(2026, 9, 1, 12, 0)
-PH_LINES = [gate.PH_DEADLINE_LINE, gate.PH_LOG_LINE]
+PH_LINES = [gate.VEG_PH_LINE, gate.PH_LOG_LINE]  # the community recipes below are lacto
 
 
 class FakeLive:
@@ -291,7 +291,7 @@ async def test_anonymous_accounts_may_publish(
         ({"ph": ()}, "log a pH reading of 4.6 or below"),
         ({"ph": (4.7, 4.61)}, "log a pH reading of 4.6 or below"),
         ({"ph": (1.5, 15.0)}, "log a pH reading of 4.6 or below"),  # implausible readings
-        ({"rows": [("Cabbage", 990.0, "g"), ("Salt", 10.0, "g")]}, "SALT-001: salt 1.00 % w/w"),
+        ({"rows": [("Cabbage", 990.0, "g"), ("Salt", 10.0, "g")]}, "SALT-001: salt 1.01 % of the rest"),
         ({"temps": (46.0,)}, "TEMP-001: 46 °C > 45 °C"),
         ({"temps": (), "expected": None}, "no temperature"),
         (

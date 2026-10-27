@@ -98,6 +98,37 @@ rules:
   source_citation: Traditional koji literature
   source_url: ''
   exceptions: []
+- rule_id: VEG-001
+  name: Salted vegetables — acidification failed
+  fermentation_schemes:
+  - lactic
+  condition: ph >= 5.0 AND time_hours > 48 AND temperature_c > 10
+  action: hard_stop
+  reason_code: VEG_ACIDIFICATION_FAILED
+  reason_text_fr: Le pH n'est pas descendu sous 5,0 en 48 h à plus de 10 °C. La fermentation
+    lactique a échoué ; jeter le bocal.
+  reason_text_en: The pH has not dropped below 5.0 within 48 h at > 10 °C. The lactic
+    fermentation has failed; discard the jar.
+  source_citation: 'Redzepi & Zilber 2018, The Noma Guide to Fermentation (Artisan), lacto-fermentation
+    chapter: pH below 5 within two days and below 4.6 at completion (read via a reader''s verbatim
+    highlights). Replaces BOT-002 for lacto_ferment (owner decision 2026-10-26).'
+  source_url: https://www.goodreads.com/notes/39351834-foundations-of-flavor/37025960-jason-toups
+  exceptions: []
+- rule_id: VEG-002
+  name: Salted vegetables — not yet acid enough to eat
+  fermentation_schemes:
+  - lactic
+  condition: ph > 4.6 AND ph < 5.0 AND time_hours > 48
+  action: warning
+  reason_code: VEG_NOT_READY
+  reason_text_fr: pH au-dessus de 4,6 — pas encore prêt. Laisser fermenter et mesurer le pH tous les
+    1 à 2 jours ; ne pas consommer avant pH ≤ 4,6.
+  reason_text_en: pH above 4.6, so not ready yet. Keep it fermenting and check the pH every 1 to 2
+    days; don't eat it until the pH is 4.6 or lower.
+  source_citation: University of Minnesota Extension, Preserving food at home - Fermentation (pH
+    4.60 or lower when ready; above it, keep fermenting and check every 1-2 days)
+  source_url: https://extension.umn.edu/food/preparing/cooking-at-home/food-preservation/fermentation
+  exceptions: []
 - rule_id: GEN-001
   name: Missing critical measurement — pH
   fermentation_schemes:

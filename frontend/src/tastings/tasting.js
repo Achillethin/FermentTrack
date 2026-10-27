@@ -21,16 +21,19 @@ export const NOTES_MAX = 1000;
 export const FUTURE_SKEW_MS = 10 * 60 * 1000; // routers/tastings.FUTURE_SKEW
 
 // gate.ACID_SAFETY_TYPES, and the stop-by reminder's pH line for them: "Before tasting: " +
-// gate.PH_DEADLINE_LINE (routers/recommendations.TASTING_AFTER_PH), verbatim.
+// gate.ph_deadline_line(type) (routers/recommendations.tasting_after_ph), verbatim: salted
+// vegetables have their own two-step line (gate.VEG_PH_LINE).
 export const ACID_SAFETY_TYPES = new Set(["lacto_ferment", "kombucha", "kefir", "cheese", "vinegar"]);
 export const PH_BEFORE_TASTING = "Before tasting: Measure pH. It must reach ≤ 4.6 within 48 h at > 10 °C; if not, discard.";
+export const VEG_PH_BEFORE_TASTING = "Before tasting: Measure pH. It must drop below 5.0 within 48 h at > 10 °C and reach ≤ 4.6 before you eat it; if not, discard.";
 
 // The pH line to keep next to the form: the tasting reminder's own (from "Before tasting:" on),
 // else the same line for an acid-safety type; none for the others.
 export function phLine(type, reminder) {
   const at = reminder?.action?.indexOf("Before tasting:") ?? -1;
   if (at >= 0) return reminder.action.slice(at);
-  return ACID_SAFETY_TYPES.has(type) ? PH_BEFORE_TASTING : null;
+  if (!ACID_SAFETY_TYPES.has(type)) return null;
+  return type === "lacto_ferment" ? VEG_PH_BEFORE_TASTING : PH_BEFORE_TASTING;
 }
 
 const CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f]/; // schemas.NoControlChars (tab and line breaks allowed)

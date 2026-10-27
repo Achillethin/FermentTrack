@@ -1,7 +1,7 @@
 """The constants the frontend copies from the backend, pinned verbatim. The frontend cannot import
 them, so B12 copied them; a change on one side fails here until the other side follows:
 - frontend/src/tastings/tasting.js: the stop-by reminder's pH line ("Before tasting: " +
-  gate.PH_DEADLINE_LINE), gate.ACID_SAFETY_TYPES, routers/tastings.FUTURE_SKEW;
+  gate.ph_deadline_line), gate.ACID_SAFETY_TYPES, routers/tastings.FUTURE_SKEW;
 - frontend/src/community/community.js: community.PRIVACY_NOTICE and the schemas.Pseudonym rule
   (its length bounds and pattern);
 - frontend/src/ideas/ideas.js: the calibrated trust label (service.CALIBRATED_LABEL) and the
@@ -24,7 +24,7 @@ from pathlib import Path
 from pydantic import BaseModel, StringConstraints
 
 from fermenttrack.recommender import calibration, community, gate, service
-from fermenttrack.routers.recommendations import TASTING_AFTER_PH
+from fermenttrack.routers.recommendations import tasting_after_ph
 from fermenttrack.routers.tastings import FUTURE_SKEW
 from fermenttrack.schemas import (
     CommunityPublishIn,
@@ -94,7 +94,9 @@ def test_the_form_limits() -> None:
 def test_the_tasting_form_s_ph_line_and_acid_safety_types() -> None:
     js = _source("tastings/tasting.js")
     ph_line = _string(js, "PH_BEFORE_TASTING")
-    assert ph_line == TASTING_AFTER_PH == f"Before tasting: {gate.PH_DEADLINE_LINE}"
+    assert ph_line == tasting_after_ph("kombucha") == f"Before tasting: {gate.PH_DEADLINE_LINE}"
+    veg = _string(js, "VEG_PH_BEFORE_TASTING")
+    assert veg == tasting_after_ph("lacto_ferment") == f"Before tasting: {gate.VEG_PH_LINE}"
     # phLine keeps a reminder's own text from its "Before tasting:" prefix on
     assert 'indexOf("Before tasting:")' in js and ph_line.startswith("Before tasting:")
     found = re.fullmatch(r"new Set\((\[.*\])\)", _const(js, "ACID_SAFETY_TYPES"))

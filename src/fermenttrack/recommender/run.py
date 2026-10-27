@@ -56,7 +56,7 @@ from fermenttrack.prediction.service import (
 from fermenttrack.prediction.sourdough import FLOURS, STYLES
 from fermenttrack.recommender import grid, library, score
 from fermenttrack.recommender.library import Recipe
-from fermenttrack.seed_data import INGREDIENT_FDC_IDS_V4
+from fermenttrack.seed_data import INGREDIENT_FDC_IDS_V4, INGREDIENT_FDC_IDS_V5
 
 QUANTILES = (0.1, 0.5, 0.9)  # milestone crossing quantiles
 N_LOG_TIMES = 24  # the grid's time axis (design § 8.1)
@@ -105,7 +105,7 @@ def per_100g_table() -> Mapping[str, Mapping[str, float]]:
     for row in load_snapshot():
         table.setdefault(row.ingredient_name, {})[row.nutrient] = row.amount_per_100g
     foods = {int(r["fdc_id"]): r for r in load_catalog()}
-    for name, fdc_id in INGREDIENT_FDC_IDS_V4.items():
+    for name, fdc_id in (INGREDIENT_FDC_IDS_V4 | INGREDIENT_FDC_IDS_V5).items():
         if name not in table:
             food = foods[fdc_id]
             table[name] = {k: float(food[k]) for k in NUTRIENTS if food[k] != ""}

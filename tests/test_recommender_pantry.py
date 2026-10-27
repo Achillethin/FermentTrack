@@ -46,7 +46,8 @@ def test_a_pantry_item_no_recipe_uses_does_not_exclude_recipes() -> None:
 
 def test_starred_items_stay_must_include() -> None:
     cards, _ = service.proven_cards(["Napa cabbage"], (), None, pantry=["Cabbage"])
-    assert _keys(cards) == ["napa_kimchi_room_temp"]
+    # sauerkraut has cabbage but no napa: left out; Katz's kraut has both
+    assert set(_keys(cards)) == {"napa_kimchi_room_temp", "katz_mixed_kraut_tastingtable"}
 
 
 def test_recipes_using_nothing_from_the_pantry_are_left_out() -> None:

@@ -793,7 +793,7 @@ class RecipeEnvelopeOut(BaseModel):
     salt_pct: RecipeSpanOut | None
     sugar_g_per_kg: RecipeSpanOut | None
     temp_schedule: list[tuple[float, float]]  # (start hour, °C) steps; empty: constant
-    basis: Literal["sourced", "widened_single_value"]
+    basis: str  # sourced | widened_single_value | profile_temperature[;widened_single_value]
 
 
 class RecipeOut(BaseModel):

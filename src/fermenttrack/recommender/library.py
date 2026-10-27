@@ -23,11 +23,13 @@ from fermenttrack.prediction.aroma_data import AROMA_INGREDIENTS
 from fermenttrack.prediction.profiles import PROFILES
 from fermenttrack.seed_data import (
     INGREDIENT_FDC_IDS_V4,
+    INGREDIENT_FDC_IDS_V5,
     INGREDIENT_FDC_MAP,
     INGREDIENT_SEED_DATA,
     INGREDIENT_SEED_DATA_V2,
     INGREDIENT_SEED_DATA_V3,
     INGREDIENT_SEED_DATA_V4,
+    INGREDIENT_SEED_DATA_V5,
     RETIRED_V3,
 )
 
@@ -38,6 +40,7 @@ USE_LEVELS_CSV = HERE / "ingredient_use_levels_v1.csv"  # T3
 
 _SEEDS = (
     INGREDIENT_SEED_DATA, INGREDIENT_SEED_DATA_V2, INGREDIENT_SEED_DATA_V3, INGREDIENT_SEED_DATA_V4,
+    INGREDIENT_SEED_DATA_V5,
 )  # fmt: skip
 
 # Live catalogue names (tier T0): every seed-data version, minus the retired generic rows.
@@ -72,7 +75,9 @@ ALIASES: frozenset[str] = frozenset({
     "Fish",  # retired V3 row: historical garum batches keep their fish aroma
 })  # fmt: skip
 
-_FDC_MAPPED = frozenset(INGREDIENT_FDC_MAP) | frozenset(INGREDIENT_FDC_IDS_V4)
+_FDC_MAPPED = (
+    frozenset(INGREDIENT_FDC_MAP) | frozenset(INGREDIENT_FDC_IDS_V4) | frozenset(INGREDIENT_FDC_IDS_V5)
+)
 
 
 @dataclass(frozen=True)
@@ -105,7 +110,7 @@ class Recipe:
     name: str
     fermentation_type: str  # a prediction.profiles.PROFILES key
     style_region: str
-    provenance: str  # institutional_tested | peer_reviewed | traditional_documented
+    provenance: str  # institutional_tested | peer_reviewed | traditional_documented | chef_published
     temp_c: Span | None
     duration_h: Span | None  # None: the sourdough planner sets the timing
     salt_pct: Span | None  # % w/w of the total batch
@@ -119,7 +124,9 @@ class Recipe:
     status: str  # active | draft
     notes: str
     temp_schedule: tuple[tuple[float, float], ...]  # (start hour, °C) steps; () = constant
-    envelope_basis: str  # sourced | widened_single_value (Q25)
+    # sourced | widened_single_value (Q25) | profile_temperature[;widened_single_value] (§ 9 D1:
+    # no stated temperature, the profile's)
+    envelope_basis: str
     model_scope: tuple[str, ...]  # in_range, or temp_outside_profile and/or beyond_horizon (Q26)
     handoff: str | None  # "planner" for sourdough (Q31)
     planner_style: str | None  # prediction.sourdough.STYLES key
@@ -188,6 +195,7 @@ OUTSIDE_RANGE_LABEL = (
     "source temperature outside the model's range: forecasts use the nearest in-range temperature"
 )
 PARTLY_OUTSIDE_LABEL = "part of the documented temperature range is outside the model's range"
+PROFILE_TEMPERATURE_LABEL = "temperature not stated by the source: assumed room temperature"
 
 
 def trust_labels(recipe: Recipe, served_c: float | None = None) -> tuple[str, ...]:
@@ -197,7 +205,10 @@ def trust_labels(recipe: Recipe, served_c: float | None = None) -> tuple[str, ..
     served temperature is outside that range; otherwise that only part of the span is."""
     profile = PROFILES[recipe.fermentation_type]
     labels = []
-    if recipe.envelope_basis == "widened_single_value":
+    basis = set(recipe.envelope_basis.split(";"))
+    if "profile_temperature" in basis:
+        labels.append(PROFILE_TEMPERATURE_LABEL)
+    if "widened_single_value" in basis:
         labels.append("single-value source, widened")
     if "temp_outside_profile" in recipe.model_scope:
         lo, hi = profile.temp_range

@@ -43,6 +43,14 @@ DRAFT = {
     "dill_cucumber_pickles_brined", "carrot_sticks_wet_brined", "barley_koji_single_grain",
     "budu_traditional_anchovy_fish_sauce",
 }  # fmt: skip
+# curation § 9: recipe round 2, Noma and Katz (2026-10-26)
+ACTIVE_2 = {
+    "noma_lacto_blueberries", "noma_lacto_ceps", "noma_lacto_plums", "bergo_lacto_mushrooms_3pct",
+    "katz_mixed_kraut_tastingtable", "noma_rule_lacto_raspberries", "noma_rule_lacto_blackberries",
+    "noma_rule_lacto_mulberries", "noma_rule_lacto_white_currants", "noma_lemon_verbena_kombucha",
+    "noma_apple_kombucha", "noma_coffee_kombucha", "katz_miso_short_light", "katz_miso_long_dark",
+    "noma_elderflower_peaso", "noma_chicken_wing_garum", "bergo_meat_garum_noma_style",
+}  # fmt: skip
 SALTED_TYPES = {"lacto_ferment", "miso", "garum"}
 _NUM = r"\d+(?:\.\d+)?"
 _SCOPE = r"in_range|temp_outside_profile|beyond_horizon"
@@ -121,11 +129,14 @@ def test_build_rejects_medians_outside_1000_g_per_kg(tmp_path: Path) -> None:
 # ── status sets (curation § 2, § 3a, § 4) ────────────────────────────────────
 
 
-def test_twenty_active_four_draft_and_no_excluded_styles() -> None:
+def test_active_draft_and_no_excluded_styles() -> None:
+    """Round 1: 20 active, 4 draft. Round 2 (§ 9): 17 active, 26 draft."""
     lib = L.load_library()
-    assert len(L.active()) == 20 and {r.key for r in L.active()} == ACTIVE
-    assert {k for k, r in lib.items() if r.status == "draft"} == DRAFT
-    assert set(lib) == ACTIVE | DRAFT  # poolish, biga, type_iii are not in v1
+    assert len(L.active()) == 37 and {r.key for r in L.active()} == ACTIVE | ACTIVE_2
+    drafts = {k for k, r in lib.items() if r.status == "draft"}
+    assert DRAFT <= drafts and len(drafts - DRAFT) == 26
+    assert all(lib[k].provenance == "chef_published" for k in ACTIVE_2 | (drafts - DRAFT))
+    assert not {"poolish", "biga", "type_iii"} & set(lib)  # excluded: not in v1
 
 
 def _table(text: str, start: str, end: str) -> list[list[str]]:
@@ -147,17 +158,24 @@ def _cell(cell: str) -> tuple[float | None, tuple[float, float] | None]:
     return float(m.group()), (float(r[1]), float(r[2])) if r else None
 
 
-def test_v1_matches_the_curated_recipe_table() -> None:
-    """Curation § 3: status, model_scope, and the T, duration and salt envelopes per row."""
+@pytest.mark.parametrize(
+    ("start", "end", "n"),
+    [("## 3. Curated recipes", "## 3a.", 17), ("## 9. Recipe round 2", "## 10.", 43)],
+)
+def test_v1_matches_the_curated_recipe_table(start: str, end: str, n: int) -> None:
+    """Curation § 3 and § 9: status, model_scope, and the T, duration and salt envelopes per
+    row."""
     renames: dict[str, str] = _builder().RENAMES
-    rows = _table(CURATION.read_text(encoding="utf-8"), "## 3. Curated recipes", "## 3a.")
-    assert len(rows) == 17
+    rows = _table(CURATION.read_text(encoding="utf-8"), start, end)
+    assert len(rows) == n
     for key, _type, _prov, t, d, salt, basis, scope, status, _note in rows:
         r = _recipe(renames.get(key.strip("`"), key.strip("`")))
         assert r.status == status.replace("*", "").split()[0], r.key
         assert set(r.model_scope) == set(re.findall(_SCOPE, scope)), r.key
-        expected_basis = "widened_single_value" if "widened" in basis else "sourced"
-        assert r.envelope_basis == expected_basis, r.key
+        parts = ["profile_temperature"] * ("profile T" in basis) + [
+            "widened_single_value"
+        ] * ("widened" in basis)  # fmt: skip
+        assert r.envelope_basis == (";".join(parts) or "sourced"), r.key
         widened_t = re.search(rf"T widened → ({_NUM})–({_NUM})", basis)
         for name, cell, span, tol in (("T", t, r.temp_c, 0.05), ("d", d, r.duration_h, 0.5),
                                       ("salt", salt, r.salt_pct, 0.005)):  # fmt: skip
@@ -209,7 +227,7 @@ def test_ingredients_resolve_to_the_catalogue() -> None:
 
 
 def test_ingredient_medians_sum_to_1000_g_per_kg() -> None:
-    for r in L.load_library().values():  # sourdough levain builds included
+    for r in L.active():  # sourdough levain builds included; drafts may lack masses (§ 9)
         total = sum(i.g_per_kg.median for i in r.ingredients if i.g_per_kg)
         assert 950 <= total <= 1050, (r.key, total)
 
@@ -234,7 +252,7 @@ def test_active_recipes_have_no_missing_values() -> None:
 
 
 def test_every_source_key_is_defined_in_the_research_files() -> None:
-    text = "".join(p.read_text(encoding="utf-8") for p in RESEARCH.glob("01-*.md"))
+    text = "".join(p.read_text(encoding="utf-8") for p in RESEARCH.glob("0[12]-*.md"))
     for r in L.load_library().values():
         assert r.sources, r.key
         for key in r.sources:
@@ -473,3 +491,12 @@ def test_t3_needs_a_use_level_row_for_that_type_and_aroma_data(
         assert L.ingredient_tier("Garlic", "lacto_ferment") == 1  # a row, but no aroma data
     finally:
         L._use_levels.cache_clear()
+
+
+def test_a_profile_temperature_recipe_says_so_on_the_card() -> None:
+    """Curation § 9 D1: no stated temperature -> the profile's, labelled."""
+    kraut = _recipe("katz_mixed_kraut_tastingtable")
+    assert kraut.envelope_basis == "profile_temperature;widened_single_value"
+    assert kraut.temp_c == L.Span(20.0, 16.0, 24.0)  # lacto_ferment's 20 °C, 16-24
+    labels = L.trust_labels(kraut)
+    assert labels[:2] == (L.PROFILE_TEMPERATURE_LABEL, "single-value source, widened")

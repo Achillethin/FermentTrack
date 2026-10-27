@@ -196,3 +196,67 @@ All three salt-barrier recipes pass the minimums: shiro miso 6.1 %, red miso 11.
 The kimchi misses are an engine-calibration item, not a curation one. By 72 h the engine brings only 1–11 % of kimchi members to pH 4.6, so the window collapses at the safety milestone. It joins the engine-track items of § 5.
 
 The follow-up curation list in § 7 is unchanged and still open.
+
+## 9. Recipe round 2: Noma and Sandor Katz (2026-10-26)
+
+Research: `docs/superpowers/research/recipes/02-noma-katz.md` (43 candidates, every number from an opened page; provenance `chef_published`, a fourth tier ranked after `traditional_documented`). The build applies §§ 1 and 3's rules plus the four owner decisions below.
+
+**Owner decisions (2026-10-26).**
+- **D1, no stated temperature.** A source that gives none ("room temperature", "a cool place") gets the profile's temperature and range (`PROFILE_TEMPERATURE` in the build). `envelope_basis` is `profile_temperature`, and the card says "temperature not stated by the source: assumed room temperature". Applied to the recipes marked "profile T" below. Budu (§ 4) is a candidate for the same rule; not re-curated here.
+- **D2, salt basis.** SALT-001's 2 % minimum reads salt / (batch − salt), the convention of the Noma Guide ("2 % of the produce and water"), NCHFP ("2.25 % by weight of cabbage") and Katz. SALT-002's 10 % and the salt-barrier minimums still read the whole batch. Both compare at the 0.01 % shown, since masses are stored to 0.1 g/kg.
+- **D3, hot garum.** Garum at or above 57 °C (the FDA Food Code 2022 hot-holding line, 3-501.16(A)(1)) is exempt from TEMP-001: koji enzymes at ~60 °C with 10–12 % salt, no lactic bacteria. 45–57 °C stays refused. Gate (`GARUM_HOT_MIN_C`) and batch banner alike.
+- **D4, salted vegetables' pH rule.** BOT-002 ("≤ 4.6 within 48 h, or discard") is replaced for `lacto_ferment` by two steps: VEG-001, pH below 5.0 within 48 h at > 10 °C, or discard (Noma Guide, lacto chapter, read through a reader's verbatim Kindle highlights); VEG-002, not eaten until pH ≤ 4.6, checked every 1–2 days (UMN Extension, "pH 4.60 or lower when ready"). Normal sauerkraut sits at pH 5.3–5.5 at 48 h (Kristek 2004), so BOT-002 condemned it. Other acid-safety types keep BOT-002.
+
+**Summary.** 17 active, 26 draft. Active by type: lacto_ferment 9, kombucha 3, miso 3, garum 2. Library: 37 active (20 before), 30 draft.
+
+**Ingredients added** (`INGREDIENT_SEED_DATA_V5`, migration 0025): Blueberries, Plums, Blackberries, Mulberries, White currants, Mushrooms, Apple juice (unfiltered), Yellow split peas (cooked), Chicken wings (roasted), Chicken stock and Lamb tongue with their FDC nutrients (tier T1, § D's matches); Lemon verbena (dried), Coffee (ground) and Elderflower at T0 (no FDC row). None has aroma data yet: the cards say so.
+
+**Build changes.** Stand-ins: ceps → `Mushrooms`, pearl-barley koji → rice koji (chicken garum), lamb → `Lamb tongue`. Rice koji split 15 : 17 as in § 3 for both Katz misos, the peaso and both garums. Unweighed optional rows are left out of the served recipe (`DROPPED_ROWS`). A `new` ingredient catalogued since the research becomes `existing_no_aroma`. The 1000 ± 5 % g/kg mass check applies to active recipes only. `ingredient_use_levels_v1.csv`'s bootstrap rows now include round 2's T2 rows (White rice in garum and miso, Soybeans, Cabbage, Napa cabbage).
+
+Abbreviations as § 3; prov `chef` = chef_published; basis `profile T` = D1.
+
+| key | type | prov | T °C med (lo–hi) | d h med (lo–hi) | salt % med (lo–hi) | basis | model_scope | status | curation note |
+|---|---|---|---|---|---|---|---|---|---|
+| `noma_lacto_blueberries` | lacto_ferment | chef | 28 (25–31) | 108 (96–120) | 1.96 (1.96–1.96) | widened | temp_outside_profile | **active** | Noma Guide via The Splendid Table: 2 % of the fruit, 28 °C, 4–5 days. 28 °C is above the lacto profile: source-only card |
+| `noma_lacto_ceps` | lacto_ferment | chef | 28 (25–31) | 144 (120–168) | 1.96 (1.96–1.96) | widened | temp_outside_profile | **active** | Noma Guide via MR PORTER. Ceps booked as `Mushrooms` (white-mushroom nutrients), labelled |
+| `noma_lacto_plums` | lacto_ferment | chef | 24.5 (21–28) | 144 (120–168) | 1.96 (1.96–1.96) | sourced | temp_outside_profile | **active** | Noma Guide's lacto template (read via a reader's verbatim highlights): 5 days at 28 °C, 6–7 at 21 °C |
+| `bergo_lacto_mushrooms_3pct` | lacto_ferment | chef | 20 (16–24) | 228 (120–336) | 2.91 (2.91–2.91) | profile T | in_range | **active** | Forager Chef after Noma and Katz: 3 % of the mushrooms (vacuum version; the brine's water is unweighed and left out). D1 temperature |
+| `katz_mixed_kraut_tastingtable` | lacto_ferment | chef | 20 (16–24) | 96 (67.2–124.8) | 2.07 (2.07–2.07) | profile T; widened | in_range | **active** | Katz via Tasting Table; 3 tsp kosher salt at Morton's 4.8 g/tsp. Unweighed coriander and chili flakes left out. D1 temperature |
+| `noma_rule_lacto_raspberries` | lacto_ferment | chef | 28 (25–31) | 108 (96–120) | 1.96 (1.96–1.96) | widened | temp_outside_profile | **active** | Rule-derived: Noma lacto-ferments raspberries each September with its 2 % rule; time and temperature from the blueberry recipe |
+| `noma_rule_lacto_blackberries` | lacto_ferment | chef | 28 (25–31) | 108 (96–120) | 1.96 (1.96–1.96) | widened | temp_outside_profile | **active** | Rule-derived, as raspberries |
+| `noma_rule_lacto_mulberries` | lacto_ferment | chef | 28 (25–31) | 108 (96–120) | 1.96 (1.96–1.96) | widened | temp_outside_profile | **active** | Rule-derived, as raspberries |
+| `noma_rule_lacto_white_currants` | lacto_ferment | chef | 28 (25–31) | 108 (96–120) | 1.96 (1.96–1.96) | widened | temp_outside_profile | **active** | Rule-derived, as raspberries |
+| `noma_lemon_verbena_kombucha` | kombucha | chef | 28 (25–28) | 192 (168–216) | — | widened | in_range | **active** | Noma Guide via KCRW: herbal infusion, 28 °C lab, 7–9 days. `Lemon verbena (dried)` has no FDC row (T0) |
+| `noma_apple_kombucha` | kombucha | chef | 28 (25–28) | 204 (168–240) | — | widened | in_range | **active** | Noma Guide via Modern Farmer: juice only, no added sugar; bottled-juice FDC row as proxy |
+| `noma_coffee_kombucha` | kombucha | chef | 28 (25–28) | 204 (168–240) | — | widened | in_range | **active** | Zilber via Munchies: 200 g fresh-ground coffee option. `Coffee (ground)` has no FDC row (T0) |
+| `katz_miso_short_light` | miso | chef | 25 (15–30) | 1248 (336–2160) | 5.38 (4.76–6) | profile T | in_range | **active** | Katz's guideline (1 : 1 koji to beans, 6 % salt) via Koji Alchemy. Rice koji split 15 : 17. D1 temperature |
+| `katz_miso_long_dark` | miso | chef | 25 (15–30) | 6540 (4320–8760) | 12.3 (11.6–13) | profile T | beyond_horizon | **active** | Katz's guideline (1 : 2, 13 % salt) via Koji Alchemy. Rice koji split 15 : 17. D1 temperature |
+| `noma_elderflower_peaso` | miso | chef | 25 (15–30) | 2160 (1512–2808) | 5 (5–5) | profile T; widened | in_range | **active** | Noma Projects product declaration (peas 60 %, elderflower 5 %, salt 5 %, koji the rest). Rice koji split 15 : 17. D1 temperature |
+| `noma_chicken_wing_garum` | garum | chef | 60 (57–60) | 672 (470.4–873.6) | 10.6 (10.6–10.6) | widened | in_range | **active** | Noma Guide via The Splendid Table: 60 °C, 4 weeks (D3). Pearl-barley koji booked as rice koji (the recipe allows commercial koji), split 15 : 17 |
+| `bergo_meat_garum_noma_style` | garum | chef | 60 (57–60) | 1200 (720–1680) | 10.7 (10.7–10.7) | widened | in_range | **active** | Forager Chef after the Noma Guide's beef garum: lamb tongue, 60 °C, 30–70 days (D3). Rice koji split 15 : 17 |
+| `katz_sauerkraut_basic` | lacto_ferment | chef | — | 1116 (72–2160) | 1.67 (1.67–1.67) | sourced | beyond_horizon | draft | Salt 1.67 % (1.70 % of the rest): under SALT-001's 2 % even after D2 |
+| `katz_sour_pickles` | lacto_ferment | chef | — | 420 (168–672) | 2.65 (2.49–2.83) | sourced | in_range | draft | Dill and garlic unweighed |
+| `katz_kombucha_basic` | kombucha | chef | 27 (24–30) | 246 (168–336) | — | sourced | temp_outside_profile | draft | Tea unweighed ("strong or weak as you like") |
+| `katz_kimchi_brine_soaked` | lacto_ferment | chef | — | 48 (24–72) | — | sourced | in_range | draft | Only the cabbage is weighed; secondary adaptation |
+| `katz_mexican_kimchi` | lacto_ferment | chef | — | 120 (72–168) | — | sourced | in_range | draft | Unweighed core rows; masa and pineapple not catalogued |
+| `katz_milk_kefir` | kefir | chef | — | 36 (24–72) | — | sourced | beyond_horizon | draft | Only index pages opened: no grain dose, no temperature |
+| `zilber_rice_koji` | koji | chef | 29 (28–30) | 48 (33.6–62.4) | — | widened | in_range | draft | Spore dose not stated |
+| `koji_alchemy_long_grain_rice_koji` | koji | chef | 29 (26–32) | 36 (25.2–46.8) | — | widened | temp_outside_profile | draft | Spore dose not stated |
+| `zilber_caviar_koji_garum` | garum | chef | — | 8760 (6132–11388) | 7.41 (7.41–7.41) | widened | beyond_horizon | draft | Salt 7.41 % < garum's 8.3 % barrier |
+| `noma_mushroom_oat_garum` | garum | chef | — | 1344 (1008–1680) | 7 (7–7) | sourced | in_range | draft | Salt 7 % < garum's 8.3 % barrier; shares bounded by label order only |
+| `bergo_ramp_leaf_koji_garum` | garum | chef | 62.8 (59.8–65.8) | 840 (588–1092) | 11.7 (11.7–11.7) | widened | temp_outside_profile | draft | Ramps have no FDC row (leek proxy only) |
+| `noma_peaso_plain` | miso | chef | — | 2160 (1512–2808) | 4 (4–4) | widened | in_range | draft | Peas and koji unweighed |
+| `noma_kyoto_peaso` | miso | chef | — | — | 5 (5–5) | sourced | in_range | draft | Duration not stated |
+| `wf_sweet_garbanzo_miso` | miso | chef | — | 1440 (1008–1872) | 3.91 (3.91–3.91) | widened | in_range | draft | Salt 3.91 % < miso's 4 % barrier |
+| `wf_black_bean_miso` | miso | chef | — | 10944 (10608–11280) | 8 (8–8) | sourced | beyond_horizon | draft | Garlic unweighed |
+| `noma_perry_vinegar` | vinegar | chef | — | 288 (240–336) | — | sourced | in_range | draft | Sugar → ethanol → acetic acid needs a yeast stage the vinegar profile lacks; pears and yeast unweighed |
+| `katz_persimmon_vinegar` | vinegar | chef | — | 1800 (1440–2160) | — | sourced | beyond_horizon | draft | Sugar → ethanol → acetic acid needs a yeast stage the vinegar profile lacks |
+| `bergo_fruit_scrap_vinegar_classic` | vinegar | chef | — | 1224 (1008–1440) | — | sourced | in_range | draft | As persimmon vinegar; `Fruit scraps` is not a food |
+| `bergo_fruit_scrap_vinegar_vodka` | vinegar | chef | — | 1416 (1056–1776) | — | sourced | beyond_horizon | draft | As persimmon vinegar |
+| `noma_rule_lacto_gooseberries` | lacto_ferment | chef | 28 (25–31) | 108 (96–120) | 1.96 (1.96–1.96) | widened | temp_outside_profile | draft | The FDC row has no sugar data: the forecast would not acidify |
+| `noma_rule_brined_beets` | lacto_ferment | chef | — | — | 1.96 (1.96–1.96) | sourced | in_range | draft | Rule-derived brine: vegetable-to-water ratio and time not stated |
+| `noma_rule_brined_radishes` | lacto_ferment | chef | — | — | 1.96 (1.96–1.96) | sourced | in_range | draft | As beets |
+| `noma_rule_brined_young_carrots` | lacto_ferment | chef | — | — | 1.96 (1.96–1.96) | sourced | in_range | draft | As beets |
+| `noma_rule_brined_onions_turnips_herbs` | lacto_ferment | chef | — | — | 1.96 (1.96–1.96) | sourced | in_range | draft | As beets |
+| `noma_rule_lacto_white_asparagus` | lacto_ferment | chef | — | — | 1.96 (1.96–1.96) | sourced | in_range | draft | As beets |
+| `noma_rule_lacto_small_pumpkins` | lacto_ferment | chef | — | — | 1.96 (1.96–1.96) | sourced | in_range | draft | As beets |

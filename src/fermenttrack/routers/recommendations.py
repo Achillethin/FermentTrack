@@ -96,17 +96,24 @@ router = APIRouter(tags=["recommendations"])
 logger = logging.getLogger(__name__)
 
 PH_REMINDER_AFTER = timedelta(hours=48)
-PH_REMINDER = f"{gate.PH_LOG_LINE} {gate.PH_DEADLINE_LINE}"  # the card's own lines, verbatim
 TASTING_REMINDER_ACTION = "Stop-by time: taste the batch and fill in its tasting form."
-# an acid-safety type: the gate's own pH line, verbatim (the window is never clearance, § 7)
-TASTING_AFTER_PH = f"Before tasting: {gate.PH_DEADLINE_LINE}"
 
 
-def tasting_action(ph_reminder: bool) -> str:
+def ph_reminder_action(fermentation_type: str) -> str:
+    """The pH reminder: the card's own lines, verbatim."""
+    return f"{gate.PH_LOG_LINE} {gate.ph_deadline_line(fermentation_type)}"
+
+
+def tasting_after_ph(fermentation_type: str) -> str:
+    # an acid-safety type: the gate's own pH line, verbatim (the window is never clearance, § 7)
+    return f"Before tasting: {gate.ph_deadline_line(fermentation_type)}"
+
+
+def tasting_action(ph_reminder: bool, fermentation_type: str) -> str:
     """The stop-by reminder's text; an acid-safety type (the pH reminder's) adds the gate's pH
     deadline line, verbatim."""
     if ph_reminder:
-        return f"{TASTING_REMINDER_ACTION} {TASTING_AFTER_PH}"
+        return f"{TASTING_REMINDER_ACTION} {tasting_after_ph(fermentation_type)}"
     return TASTING_REMINDER_ACTION
 
 
@@ -370,7 +377,8 @@ async def start_batch(
     if plan.ph_reminder:  # a safety reminder: a stage change does not close it
         reminders.append(
             Reminder(
-                batch_id=batch.id, action=PH_REMINDER, due_at=started + PH_REMINDER_AFTER,
+                batch_id=batch.id, action=ph_reminder_action(culture.type),
+                due_at=started + PH_REMINDER_AFTER,
                 urgency="critical", kind=SAFETY_REMINDER,
             )
         )  # fmt: skip
@@ -378,7 +386,7 @@ async def start_batch(
     # the batch's next tasting does (routers/tastings.py)
     reminders.append(
         Reminder(
-            batch_id=batch.id, action=tasting_action(plan.ph_reminder),
+            batch_id=batch.id, action=tasting_action(plan.ph_reminder, culture.type),
             due_at=started + timedelta(hours=float(plan.link["window"]["stop_by_h"])),
             urgency="medium", kind=TASTING_REMINDER,
         )

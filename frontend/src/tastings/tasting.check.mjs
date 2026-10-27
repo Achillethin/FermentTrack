@@ -4,6 +4,7 @@ import {
   isDue,
   likingWord,
   PH_BEFORE_TASTING,
+  VEG_PH_BEFORE_TASTING,
   phLine,
   promptReason,
   ratingSummary,
@@ -54,6 +55,9 @@ assert.match(tastingPayload({ liking: 3, tastedAt: "nonsense" }, { now }).errors
 const reminder = { action: `Stop-by time: taste the batch and fill in its tasting form. ${PH_BEFORE_TASTING}` };
 assert.equal(phLine("lacto_ferment", reminder), PH_BEFORE_TASTING);
 assert.equal(phLine("kombucha", null), PH_BEFORE_TASTING);
+assert.equal(phLine("lacto_ferment", null), VEG_PH_BEFORE_TASTING); // salted vegetables: two steps
+assert.match(VEG_PH_BEFORE_TASTING, /below 5\.0 within 48 h.*≤ 4\.6 before you eat it/);
+assert.doesNotMatch(VEG_PH_BEFORE_TASTING, /\bsafe\b/i);
 assert.equal(phLine("miso", null), null);
 assert.equal(phLine("miso", { action: "Stop-by time: taste the batch and fill in its tasting form." }), null);
 assert.equal(PH_BEFORE_TASTING, "Before tasting: Measure pH. It must reach ≤ 4.6 within 48 h at > 10 °C; if not, discard.");

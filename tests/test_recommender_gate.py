@@ -49,7 +49,9 @@ def _rules(result: G.GateResult) -> set[str]:
 
 @pytest.mark.parametrize(
     ("salt_g", "rule"),
-    [(20.0, None), (19.99, "SALT-001"), (100.0, None), (100.01, "SALT-002"), (0.0, "SALT-001")],
+    # SALT-001 reads salt / (batch - salt) (2 % at 19.61 g/kg), compared to 0.01 %: 19.56 g/kg
+    # shows as 2.00 %; SALT-002 reads the whole batch
+    [(19.56, None), (19.55, "SALT-001"), (100.0, None), (100.1, "SALT-002"), (0.0, "SALT-001")],
 )
 def test_salt_rules_at_their_boundaries(salt_g: float, rule: str | None) -> None:
     result = G.check(_salted(salt_g), [])
@@ -75,7 +77,7 @@ def test_salt_must_pass_with_and_without_the_optional_rows() -> None:
     )
     result = G.check(optional_salt, [])
     assert not result.ok
-    assert result.reasons == ("SALT-001: salt 0.00 % w/w < 2.0 % (core rows only)",)
+    assert result.reasons == ("SALT-001: salt 0.00 % of the rest < 2.0 % (core rows only)",)
 
     diluting = RecipeLike(
         "lacto_ferment",
@@ -88,7 +90,23 @@ def test_salt_must_pass_with_and_without_the_optional_rows() -> None:
     )
     result = G.check(diluting, [])
     assert not result.ok
-    assert result.reasons == ("SALT-001: salt 1.88 % w/w < 2.0 % (all rows)",)
+    assert result.reasons == ("SALT-001: salt 1.91 % of the rest < 2.0 % (all rows)",)
+
+
+def test_salt_001_reads_the_salt_against_everything_else() -> None:
+    """Owner decision 2026-10-26: Noma's "2 % of the produce" is 1.96 % of the batch and
+    passes; SALT-002's 10 % stays a share of the whole batch."""
+    noma = RecipeLike(
+        "lacto_ferment",
+        (IngredientRow("Raspberries", "base", 980.4), IngredientRow("Salt", "additive", 19.6)),
+        temperatures_c=(28.0,),
+    )
+    assert G.salt_pct(noma) == pytest.approx(1.96) and G.check(noma, []).ok
+    assert G.salt_pct(noma, of_rest=True) == pytest.approx(2.0, abs=1e-3)  # 1.9992: rounding
+    under = dataclasses.replace(noma, ingredients=(
+        IngredientRow("Raspberries", "base", 981.0), IngredientRow("Salt", "additive", 19.0),
+    ))  # fmt: skip
+    assert _rules(G.check(under, [])) == {"SALT-001"}
 
 
 def test_missing_mass_fails_the_salt_rule_closed() -> None:
@@ -283,7 +301,7 @@ def test_unknown_fermentation_type_fails() -> None:
 
 PH = (G.PH_DEADLINE_LINE, G.PH_LOG_LINE)
 LINES_BY_TYPE = {
-    "lacto_ferment": PH,
+    "lacto_ferment": (G.VEG_PH_LINE, G.PH_LOG_LINE),
     "kombucha": PH,
     "kefir": PH,
     "cheese": PH,
@@ -302,7 +320,9 @@ def test_line_sets_cover_every_profile() -> None:
 @pytest.mark.parametrize(("ft", "lines"), sorted(LINES_BY_TYPE.items()))
 def test_safety_lines_per_type(ft: str, lines: tuple[str, ...]) -> None:
     assert G.check(_salted(30.0, ft), []).safety_lines == lines
-    assert G.needs_ph_reminder(ft) is (G.PH_DEADLINE_LINE in lines)
+    assert G.needs_ph_reminder(ft) is (G.PH_LOG_LINE in lines)
+    if G.needs_ph_reminder(ft):
+        assert lines[0] == G.ph_deadline_line(ft)
 
 
 def test_certified_koji_adds_the_tane_koji_line() -> None:
@@ -316,6 +336,7 @@ def test_acid_safety_types_are_the_profiles_with_a_ph_safety_line() -> None:
 
 def test_line_wording() -> None:
     assert "≤ 4.6 within 48 h" in G.PH_DEADLINE_LINE
+    assert "below 5.0 within 48 h" in G.VEG_PH_LINE and "≤ 4.6 before you eat" in G.VEG_PH_LINE
     koji_hi = PROFILES["koji"].temp_range[1]
     assert f"{G.KOJI_MIN_C:g}–{G.KOJI_MAX_C:g} °C" in G.KOJI_TEMP_LINE
     assert f"up to {koji_hi:g} °C only with certified tane-koji" in G.KOJI_TEMP_LINE
@@ -331,7 +352,7 @@ def test_vinegar_acidity_lines_follow_the_curation_spec() -> None:
 
 def test_safety_lines_are_returned_even_when_the_gate_fails() -> None:
     result = G.check(_salted(5.0), [])
-    assert not result.ok and result.safety_lines == (G.PH_DEADLINE_LINE, G.PH_LOG_LINE)
+    assert not result.ok and result.safety_lines == (G.VEG_PH_LINE, G.PH_LOG_LINE)
 
 
 # ── consistency with the batch safety layer and the library ────────────────────────────────
@@ -356,7 +377,10 @@ def test_thresholds_match_risk_rules_yaml() -> None:
     assert rule("KOJI-002").condition == f"temperature_c < {G.KOJI_MIN_C:g}"
     assert f"temperature_c > {G.KOJI_MAX_C:g}" in rule("KOJI-001").condition
     assert "certified tane-koji" in rule("KOJI-001").exceptions[0]
-    for rule_id in ("SALT-001", "SALT-002", "TEMP-001"):
+    assert rule("VEG-001").condition == "ph >= 5.0 AND time_hours > 48 AND temperature_c > 10"
+    assert rule("VEG-002").condition == "ph > 4.6 AND ph < 5.0 AND time_hours > 48"
+    assert "below 5.0 within 48 h at > 10 °C" in G.VEG_PH_LINE  # VEG-001's thresholds
+    for rule_id in ("SALT-001", "SALT-002", "TEMP-001", "VEG-001", "VEG-002"):
         assert rule(rule_id).fermentation_schemes == ["lactic"]
     for rule_id in ("KOJI-001", "KOJI-002"):
         assert rule(rule_id).fermentation_schemes == ["enzymatic_koji"]
@@ -380,10 +404,12 @@ def test_every_active_recipe_passes_at_its_own_temperatures(recipe: L.Recipe) ->
     assert result.safety_lines[: len(expected)] == expected
 
 
-def test_garum_profile_range_runs_past_temp_001() -> None:
-    """Known conflict for the grid and the slider (B4/B5): garum's profile range reaches 60 °C,
-    but TEMP-001 caps every lactic-scheme type, garum included, at 45 °C."""
+def test_hot_garum_is_exempt_from_temp_001_above_the_hot_holding_line() -> None:
+    """Owner decision 2026-10-26 (was a known conflict, B4/B5): garum's profile runs to 60 °C;
+    at or above 57 °C TEMP-001 does not apply, 45-57 °C stays refused, other types keep 45."""
     sand_lance = _library("pacific_sand_lance_rice_koji_fish_sauce")
     lo, hi = PROFILES["garum"].temp_range
-    assert G.check(sand_lance, [lo, G.LACTIC_MAX_C]).ok
-    assert _rules(G.check(sand_lance, [hi])) == {"TEMP-001"}
+    assert G.check(sand_lance, [lo, G.LACTIC_MAX_C, G.GARUM_HOT_MIN_C, hi]).ok
+    assert _rules(G.check(sand_lance, [50.0])) == {"TEMP-001"}
+    assert _rules(G.check(sand_lance, [56.9])) == {"TEMP-001"}
+    assert _rules(G.check(_salted(90.0, "miso", temp=60.0), [])) == {"TEMP-001"}

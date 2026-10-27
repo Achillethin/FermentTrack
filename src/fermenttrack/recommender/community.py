@@ -695,7 +695,7 @@ def batch_plan(
         raise service.GateRefused("this recipe does not pass the safety checks here")
     booked, skipped = run.recipe_rows(recipe)
     fdc = {i.name: i.fdc_id for i in recipe.ingredients if i.fdc_id is not None}
-    grams = [(r.name, round(r.quantity * batch_g / 1000.0, 1), r.role) for r in booked
+    grams = [(r.name, service.batch_grams(r.name, r.quantity, batch_g), r.role) for r in booked
              if r.quantity is not None]  # fmt: skip
     rows = tuple(g for g in grams if g[0] not in fdc)
     fdc_rows = tuple((fdc[n], q, role) for n, q, role in grams if n in fdc)

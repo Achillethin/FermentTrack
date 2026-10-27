@@ -7,8 +7,8 @@ acidity (the pH lines), temperature (koji) or salt (miso, garum). Predicted pH p
 it is never clearance.
 
 Thresholds mirror `safety/risk_rules.yaml` (tests pin them), except the salt-barrier minimums
-for miso and garum (`SALT_BARRIER_MIN_PCT`, rule "SALT-BARRIER"), an owner decision with no
-yaml rule. The rules' scheme mapping mirrors
+for miso and garum (`SALT_BARRIER_MIN_PCT`, rule "SALT-BARRIER") and hot garum's TEMP-001
+exemption (`GARUM_HOT_MIN_C`), owner decisions with no yaml rule. The rules' scheme mapping mirrors
 `safety/service.py`: koji is `enzymatic_koji`, every other type `lactic`.
 """
 
@@ -27,9 +27,14 @@ SALT = "Salt"
 # The salt rules say "vegetable"; the batch service would apply them to every lactic-scheme
 # type and flag miso and garum salt. The gate scopes them explicitly (design § 7).
 SALT_GATED_TYPES = frozenset({"lacto_ferment"})
-SALT_MIN_PCT = 2.0  # SALT-001
-SALT_MAX_PCT = 10.0  # SALT-002
+SALT_MIN_PCT = 2.0  # SALT-001, of everything but the salt (salt_pct's of_rest)
+SALT_MAX_PCT = 10.0  # SALT-002, of the whole batch
 LACTIC_MAX_C = 45.0  # TEMP-001
+# Hot garum (owner decision 2026-10-26): koji enzymes at ~60 °C and 10-12 % salt, no lactic
+# bacteria (the Noma Guide's garums; the profile models 20-60 °C). At or above the FDA Food Code
+# hot-holding line (2022, 3-501.16(A)(1): 57 °C / 135 °F) pathogens don't grow, so TEMP-001 does
+# not apply; 45-57 °C, the warm band, stays refused.
+GARUM_HOT_MIN_C = 57.0
 KOJI_MIN_C = 25.0  # KOJI-002
 KOJI_MAX_C = 33.0  # KOJI-001
 CERTIFIED_KOJI_STARTER = "Koji spores (A. oryzae)"  # KOJI-001's certified tane-koji exception
@@ -46,6 +51,13 @@ SALT_BARRIER_TYPES = frozenset({"miso", "garum"})
 SALT_BARRIER_MIN_PCT = {"miso": 4.0, "garum": 8.3}
 
 PH_DEADLINE_LINE = "Measure pH. It must reach ≤ 4.6 within 48 h at > 10 °C; if not, discard."
+# Salted vegetables (owner decision 2026-10-26, VEG-001/VEG-002 in risk_rules.yaml): the Noma
+# Guide's two steps instead of BOT-002, which a normal sauerkraut fails (pH 5.3-5.5 at 48 h,
+# Kristek 2004).
+VEG_PH_LINE = (
+    "Measure pH. It must drop below 5.0 within 48 h at > 10 °C and reach ≤ 4.6 before you eat "
+    "it; if not, discard."
+)
 PH_LOG_LINE = "Log pH by 48 h."
 KOJI_TEMP_LINE = "Keep the bed at 25–33 °C; up to 35 °C only with certified tane-koji."
 TANE_KOJI_LINE = "Use certified tane-koji."
@@ -102,16 +114,27 @@ def from_recipe(recipe: Recipe) -> RecipeLike:
     )
 
 
-def salt_pct(recipe: RecipeLike, *, with_optional: bool = True) -> float | None:
-    """Salt as % w/w of the total of the ingredient rows; None (the gate fails closed) when a
-    mass is missing, not finite or negative."""
+def salt_pct(
+    recipe: RecipeLike, *, with_optional: bool = True, of_rest: bool = False
+) -> float | None:
+    """Salt as % w/w of the total of the ingredient rows, or (of_rest) of everything but the
+    salt: "2 % of the produce and water", the convention of the Noma Guide, NCHFP and Katz,
+    which SALT-001's minimum uses (owner decision 2026-10-26). None (the gate fails closed)
+    when a mass is missing, not finite or negative."""
     rows = [i for i in recipe.ingredients if with_optional or i.required != "optional"]
     valid = [m for i in rows if (m := i.g_per_kg) is not None and math.isfinite(m) and m >= 0]
     if not rows or len(valid) < len(rows):
         return None
     total = math.fsum(valid)
     salt = math.fsum(m for i, m in zip(rows, valid, strict=True) if i.name == SALT)
-    return 100.0 * salt / total if total > 0 else None
+    base = total - salt if of_rest else total
+    return 100.0 * salt / base if base > 0 else None
+
+
+def ph_deadline_line(fermentation_type: str) -> str:
+    """The pH line of an acid-safety type: the two-step rule for salted vegetables, BOT-002's
+    otherwise."""
+    return VEG_PH_LINE if fermentation_type == "lacto_ferment" else PH_DEADLINE_LINE
 
 
 def needs_ph_reminder(fermentation_type: str) -> bool:
@@ -123,7 +146,7 @@ def safety_lines(recipe: RecipeLike) -> tuple[str, ...]:
     ft = recipe.fermentation_type
     lines: list[str] = []
     if needs_ph_reminder(ft):
-        lines += [PH_DEADLINE_LINE, PH_LOG_LINE]
+        lines += [ph_deadline_line(ft), PH_LOG_LINE]
     if ft == "koji":
         lines.append(KOJI_TEMP_LINE)
         if CERTIFIED_KOJI_STARTER in recipe.starters:
@@ -136,7 +159,8 @@ def safety_lines(recipe: RecipeLike) -> tuple[str, ...]:
 
 
 def _salt_reasons(
-    recipe: RecipeLike, rule: str, lo: float, hi: float | None, high_rule: str = ""
+    recipe: RecipeLike, rule: str, lo: float, hi: float | None, high_rule: str = "",
+    *, lo_of_rest: bool = False,
 ) -> list[str]:
     # The user may leave optional rows out, so the salt must pass with and without them.
     variants = [(True, "all rows")]
@@ -145,11 +169,15 @@ def _salt_reasons(
     reasons = []
     for with_optional, label in variants:
         pct = salt_pct(recipe, with_optional=with_optional)
-        if pct is None:
+        low = salt_pct(recipe, with_optional=with_optional, of_rest=lo_of_rest)
+        if pct is None or low is None:
             reasons.append(f"{rule}: salt % unknown, a mass is missing or invalid ({label})")
-        elif pct < lo:
-            reasons.append(f"{rule}: salt {pct:.2f} % w/w < {lo} % ({label})")
-        elif hi is not None and pct > hi:
+        # compared as shown, to 0.01 %: masses are stored to 0.1 g/kg, so Noma's "2 % of 980.4 g"
+        # (19.608 g) is stored as 19.6 g/kg, 1.9992 % of the rest
+        elif round(low, 2) < lo:
+            basis = "of the rest" if lo_of_rest else "w/w"
+            reasons.append(f"{rule}: salt {low:.2f} % {basis} < {lo} % ({label})")
+        elif hi is not None and round(pct, 2) > hi:
             reasons.append(f"{high_rule}: salt {pct:.2f} % w/w > {hi} % ({label})")
     return reasons
 
@@ -157,7 +185,10 @@ def _salt_reasons(
 def _temperature_reasons(recipe: RecipeLike, temps: list[float]) -> list[str]:
     reasons = []
     if scheme(recipe.fermentation_type) == "lactic":
-        reasons += [f"TEMP-001: {t:g} °C > {LACTIC_MAX_C:g} °C" for t in temps if t > LACTIC_MAX_C]
+        hot = GARUM_HOT_MIN_C if recipe.fermentation_type == "garum" else math.inf
+        reasons += [
+            f"TEMP-001: {t:g} °C > {LACTIC_MAX_C:g} °C" for t in temps if LACTIC_MAX_C < t < hot
+        ]
     else:
         reasons += [f"KOJI-002: {t:g} °C < {KOJI_MIN_C:g} °C" for t in temps if t < KOJI_MIN_C]
         # The exception holds only when the certified strain is the recipe's sole starter.
@@ -184,7 +215,9 @@ def check(recipe: RecipeLike, temperatures: Iterable[float]) -> GateResult:
     if not all(math.isfinite(t) for t in temps):
         reasons.append("a temperature is not a finite number")
     if recipe.fermentation_type in SALT_GATED_TYPES:
-        reasons += _salt_reasons(recipe, "SALT-001", SALT_MIN_PCT, SALT_MAX_PCT, "SALT-002")
+        reasons += _salt_reasons(
+            recipe, "SALT-001", SALT_MIN_PCT, SALT_MAX_PCT, "SALT-002", lo_of_rest=True
+        )
     barrier_min = SALT_BARRIER_MIN_PCT.get(recipe.fermentation_type)
     if barrier_min is not None:
         reasons += _salt_reasons(recipe, "SALT-BARRIER", barrier_min, None)

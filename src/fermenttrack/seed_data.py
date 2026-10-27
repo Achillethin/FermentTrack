@@ -156,3 +156,38 @@ INGREDIENT_FDC_MAP: dict[str, str] = {
     "Anchovies": "Fish, anchovy, european, raw",
     "Mackerel": "Fish, mackerel, Atlantic, raw",
 }
+
+# Recipe round 2, Noma and Katz (curation spec § 9, 2026-10-26): the ingredients of the recipes
+# it activates. FDC matches from docs/superpowers/research/recipes/02-noma-katz.md § D, checked
+# offline in fdc_catalog_v1; no aroma data yet (tier T1, or T0 where FDC has no row).
+INGREDIENT_SEED_DATA_V5: list[tuple[str, str, list[str]]] = [
+    ("Blueberries", "base", ["lacto_ferment"]),
+    ("Plums", "base", ["lacto_ferment"]),
+    ("Blackberries", "base", ["lacto_ferment"]),
+    ("Mulberries", "base", ["lacto_ferment"]),
+    ("White currants", "base", ["lacto_ferment"]),
+    ("Mushrooms", "base", ["lacto_ferment", "garum"]),
+    ("Apple juice (unfiltered)", "base", ["kombucha"]),
+    ("Lemon verbena (dried)", "flavoring", ["kombucha"]),
+    ("Coffee (ground)", "flavoring", ["kombucha"]),
+    ("Yellow split peas (cooked)", "base", ["miso"]),
+    ("Elderflower", "flavoring", ["miso"]),
+    ("Chicken wings (roasted)", "base", ["garum"]),
+    ("Chicken stock", "base", ["garum"]),
+    ("Lamb tongue", "base", ["garum"]),
+]
+# Migration 0025 copies their nutrients as 0018 did for V4. No FDC row: lemon verbena, ground
+# coffee, elderflower (T0, like tea leaves).
+INGREDIENT_FDC_IDS_V5: dict[str, int] = {
+    "Blueberries": 171711,  # Blueberries, raw
+    "Plums": 169949,  # Plums, raw
+    "Blackberries": 173946,  # Blackberries, raw
+    "Mulberries": 169913,  # Mulberries, raw
+    "White currants": 173964,  # Currants, red and white, raw
+    "Mushrooms": 169251,  # Mushrooms, white, raw (also the ceps stand-in)
+    "Apple juice (unfiltered)": 173933,  # Apple juice, canned or bottled, unsweetened, ... (proxy)
+    "Yellow split peas (cooked)": 172429,  # Peas, split, mature seeds, cooked, boiled, without salt
+    "Chicken wings (roasted)": 173630,  # Chicken, broilers or fryers, wing, meat and skin, ...
+    "Chicken stock": 172884,  # Soup, stock, chicken, home-prepared
+    "Lamb tongue": 174366,  # Lamb, variety meats and by-products, tongue, raw
+}

@@ -36,7 +36,7 @@ from fermenttrack.models import (
 from fermenttrack.recommender import community as C
 from fermenttrack.recommender import gate, grid, run
 from fermenttrack.recommender import service as S
-from fermenttrack.routers.recommendations import TASTING_AFTER_PH, TASTING_REMINDER_ACTION
+from fermenttrack.routers.recommendations import TASTING_REMINDER_ACTION, tasting_after_ph
 from fermenttrack.routers.tastings import FUTURE_SKEW
 from tests.conftest import TEST_USER_ID
 
@@ -377,9 +377,10 @@ async def test_start_batch_asks_for_a_tasting_at_the_stop_by_time(
     [tasting] = [r for r in body["reminders"] if r["kind"] == TASTING_REMINDER]
     # an acid-safety ferment: the prompt carries the gate's pH deadline line verbatim (time
     # limit and discard rule included), never a reworded clearance
-    assert gate.PH_DEADLINE_LINE in tasting["action"]
-    assert tasting["action"] == f"{TASTING_REMINDER_ACTION} Before tasting: {gate.PH_DEADLINE_LINE}"
-    assert TASTING_AFTER_PH == f"Before tasting: {gate.PH_DEADLINE_LINE}"
+    line = gate.VEG_PH_LINE  # kimchi: salted vegetables
+    assert line in tasting["action"]
+    assert tasting["action"] == f"{TASTING_REMINDER_ACTION} Before tasting: {line}"
+    assert tasting_after_ph("kombucha") == f"Before tasting: {gate.PH_DEADLINE_LINE}"
     assert tasting["urgency"] == "medium"
     due, started = (
         datetime.fromisoformat(x).replace(tzinfo=None)
@@ -406,7 +407,7 @@ async def test_the_stop_by_prompt_of_a_type_without_a_ph_check(
     body = (await client.post("/batches/from-recommendation", json={"recipe_key": KOJI})).json()
     [tasting] = [r for r in body["reminders"] if r["kind"] == TASTING_REMINDER]
     assert tasting["action"] == TASTING_REMINDER_ACTION
-    assert gate.PH_DEADLINE_LINE not in tasting["action"]
+    assert gate.PH_LOG_LINE not in tasting["action"] and "Before tasting" not in tasting["action"]
     assert SAFETY_REMINDER not in {r["kind"] for r in body["reminders"]}
 
 

@@ -23,17 +23,20 @@ async def test_library_needs_no_auth(anon: AsyncClient) -> None:
     resp = await anon.get("/recipes")
     assert resp.status_code == 200
     body = resp.json()
-    assert len(body) == 20 and {r["status"] for r in body} == {"active"}
+    assert len(body) == 37 and {r["status"] for r in body} == {"active"}  # 20 + 17 (§ 9)
 
 
 async def test_filters_by_type_and_status(anon: AsyncClient) -> None:
     kombucha = (await anon.get("/recipes", params={"type": "kombucha"})).json()
-    assert {r["key"] for r in kombucha} == {"black_tea_kombucha_1f", "green_dominant_kombucha"}
-    drafts = (await anon.get("/recipes", params={"status": "draft"})).json()
-    assert {r["key"] for r in drafts} == {
+    assert {r["key"] for r in kombucha} == {
+        "black_tea_kombucha_1f", "green_dominant_kombucha", "noma_lemon_verbena_kombucha",
+        "noma_apple_kombucha", "noma_coffee_kombucha",
+    }  # fmt: skip
+    drafts = {r["key"] for r in (await anon.get("/recipes", params={"status": "draft"})).json()}
+    assert {
         "dill_cucumber_pickles_brined", "carrot_sticks_wet_brined", "barley_koji_single_grain",
         "budu_traditional_anchovy_fish_sauce",
-    }  # fmt: skip
+    } <= drafts and len(drafts) == 30  # + curation § 9's 26 drafts
     assert (await anon.get("/recipes", params={"type": "no_such_type"})).json() == []
     assert (await anon.get("/recipes", params={"status": "excluded"})).status_code == 422
 

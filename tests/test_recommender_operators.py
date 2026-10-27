@@ -53,8 +53,9 @@ def _pct(recipe: Recipe, name: str) -> float:
         (KRAUT, ["add:Fresh ginger", "swap:Cabbage>Cucumber", "swap:Cabbage>Napa cabbage",
                  "temp:16", "temp:20", "temp:24"]),
         ("rice_koji_steamed_rice", ["swap:White rice>Pearl barley", "swap:White rice>Soybeans"]),
-        # rice koji is never swapped for fish: Mackerel is not tagged where White rice is used
-        (GARUM, ["swap:Anchovies>Mackerel", "temp:30"]),
+        # rice koji is never swapped for fish: Mackerel is not tagged where White rice is used;
+        # 60 °C is hot garum (curation § 9 D3)
+        (GARUM, ["swap:Anchovies>Mackerel", "temp:30", "temp:60"]),
         ("lactic_fresh_cheese_curd", ["temp:28", "temp:30", "temp:32"]),
         ("wine_orleans_surface", ["swap:Red wine>Hard cider", "swap:Red wine>White wine"]),
         ("green_dominant_kombucha", ["temp:20"]),  # Black tea leaves is already in it
@@ -67,8 +68,8 @@ def test_the_grid_operator_catalogue(key: str, expected: list[str]) -> None:
 
 
 def test_catalogue_summary_over_the_library() -> None:
-    """Informational (the handoff's operator catalogue), pinned: 74 single grid operators
-    over the 20 active recipes."""
+    """Informational (the handoff's operator catalogue), pinned: 154 single grid operators
+    over the 37 active recipes (71 over 20 before curation § 9)."""
     counts: dict[str, int] = {}
     per_type: dict[str, int] = {}
     for r in library.active():
@@ -76,7 +77,7 @@ def test_catalogue_summary_over_the_library() -> None:
             counts[op.kind] = counts.get(op.kind, 0) + 1
             per_type[r.fermentation_type] = per_type.get(r.fermentation_type, 0) + 1
     print(f"\noperators by kind {counts}; by type {per_type}")
-    assert counts == {"add": 1, "swap": 42, "temperature": 28}
+    assert counts == {"add": 10, "swap": 85, "temperature": 59}
     assert "usda" not in counts  # (v) is user-specific
 
 
@@ -174,7 +175,8 @@ def test_temperature_operators_stay_in_the_profile_outside_the_documented_span()
     kraut = _recipe(KRAUT)  # documented 21.1-23.9 °C, profile 16-24 °C
     assert O.temperature_ok(kraut, 18.0) and not O.temperature_ok(kraut, 22.0)
     assert not O.temperature_ok(kraut, 25.0)  # outside the profile
-    assert not O.temperature_ok(_recipe(GARUM), 60.0)  # TEMP-001
+    assert not O.temperature_ok(_recipe(GARUM), 50.0)  # TEMP-001
+    assert O.temperature_ok(_recipe(GARUM), 60.0)  # hot garum (curation § 9 D3)
     assert "temp:18" in [op.key for op in O.singles(kraut, temperatures=(18.04,))]
 
 

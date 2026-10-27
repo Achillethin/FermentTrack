@@ -147,11 +147,11 @@ def test_every_active_recipe_keeps_its_gated_temperatures() -> None:
             assert gate.check(like, seen).ok, (recipe.key, t)
 
 
-def test_the_gate_drops_hot_garum_and_keeps_certified_koji_warm() -> None:
+def test_the_gate_keeps_hot_garum_and_certified_koji_warm() -> None:
+    """Hot garum (owner decision 2026-10-26): 60 °C is above the hot-holding line, so TEMP-001
+    no longer drops it."""
     garum = grid.recipe(GARUM)
-    assert garum.temps == (20.0, 30.0)
-    ((t, reasons),) = garum.dropped
-    assert t == 60.0 and any(r.startswith("TEMP-001") for r in reasons)
+    assert garum.temps == (20.0, 30.0, 60.0) and garum.dropped == ()
     assert grid.recipe(KOJI).temps == (28.0, 30.0, 35.0)  # Koji spores (A. oryzae): exception
     koji = _recipe(KOJI)
     uncertified = dataclasses.replace(
@@ -234,9 +234,15 @@ def test_an_absent_series_is_absent_not_zero() -> None:
     kombucha = grid.entry("green_dominant_kombucha", 25.0)
     assert "fishy" not in kombucha.e and "fishy" in grid.entry(GARUM, 20.0).e
     g = grid.load()
-    for key in g.recipe_keys():  # presence follows the recipe, not the temperature
-        present = {frozenset(g.entry(key, t).e) for t in g.temps(key)}
+    for key in g.recipe_keys():  # presence follows the recipe, not the temperature...
+        temps = [t for t in g.temps(key) if t < gate.GARUM_HOT_MIN_C]
+        present = {frozenset(g.entry(key, t).e) for t in temps}
         assert len(present) == 1, key
+        # ...except hot garum: at 57 °C and above no organism grows, so the microbial
+        # odorants (diacetyl, esters, acetaldehyde) are absent, a subset of the rest
+        for t in g.temps(key):
+            if t >= gate.GARUM_HOT_MIN_C:
+                assert set(g.entry(key, t).e) <= set(next(iter(present))), (key, t)
 
 
 def test_planner_styles_carry_the_levain_peak() -> None:
