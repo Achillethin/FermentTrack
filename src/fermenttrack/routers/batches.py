@@ -12,6 +12,7 @@ from fermenttrack.auth import get_current_user_id, is_admin
 from fermenttrack.composition import RecipeItem, compose, suggest_salt
 from fermenttrack.database import get_db
 from fermenttrack.models import (
+    SAFETY_REMINDER,
     STAGE_REMINDER,
     Batch,
     BatchIngredient,
@@ -31,6 +32,7 @@ from fermenttrack.models import (
     Reminder,
     Tasting,
 )
+from fermenttrack.recommender import gate
 from fermenttrack.reminders import build_reminder_for_stage, now_utc
 from fermenttrack.safety.service import get_safety_report
 from fermenttrack.prediction.sourdough import STYLES
@@ -320,9 +322,22 @@ async def add_measurement(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> Measurement:
-    batch = await _get_batch(batch_id, db, user_id=user_id)
+    batch = await _get_batch(batch_id, db, user_id=user_id, with_culture=True)
     measurement = Measurement(batch_id=batch.id, **payload.model_dump())
     db.add(measurement)
+    ph = payload.value_numeric
+    if payload.type == "pH" and ph is not None and gate.ph_step_met(batch.culture.type, ph):
+        # the reading the pH reminder asked for (site critique fix 5): it closes it; one that
+        # falls short leaves it open, and the safety banner says why
+        await db.execute(
+            update(Reminder)
+            .where(
+                Reminder.batch_id == batch.id,
+                Reminder.kind == SAFETY_REMINDER,
+                Reminder.completed_at.is_(None),
+            )
+            .values(completed_at=now_utc())
+        )
     await db.commit()
     await db.refresh(measurement)
     return measurement

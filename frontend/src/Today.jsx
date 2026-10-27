@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui.jsx";
 import { API_URL, Card, apiError, errText } from "./shared.jsx";
+import { parseReading, unusualPh } from "./readings.js";
 import { isDue } from "./tastings/tasting.js";
 
 // Reminder urgency is low | medium | high | critical (stages.py); shared.urgencyColor keys safety actions.
@@ -44,7 +45,39 @@ async function send(path, method, body) {
   return res.json();
 }
 
-function ReminderRow({ r, batch, busy, error, now, onDone, onSnooze }) {
+// A pH safety reminder takes the reading it asks for (site critique fix 5): "Done" without a
+// reading would close it unanswered.
+function PhField({ r, name, busy, onLogPh }) {
+  const [text, setText] = useState("");
+  const id = `ph-${r.id}`;
+  return (
+    <form
+      className="flex items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onLogPh(r, text, () => setText(""));
+      }}
+    >
+      <label htmlFor={id} className="sr-only">
+        pH reading for {name}
+      </label>
+      <input
+        id={id}
+        inputMode="decimal"
+        autoComplete="off"
+        placeholder="pH"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-base tabular-nums text-slate-100 sm:text-sm"
+      />
+      <Button type="submit" size="sm" className="min-h-[32px]" disabled={busy}>
+        Log pH
+      </Button>
+    </form>
+  );
+}
+
+function ReminderRow({ r, batch, busy, error, note, now, onDone, onSnooze, onLogPh }) {
   const due = parseUtc(r.due_at);
   const overdue = due.getTime() <= now;
   const name = batch?.culture_name ?? "Batch";
@@ -73,15 +106,19 @@ function ReminderRow({ r, batch, busy, error, now, onDone, onSnooze }) {
             Fill in the tasting form
           </a>
         )}
-        <Button
-          size="sm"
-          variant={r.kind === "tasting" ? "secondary" : "primary"}
-          disabled={busy}
-          aria-label={`${r.kind === "tasting" ? "Dismiss" : "Mark done"}: ${who}`}
-          onClick={() => onDone(r)}
-        >
-          {r.kind === "tasting" ? "Dismiss" : "Done"}
-        </Button>
+        {r.kind === "safety" ? (
+          <PhField r={r} name={name} busy={busy} onLogPh={onLogPh} />
+        ) : (
+          <Button
+            size="sm"
+            variant={r.kind === "tasting" ? "secondary" : "primary"}
+            disabled={busy}
+            aria-label={`${r.kind === "tasting" ? "Dismiss" : "Mark done"}: ${who}`}
+            onClick={() => onDone(r)}
+          >
+            {r.kind === "tasting" ? "Dismiss" : "Done"}
+          </Button>
+        )}
         {SNOOZES.map((h) => (
           <Button
             key={h}
@@ -95,6 +132,11 @@ function ReminderRow({ r, batch, busy, error, now, onDone, onSnooze }) {
           </Button>
         ))}
       </div>
+      {note && (
+        <p role="status" className="mt-2 text-xs text-slate-200">
+          {note}
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-2 text-xs text-red-400">
           {error}
@@ -131,6 +173,8 @@ export default function Today() {
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState({}); // reminder id -> true while a request is in flight
   const [errors, setErrors] = useState({}); // reminder id -> inline message
+  const [notes, setNotes] = useState({}); // reminder id -> what a logged reading did
+  const [logged, setLogged] = useState(null); // a reading that closed its reminder
   const inflight = useRef(new Set()); // synchronous double-submit guard
   const mounted = useRef(true);
   const [now, setNow] = useState(Date.now); // ticks each minute so relative times and Overdue/Coming up stay current
@@ -175,6 +219,39 @@ export default function Today() {
       if (e.status === 404) {
         if (mounted.current) drop(r.id);
       } else if (mounted.current) setErrors((m) => ({ ...m, [r.id]: errText(e) }));
+    } finally {
+      inflight.current.delete(r.id);
+      if (mounted.current) setBusy((m) => ({ ...m, [r.id]: false }));
+    }
+  }
+
+  // The pH a safety reminder asks for: logged on the batch; the server closes the reminder when
+  // the reading meets the 48 h step, else it stays open with a word on why.
+  async function logPh(r, text, clear) {
+    const reading = parseReading(text, "pH");
+    if (reading.error || reading.value === null) {
+      setErrors((m) => ({ ...m, [r.id]: reading.error ?? "Enter a pH value" }));
+      return;
+    }
+    if (reading.unusual && !window.confirm(unusualPh(reading.value))) return;
+    if (inflight.current.has(r.id)) return;
+    inflight.current.add(r.id);
+    setBusy((m) => ({ ...m, [r.id]: true }));
+    setErrors((m) => ({ ...m, [r.id]: null }));
+    try {
+      await send(`/batches/${r.batch_id}/measure`, "POST", { type: "pH", value_numeric: reading.value });
+      const reminders = await send("/reminders", "GET");
+      if (!mounted.current) return;
+      clear();
+      const closed = !reminders.some((x) => x.id === r.id);
+      setState((s) => ({ ...s, reminders }));
+      setNotes((m) => ({
+        ...m,
+        [r.id]: closed ? null : `Logged pH ${reading.value}: not there yet, so this stays open. The batch page says what to do.`,
+      }));
+      if (closed) setLogged(`Logged pH ${reading.value}: the pH check is done.`);
+    } catch (e) {
+      if (mounted.current) setErrors((m) => ({ ...m, [r.id]: errText(e) }));
     } finally {
       inflight.current.delete(r.id);
       if (mounted.current) setBusy((m) => ({ ...m, [r.id]: false }));
@@ -232,9 +309,11 @@ export default function Today() {
               batch={byId.get(r.batch_id)}
               busy={!!busy[r.id]}
               error={errors[r.id]}
+              note={notes[r.id]}
               now={now}
               onDone={onDone}
               onSnooze={onSnooze}
+              onLogPh={logPh}
             />
           ))}
         </ul>
@@ -260,6 +339,11 @@ export default function Today() {
 
       {(reminders.length > 0 || active.length > 0) && (
         <Card title="Needs you now">
+          {logged && (
+            <p role="status" className="mb-3 text-sm text-emerald-300">
+              {logged}
+            </p>
+          )}
           {reminders.length === 0 ? (
             <p className="text-sm text-slate-400">
               Nothing due in the next 48h. You're all caught up.

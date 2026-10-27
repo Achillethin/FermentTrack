@@ -56,6 +56,7 @@ KIMCHI = "napa_kimchi_room_temp"
 GARUM = "pacific_sand_lance_rice_koji_fish_sauce"
 KOJI = "rice_koji_steamed_rice"
 KRAUT = "sauerkraut_dry_salted"
+KOMBUCHA = "black_tea_kombucha_1f"
 PERSIMMON = 169941  # USDA FDC: Persimmons, japanese, raw
 SOURCE_ONLY_AT_MEDIAN = {
     "black_tea_kombucha_1f",
@@ -759,6 +760,28 @@ async def test_a_stage_change_leaves_the_ph_reminder_open(
     assert stored is not None and stored.kind == SAFETY_REMINDER
     assert (await client.patch(f"/reminders/{ph['id']}/done")).status_code == 200
     assert ph["id"] not in await open_ids()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("key", "short", "meets"), [(KIMCHI, 5.0, 4.9), (KOMBUCHA, 4.7, 4.6)])
+async def test_a_reading_that_meets_the_48_h_step_closes_the_ph_reminder(
+    client: AsyncClient, db_session: AsyncSession, catalogue: None,
+    key: str, short: float, meets: float,
+) -> None:
+    """Site critique fix 5: the reading the reminder asked for closes it; salted vegetables
+    need pH below 5.0 (VEG-001), the other acid-safety types 4.6 or lower (BOT-002). A reading
+    that falls short leaves it open."""
+    body = (await client.post("/batches/from-recommendation", json={"recipe_key": key})).json()
+    [ph] = [r for r in body["reminders"] if r["kind"] == SAFETY_REMINDER]
+    url = f"/batches/{body['batch']['id']}/measure"
+
+    async def is_open() -> bool:
+        stored = await db_session.get(Reminder, uuid.UUID(ph["id"]), populate_existing=True)
+        return stored is not None and stored.completed_at is None
+
+    for value, still in ((short, True), (meets, False)):
+        resp = await client.post(url, json={"type": "pH", "value_numeric": value})
+        assert resp.status_code == 201 and await is_open() is still, value
 
 
 @pytest.mark.asyncio

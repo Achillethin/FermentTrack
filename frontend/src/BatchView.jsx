@@ -4,7 +4,8 @@ import PredictionPanel from "./prediction/PredictionPanel.jsx";
 import TemperatureEstimate from "./prediction/TemperatureEstimate.jsx";
 import PlanCard from "./sourdough/PlanCard.jsx";
 import { getReminders } from "./tastings/api.js";
-import { promptReason, tastingReminder } from "./tastings/tasting.js";
+import { ACID_SAFETY_TYPES, promptReason, tastingReminder } from "./tastings/tasting.js";
+import { parseReading, unusualPh } from "./readings.js";
 import { TastingPrompt, TastingsCard } from "./tastings/Tastings.jsx";
 import { Button, Input, Select, TabBar } from "./components/ui.jsx";
 import { API_URL, urgencyColor, humanize, Card, apiError, errText } from "./shared.jsx";
@@ -204,13 +205,10 @@ function LogObservation({ batchId, onLogged, sourdough = false }) {
       } else {
         const effectiveType = type === "other" ? customType.trim() : type;
         if (!effectiveType) throw new Error("Pick or name an observation type");
-        // "5,8" is 5.8 (a French keyboard), never 5; anything else that isn't a number is refused
-        const number = valueNumeric.trim() ? Number(valueNumeric.trim().replace(",", ".")) : null;
-        if (number !== null && !Number.isFinite(number)) throw new Error("Enter a number, e.g. 4.2");
-        if (effectiveType === "pH" && number !== null) {
-          if (number < 0 || number > 14) throw new Error("pH runs from 0 to 14");
-          if ((number < 3 || number > 7) && !window.confirm(`pH ${number}? Most ferments sit between 3 and 7. Save anyway?`)) return;
-        }
+        const reading = parseReading(valueNumeric, effectiveType);
+        if (reading.error) throw new Error(reading.error);
+        const number = reading.value;
+        if (reading.unusual && !window.confirm(unusualPh(number))) return;
         res = await fetch(`${API_URL}/batches/${batchId}/measure`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1194,6 +1192,85 @@ function eventLine(event) {
 }
 
 // onDelete: (measurement id) => Promise; absent on a read-only batch. Stage changes can't be deleted.
+// The one reading a batch asks for, in one tap above the tabs (site critique fix 5): pH for the
+// acid-safety types, rise for a levain. A pH that meets the 48 h step closes the pH reminder on
+// the server. The page keeps its place; the toast offers Undo (the reading's DELETE).
+function QuickLog({ batchId, type, onLogged }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [logged, setLogged] = useState(null); // {id, text}
+  const kind = ACID_SAFETY_TYPES.has(type) ? "pH" : type === "sourdough" ? "rise" : null;
+  if (!kind) return null;
+  const unit = kind === "pH" ? "pH" : "Rise %";
+
+  async function submit(e) {
+    e.preventDefault();
+    const reading = parseReading(text, kind);
+    if (reading.error || reading.value === null) return setError(reading.error ?? `Enter a ${unit} value`);
+    if (reading.unusual && !window.confirm(unusualPh(reading.value))) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/measure`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: kind, value_numeric: reading.value }),
+      });
+      if (!res.ok) throw new Error(await apiError(res, "Could not log it"));
+      const m = await res.json();
+      setText("");
+      setLogged({ id: m.id, text: `Logged ${kind === "pH" ? `pH ${reading.value}` : `rise ${reading.value} %`}` });
+      onLogged();
+    } catch (err) {
+      setError(errText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undo() {
+    const id = logged?.id;
+    setLogged(null);
+    const res = await fetch(`${API_URL}/batches/${batchId}/measurements/${id}`, { method: "DELETE" });
+    if (!res.ok) setError(`Could not undo (${res.status})`);
+    onLogged();
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2">
+      <label htmlFor={`quick-${batchId}`} className="text-sm font-medium text-slate-200">
+        {kind === "pH" ? "Log pH" : "Log the rise (%)"}
+      </label>
+      <input
+        id={`quick-${batchId}`}
+        inputMode="decimal"
+        autoComplete="off"
+        placeholder={kind === "pH" ? "e.g. 4.8" : "e.g. 120"}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-base tabular-nums sm:text-sm"
+      />
+      <Button type="submit" className="min-h-[44px]" disabled={busy}>
+        {busy ? "Logging…" : "Log"}
+      </Button>
+      {logged && (
+        <p role="status" className="text-sm text-emerald-300">
+          {logged.text} ·{" "}
+          <button type="button" className="min-h-[44px] underline hover:text-emerald-200" onClick={undo}>
+            Undo
+          </button>
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="w-full text-sm text-red-400">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 function Timeline({ timeline, onDelete }) {
   if (timeline.length === 0) {
     return (
@@ -1319,10 +1396,15 @@ export default function BatchView({ batchId, focus = null }) {
 
   async function loadPreview(id) {
     if (!id) return;
-    setLoading(true);
+    // a reload of the same batch (a reading logged, a stage changed) keeps the page and its
+    // scroll position; only another batch starts blank (site critique fix 5)
+    const same = preview?.batch?.id === id;
+    if (!same) {
+      setLoading(true);
+      setPreview(null);
+      setComposition(null);
+    }
     setError(null);
-    setPreview(null);
-    setComposition(null);
     try {
       const res = await fetch(`${API_URL}/batches/${id}/preview`);
       if (!res.ok) throw new Error(res.status === 404 ? "Batch not found" : `API error (${res.status})`);
@@ -1432,6 +1514,9 @@ export default function BatchView({ batchId, focus = null }) {
           />
           <RepeatBatch batchId={batchId} />
           <Safety safety={preview.safety} />
+          {!preview.read_only && (
+            <QuickLog batchId={batchId} type={preview.culture.type} onLogged={() => loadPreview(batchId)} />
+          )}
           <TastingPrompt ref={promptRef} reason={prompt} reminder={reminder} onOpen={() => setToTasting((n) => n + 1)} />
 
           <div className="sticky top-0 z-20 -mx-4 bg-slate-950/95 px-4 backdrop-blur">

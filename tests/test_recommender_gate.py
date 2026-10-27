@@ -380,6 +380,8 @@ def test_thresholds_match_risk_rules_yaml() -> None:
     assert rule("VEG-001").condition == "ph >= 5.0 AND time_hours > 48 AND temperature_c > 10"
     assert rule("VEG-002").condition == "ph > 4.6 AND ph < 5.0 AND time_hours > 48"
     assert "below 5.0 within 48 h at > 10 °C" in G.VEG_PH_LINE  # VEG-001's thresholds
+    assert f"ph >= {G.VEG_48H_PH}" in rule("VEG-001").condition  # ph_step_met: below it
+    assert f"ph > {G.ACID_PH}" in rule("BOT-002").condition  # ph_step_met: at or below it
     for rule_id in ("SALT-001", "SALT-002", "TEMP-001", "VEG-001", "VEG-002"):
         assert rule(rule_id).fermentation_schemes == ["lactic"]
     for rule_id in ("KOJI-001", "KOJI-002"):

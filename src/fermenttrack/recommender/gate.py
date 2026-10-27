@@ -59,6 +59,8 @@ VEG_PH_LINE = (
     "it; if not, discard."
 )
 PH_LOG_LINE = "Log pH by 48 h."
+VEG_48H_PH = 5.0  # VEG-001: below it within 48 h
+ACID_PH = 4.6  # BOT-002: at or below it within 48 h
 KOJI_TEMP_LINE = "Keep the bed at 25–33 °C; up to 35 °C only with certified tane-koji."
 TANE_KOJI_LINE = "Use certified tane-koji."
 SALT_BARRIER_LINE = "Safety comes from salt, not acidity: do not reduce the salt."
@@ -135,6 +137,12 @@ def ph_deadline_line(fermentation_type: str) -> str:
     """The pH line of an acid-safety type: the two-step rule for salted vegetables, BOT-002's
     otherwise."""
     return VEG_PH_LINE if fermentation_type == "lacto_ferment" else PH_DEADLINE_LINE
+
+
+def ph_step_met(fermentation_type: str, ph: float) -> bool:
+    """Whether a pH reading meets the type's 48 h step (VEG-001 for salted vegetables: below
+    5.0; BOT-002 otherwise: 4.6 or lower). Such a reading closes the pH safety reminder."""
+    return ph < VEG_48H_PH if fermentation_type == "lacto_ferment" else ph <= ACID_PH
 
 
 def needs_ph_reminder(fermentation_type: str) -> bool:
