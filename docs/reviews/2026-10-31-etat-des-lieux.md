@@ -158,7 +158,88 @@ C'est **le bon choix** vu l'absence totale de données d'entraînement. Le PINN 
 
 > Synthèse de la sous-session. Matrice besoins × couverture, sources et détail : `docs/reviews/2026-10-31-besoins-boulangers-levain.md`.
 
-<!-- SOUS-SESSION -->
+### 4.1 Ce que veulent les boulangers
+
+La recherche a porté sur les forums (The Fresh Loaf, r/Sourdough, r/Breadit), une quinzaine d'apps et la littérature (Calvel, Hamelman, Ginsberg, Landis 2021, Gänzle).
+
+1. **Le timing** passe avant tout. Il faut caser 24 à 36 h de process autour du travail et du sommeil, et **le frigo sert de tampon**. On veut un planning **à rebours** (« je veux cuire samedi à 18 h ») présenté en **fenêtres**, pas en heures exactes.
+2. **Un levain imprévisible** : les saisons, la sortie du frigo, « nourri il y a 12 h ».
+3. **La peur de rater la création** : le « faux départ » des jours 3 à 6, quand tout s'arrête et que les débutants jettent leur levain.
+4. **Le diagnostic** : hooch, acétone, pellicule, moisissure ; pain trop ou pas assez acide.
+5. **Des outils** : bocal témoin avec cible de pousse *selon la température* (le test de flottaison est jugé peu fiable), % boulanger, température de l'eau, journal de rafraîchis avec rappels.
+
+**Marché.** Une quinzaine d'apps font du planning à rebours, toutes avec des **durées fixes**. Aucune n'a de vrai modèle. C'est l'avantage de FermentTrack, mais il n'est visible qu'avec le planning à rebours et le journal.
+
+### 4.2 Verdict sur le module actuel
+
+Le moteur est solide et tourne (81 tests levain OK, 5 xfail attendus). Mais **il répond à « que se passe-t-il si… », pas à « que dois-je faire, et quand »**.
+
+- **Partie A (mon levain)** : quasi absente. Seulement des descriptions de style d'une ligne : rien sur la création, l'entretien ou le diagnostic, pas de journal du levain.
+- **Partie B (ma fournée)** : partielle, avec des « faux-amis » :
+  - le bloc « au pic du levain » affiche la **pâte** au moment du mélange (pousse 0 %, pH 5,8) — bug confirmé ;
+  - « Prêt pour » ne fait varier que le ratio, **à heure de nourrissage fixe** ;
+  - la cible de pousse du pointage est **fixée à 75 %**, quelle que soit la température ;
+  - les rappels d'une fournée suivie utilisent des durées génériques, pas le plan ;
+  - les Types II et III (procédés industriels) sont proposés au même niveau qu'un levain maison ;
+  - l'état du levain se réduit à « mûr » ou « sorti du frigo » ;
+  - **le pic est 2× trop lent** : 11–12 h pour du 1:1:1 à 24 °C, contre 4–8 h en réalité.
+
+### 4.3 Plan : séparer « Mon levain » (A) et « Ma fournée » (B)
+
+```
+#/levain                    Accueil boulanger : 2 grandes cartes
+├─ (A) Mon levain
+│  ├─ mes-levains[/:id]     état (« nourri il y a 9 h, pic vers 15 h 40 »), journal des rafraîchis, vitesse apprise
+│  ├─ creer                 parcours J1→J14 avec suivi (le faux départ expliqué)
+│  ├─ types[/:key]          fiches : levain maison, liquide, dur, lievito madre, San Francisco, seigle,
+│  │                        eau de fruits ; Types II/III et poolish/biga « pour comprendre »
+│  ├─ entretien             comptoir, frigo, vacances, séchage, réveil après le frigo
+│  ├─ diagnostic            arbre « Mon levain… » (hooch, acétone, trop acide… ; moisissure = jeter)
+│  └─ convertir             liquide ↔ dur ↔ madre ↔ seigle ; adapter une recette
+└─ (B) Ma fournée
+   ├─ fournee/nouvelle      assistant : recette → « cuire à » ou « commencer à » → contraintes → état du levain
+   ├─ fournee/:id           planning heure par heure en direct, « c'est fait » → re-planification
+   ├─ fournee/rafraichi     tableau de rafraîchi (l'actuel, en outil autonome)
+   └─ fournee/calculs       % boulanger, température de l'eau, levain ↔ levure
+```
+
+**Chaque fiche de type** contient :
+- le microbiote typique, avec les noms à jour ;
+- l'hydratation, le ratio et la température ;
+- la durée jusqu'au pic (empirique) ;
+- un curseur lactique ↔ acétique ;
+- les usages (quels pains) et la fenêtre d'utilisation (jeune / au pic / mûr) ;
+- l'entretien ;
+- « faire évoluer vers… » ;
+- les erreurs fréquentes et les sources.
+
+Le tableau des fiches pré-rempli est dans le rapport détaillé (§ 6.2). Une nuance scientifique est à bien expliquer : un levain **dur et froid** a une **part acétique** plus forte, mais pas forcément une **acidité totale** plus forte.
+
+**Fonction phare de B : le solveur à rebours** (`POST /sourdough/schedule`).
+- **Leviers** : heure du rafraîchi, ratio, durée du frigo.
+- **Contraintes** : sommeil, travail, températures jour/nuit.
+- **Méthode** : recherche sur grille, en réutilisant le calcul empilé du tableau de rafraîchi. Elle optimise la **robustesse** (80–90 % des simulations tombent dans des plages autorisées), pas la médiane.
+- **Sortie** : une liste d'actions horodatées avec leurs fenêtres, les nuits signalées et un **plan B** (« si le levain n'est pas prêt à 8 h 30, attendre jusqu'à 10 h ; au-delà, raccourcir le frigo »). Préchauffage, cuisson et repos sont inclus.
+
+**Données qui débloquent l'apprentissage** : un **journal de rafraîchis** (table `culture_feedings`). Chaque rafraîchi d'entretien avec une montée relevée apprend la vitesse de *ton* levain **sans attendre une fournée**. C'est le moyen le plus réaliste d'obtenir des données de calibration.
+
+### 4.4 Priorités pour le levain
+
+| # | Action | Partie | Effort |
+|---|---|---|---|
+| 1 | Corriger les faux-amis : lecture « au pic », « prêt pour » qui fait aussi glisser l'heure de nourrissage, nuits signalées, rappels alignés sur la prévision | B | S–M |
+| 2 | Recaler le pic et le pointage (faire passer le xfail ; données Landis 2021 sur Dryad) ; table « T° de pâte → % de pousse » ; en attendant, afficher la règle empirique et demander un relevé de bocal | B | M |
+| 3 | Solveur à rebours « cuire à… » sous contraintes | B | M–L |
+| 4 | Accueil `#/levain` en deux parties, en français, avec la navigation conservée ; « Pro » renommé « Voir la science » | A+B | S–M |
+| 5 | Journal de rafraîchis, état réel du levain, rappels d'entretien par levain | A | M |
+| 6 | Contenus : 9 fiches, parcours de création, arbre de diagnostic, « quand jeter », bocal témoin | A | M (rédaction) |
+| 7 | Re-planification en direct dans la fournée suivie (« levain doublé », « bocal à +40 % », « au frigo ») + `.ics` mis à jour | B | M |
+| 8 | Calculateurs (température de l'eau, conversions), levains en plusieurs étapes, températures jour/nuit, Types II/III rangés à part | A+B | M |
+
+**Risques.**
+- Le calcul à rebours **amplifie l'incertitude** : avec une bande de 16 h, tout planning est « infaisable ». Le recalage (#2) est donc un prérequis du solveur (#3).
+- Côté sécurité, seule la **moisissure (duvet, traînées roses ou orange) → jeter** est pertinente. Ne pas brancher les règles de pH des lacto-fermentations sur le levain.
+- Plusieurs chiffres viennent de forums : **à revérifier sur Hamelman, Calvel et Ginsberg avant de publier les fiches**. La sous-session n'avait accès qu'aux extraits de recherche.
 
 ---
 
